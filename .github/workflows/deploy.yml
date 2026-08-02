@@ -4,9 +4,11 @@
 #   AEROFLOW_S3_BUCKET, AEROFLOW_CF_DISTRIBUTION_ID
 name: Deploy
 
+# DISABLED until the deployment secrets are configured. Without them every push to main
+# fails and the repository front page shows a red X, so the automatic trigger is removed
+# and this workflow runs only when started by hand. To re-enable, set the secrets above
+# and restore the `push: branches: [main]` trigger.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 # Prevent overlapping deploys.

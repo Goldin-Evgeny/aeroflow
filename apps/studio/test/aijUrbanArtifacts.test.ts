@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import { aijUrbanDirection, scoreAijUrbanDirection, validateAijUrbanData } from '@aeroflow/core';
@@ -8,7 +9,19 @@ const caseCGeometryUrl = new URL('../public/benchmarks/aij/case-c/geometry.glb',
 const caseEFixtureUrl = new URL('../public/benchmarks/aij/case-e/fixture.json', import.meta.url);
 const caseEGeometryUrl = new URL('../public/benchmarks/aij/case-e/geometry.glb', import.meta.url);
 
-describe('official AIJ urban artifacts', () => {
+/**
+ * The AIJ benchmark data is not redistributed with this repository (see NOTICE and
+ * docs/BENCHMARK-DATA.md), so these assertions only run once a developer has fetched and
+ * converted it. Absent data skips them; it never weakens them.
+ */
+const artifactsPresent = [
+  caseCFixtureUrl,
+  caseCGeometryUrl,
+  caseEFixtureUrl,
+  caseEGeometryUrl,
+].every((url) => existsSync(url));
+
+describe.skipIf(!artifactsPresent)('official AIJ urban artifacts', () => {
   it('loads all three Case C directions and the selected 2H measurements', async () => {
     const raw = JSON.parse(await readFile(caseCFixtureUrl, 'utf8')) as unknown;
     const data = validateAijUrbanData(raw);

@@ -6,8 +6,9 @@ per-run fees. Upload a model or a city block, set the wind, and watch physically
 air move through it in real time.
 
 - **Physics-true, not a surrogate:** a lattice-Boltzmann (LBM) solver with LES turbulence
-  modeling — transient, 3D, validated against published benchmarks (see
-  [docs/VALIDATION.md](docs/VALIDATION.md)).
+  modeling — transient and 3D. It is benchmarked against published cases, and both the
+  passes and the failures are recorded in [docs/VALIDATION.md](docs/VALIDATION.md); several
+  cases do not currently meet their acceptance bands.
 - **Zero marginal cost:** your GPU does the work, so iteration is unlimited and free.
 - **Aimed at early-design wind screening:** pedestrian wind comfort around buildings,
   drag/lift on any shape, and (as our flagship demo) small wind-turbine siting.
@@ -49,7 +50,8 @@ The **source code** in this repository is MIT-licensed (see [LICENSE](LICENSE)) 
 core, the WGSL kernels and the app. The solver core stays open-source permanently (open-core
 model — a proprietary product layer may appear later, separately).
 
-The MIT grant does not extend to the third-party benchmark and validation data used as
-correctness targets (AIJ pedestrian-wind cases, Ghia et al. 1982 cavity tables). Those
-remain their publishers' property and are attributed in [NOTICE](NOTICE), which also
-records the SHA-256 of every source file so each derived fixture can be reproduced.
+The MIT grant does not extend to third-party benchmark data. The AIJ pedestrian-wind data is
+**not redistributed here at all** — see [docs/BENCHMARK-DATA.md](docs/BENCHMARK-DATA.md) to
+download and convert it yourself; everything else runs without it. The Ghia et al. 1982
+cavity values are reproduced as cited reference data. Both are attributed in
+[NOTICE](NOTICE).

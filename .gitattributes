@@ -1,0 +1,14 @@
+# The repo was authored on Linux and every blob is LF. Pin that, so a Windows checkout
+# does not rewrite the working tree to CRLF — which made `git status` report all ~200
+# tracked files as modified while `git diff` correctly showed no content change
+# (core.autocrlf=true flags files that "would differ if checked out").
+#
+# Pair this with `git config core.autocrlf false` on Windows clones.
+* text=auto eol=lf
+
+# Binary fixtures: never touch these.
+*.stl binary
+*.glb binary
+*.png binary
+*.jpg binary
+*.ico binary

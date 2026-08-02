@@ -1,0 +1,32 @@
+{
+  "name": "aeroflow",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w apps/studio",
+    "build": "npm run build -w apps/studio",
+    "preview": "npm run preview -w apps/studio",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "typecheck": "tsc --noEmit -p packages/core/tsconfig.json && tsc --noEmit -p apps/studio/tsconfig.json && tsc --noEmit -p apps/studio/e2e/tsconfig.json",
+    "test:e2e": "playwright test -c apps/studio/playwright.config.ts --project=chromium --project=fallback",
+    "test:e2e:gpu": "playwright test -c apps/studio/playwright.config.ts --project=gpu",
+    "test:e2e:swiftshader": "playwright test -c apps/studio/playwright.config.ts --project=swiftshader --project=fallback"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/node": "^24.0.0",
+    "@webgpu/types": "^0.1.60",
+    "eslint": "^9.20.0",
+    "prettier": "^3.5.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.24.0",
+    "vitest": "^3.0.0"
+  }
+}

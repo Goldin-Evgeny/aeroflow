@@ -1,0 +1,21 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+.DS_Store
+*.local
+.env
+.vite/
+playwright-report/
+test-results/
+
+# Fixture-conversion tooling (scripts/*.py) — dev-only, not part of the static site build.
+.venv/
+__pycache__/
+# WSL/Windows download provenance stubs, created when fixtures are copied in from Downloads.
+*:Zone.Identifier
+
+# Verbatim third-party AIJ workbooks/PDF: inputs to scripts/convert-aij-*.py only, never
+# needed at runtime. Kept locally, not redistributed — see NOTICE. Re-download from
+# https://www.aij.or.jp/jpn/publish/cfdguide/index_e.htm (SHA-256s are recorded in NOTICE).
+apps/studio/src/sim/cases/data/source/

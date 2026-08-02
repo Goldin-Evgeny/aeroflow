@@ -1,0 +1,70 @@
+AeroFlow — third-party materials
+================================
+
+The MIT license in LICENSE covers the source code in this repository. It does NOT
+cover the third-party benchmark and validation data listed below. Those materials
+remain the property of their respective publishers and are included here for
+benchmark validation, with attribution, under their own terms. If you redistribute
+this repository or build on it, satisfy yourself that your use of these materials
+is permitted — the MIT grant does not extend to them.
+
+
+1. AIJ pedestrian-wind benchmark data
+-------------------------------------
+
+Publisher:  Architectural Institute of Japan (AIJ)
+Source:     https://www.aij.or.jp/jpn/publish/cfdguide/index_e.htm
+Reference:  Tominaga, Mochida, Yoshie, Kataoka, Nozu, Yoshikawa & Shirasawa (2008),
+            "AIJ guidelines for practical applications of CFD to pedestrian wind
+            environment around buildings", J. Wind Eng. Ind. Aerodyn. 96(10-11),
+            1749-1761.
+
+The wind-tunnel measurements and geometry definitions published by AIJ for the
+guideline benchmark cases are used here as validation targets. Case A measurements
+are the split-film data of Meng & Hibi (1998) as distributed by AIJ.
+
+Derived files in this repository (converted from the AIJ workbooks by the scripts
+in scripts/, with the source URL, SHA-256 and retrieval date recorded inside each
+file so the derivation can be reproduced and audited):
+
+  apps/studio/src/sim/cases/data/aij-case-a.json
+      from CaseA(1_1_2).xls
+      sha256 c2fab8c1494e777381c3819cb8874a10d3f1c5595f701d3f83119d09bad74cff
+      retrieved 2026-07-20
+
+  apps/studio/public/benchmarks/aij/case-c/{fixture.json,geometry.glb}
+      from CaseC(City_blocks).xls
+      sha256 72b031820ef2c0c46977cb12b0b58dae0579258913b44fac96d89ff2d6cccb73
+      retrieved 2026-07-23
+
+  apps/studio/public/benchmarks/aij/case-e/{fixture.json,geometry.glb}
+      from CaseE(Niigata).xls
+      sha256 6c4421a81d8f4c7199e83bd02958f8fae0f2701e041f1f0bcd4e25a5981a25d1
+      retrieved 2026-07-24
+
+The original AIJ workbooks are not redistributed here. Download them from the AIJ
+URL above and re-run the conversion scripts in scripts/ to regenerate the derived
+files; the recorded SHA-256 values identify the exact inputs used.
+
+
+2. Lid-driven cavity reference data
+-----------------------------------
+
+Reference:  Ghia, U., Ghia, K.N. & Shin, C.T. (1982), "High-Re solutions for
+            incompressible flow using the Navier-Stokes equations and a multigrid
+            method", J. Comput. Phys. 48, 387-411.
+
+Tabulated centerline velocity values from that paper (Re=100 and Re=1000 columns)
+are reproduced in packages/core/src/fixtures/ghia.ts as validation targets, with
+provenance notes in docs/handoff/H9-fixtures-ghia.md.
+
+
+3. Algorithms
+-------------
+
+All solver algorithms are implemented from published literature, not ported from
+other implementations. In particular the in-place streaming scheme follows
+Lehmann, M. (2022), "Esoteric Pull and Esoteric Push: Two Simple In-Place
+Streaming Schemes for the Lattice Boltzmann Method on GPUs", Computation 10(6):92
+(MDPI, CC BY 4.0). No code from FluidX3D or any other non-permissively licensed
+solver has been read, fetched or ported — see the clean-room rule in CLAUDE.md.

@@ -1,0 +1,11 @@
+{
+  "name": "@aeroflow/core",
+  "version": "0.0.1",
+  "description": "AeroFlow solver core: lattice-Boltzmann reference implementations, lattice constants, and unit conversion. Open-source (MIT).",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts"
+}

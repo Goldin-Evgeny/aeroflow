@@ -45,8 +45,9 @@ bounce-back, momentum exchange, Esoteric Pull in-place streaming per Lehmann 202
 
 ## License
 
-MIT for everything currently in this repository. The solver core stays open-source
-permanently (open-core model — a proprietary product layer may appear later, separately).
+The **source code** in this repository is MIT-licensed (see [LICENSE](LICENSE)) — the solver
+core, the WGSL kernels and the app. The solver core stays open-source permanently (open-core
+model — a proprietary product layer may appear later, separately).
 
 The MIT grant does not extend to the third-party benchmark and validation data used as
 correctness targets (AIJ pedestrian-wind cases, Ghia et al. 1982 cavity tables). Those

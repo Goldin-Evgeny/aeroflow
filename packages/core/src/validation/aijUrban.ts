@@ -1,5 +1,6 @@
 import { enuVectorToWindFrame, normalizeDegrees } from '../geometry/windFrame.js';
 import type { ResolvedVelocityStatistic } from '../stats/velocityTimeAverage.js';
+import { validateAijAttribution, type AijAttribution } from './aijAttribution.js';
 import { hitRate, pearson } from './score.js';
 
 export type AijUrbanCaseId = 'C' | 'E';
@@ -48,6 +49,8 @@ export interface AijUrbanRawFixture {
   caseId: AijUrbanCaseId;
   source: AijUrbanSource;
   geometry: AijUrbanGeometrySource;
+  /** Citations, processing and AIJ's disclaimer — a redistribution condition, not decoration. */
+  attribution: AijAttribution;
   /** Geometry variant selected into each probe's `speed` field, when the source has many. */
   geometryVariant?: string;
   coordinates: {
@@ -105,6 +108,7 @@ export interface AijUrbanData {
   caseId: AijUrbanCaseId;
   source: AijUrbanSource;
   geometry: AijUrbanGeometrySource;
+  attribution: AijAttribution;
   geometryVariant?: string;
   coordinateOrigin: string;
   coordinateScale: 'model' | 'full-scale';
@@ -234,6 +238,7 @@ export function validateAijUrbanData(value: unknown): AijUrbanData {
   }
   validateSource(raw.source);
   validateGeometrySource(raw.geometry);
+  validateAijAttribution(raw.attribution, `aij-urban fixture (Case ${raw.caseId})`);
   if (
     raw.geometryVariant !== undefined &&
     raw.geometry.geometryVariant !== undefined &&
@@ -465,6 +470,7 @@ export function validateAijUrbanData(value: unknown): AijUrbanData {
     caseId: raw.caseId,
     source: raw.source,
     geometry: raw.geometry,
+    attribution: raw.attribution,
     geometryVariant: raw.geometryVariant,
     coordinateOrigin: raw.coordinates.origin,
     coordinateScale: raw.coordinates.lengthUnit === 'model-m' ? 'model' : 'full-scale',

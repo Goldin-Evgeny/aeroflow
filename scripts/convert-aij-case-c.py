@@ -33,7 +33,24 @@ from pathlib import Path
 
 import xlrd
 
+from aij_attribution import attribution
 from aij_glb import write_glb
+
+# AIJ requires each derived file to record what was done to the source data (see
+# scripts/aij_attribution.py); these two strings are that record for Case C.
+FIXTURE_PROCESSING = (
+    "Converted by scripts/convert-aij-case-c.py from the AIJ Case C workbook: the "
+    "Inflow and Results(0/22.5/45_deg) sheets transcribed to JSON in the workbook's own "
+    "units (model meters, m/s), all 0H/1H/2H result columns retained per probe with 2H "
+    "selected into `speed`, and workbook angles converted to meteorological FROM "
+    "bearings. No measurement value is rescaled, smoothed or interpolated."
+)
+GEOMETRY_PROCESSING = (
+    "Converted by scripts/convert-aij-case-c.py from the AIJ Case C workbook Geometry "
+    "sheet: the 3x3 block layout (H = 0.2 m cubes on a 0.4 m center grid, 2H center "
+    "building) rebuilt as triangulated boxes and written as glTF with workbook "
+    "(X,Y,Z) -> glTF (X,Z,-Y)."
+)
 
 SOURCE_SHA256 = "72b031820ef2c0c46977cb12b0b58dae0579258913b44fac96d89ff2d6cccb73"
 SOURCE_URL = (
@@ -280,6 +297,7 @@ def main(source_path, output_path, glb_path):
             "sha256": digest,
             "retrieved": "2026-07-23",
         },
+        "attribution": attribution("C", FIXTURE_PROCESSING),
         "geometryVariant": SELECTED_VARIANT,
         "coordinates": {
             "lengthUnit": "model-m",
@@ -337,10 +355,13 @@ def main(source_path, output_path, glb_path):
         extras={
             "case": "AIJ Case C, 2H center building",
             "workbookSha256": digest,
+            "sourceUrl": SOURCE_URL,
+            "retrieved": "2026-07-23",
             "sourceCoordinates": "model meters, X/Y horizontal, Z up",
             "gltfCoordinates": "X source-X, Y up, Z negative-source-Y",
             "vertices": EXPECTED_GEOMETRY_VERTICES,
             "triangles": EXPECTED_GEOMETRY_TRIANGLES,
+            "attribution": attribution("C", GEOMETRY_PROCESSING),
         },
     )
     output.parent.mkdir(parents=True, exist_ok=True)

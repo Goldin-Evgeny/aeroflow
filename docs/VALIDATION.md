@@ -87,6 +87,18 @@ without wall functions are expected to sit in the ±10–15% band, not the indus
 Pearson r between simulated and measured normalized speeds. Automated point-probe
 extraction at the published coordinates; scoring built into the validation runner.
 
+_Citing these results._ AIJ requires that users of the benchmark data cite the data paper
+**and** each case's original publications ([NOTICE](../NOTICE) §1b, terms recorded in
+[D2](decisions/D2-aij-data-redistribution.md)). Any published V12–V15 number therefore
+cites Kikumoto et al. (2026), _Japan Architectural Review_ 9(1), e70083
+(https://doi.org/10.1002/2475-8876.70083) plus the per-case references in NOTICE — "scored
+against AIJ Case C" on its own does not satisfy this. The LES-specific reading of these
+benchmarks — how AIJ expects an LES code to be set up and scored on them, which is what
+AeroFlow is — is Okaze et al. (2026), _J. Wind Eng. Ind. Aerodyn._ 269, 106321
+(https://doi.org/10.1016/j.jweia.2025.106321); AIJ asked specifically that it be used
+alongside Tominaga et al. (2008), and it is the standard the V12–V15 setups should be read
+against. AIJ does not warrant the converted files and has not reviewed these results.
+
 ## What uniform grids honestly reach
 
 Every case above runs on a **uniform** lattice. As of 2026-07-25 that bounds which cases

@@ -67,6 +67,14 @@ export { powerLawProfile, logLawProfile, ablProfileLattice, LATTICE_MACH_LIMIT }
 export type { AblSpec, AblLatticeProfile } from './abl.js';
 export { hitRate, pearson } from './validation/score.js';
 export {
+  validateAijAttribution,
+  formatAijCitation,
+  AIJ_DATA_PAPER,
+  AIJ_LES_GUIDELINE,
+  AIJ_DISCLAIMER,
+} from './validation/aijAttribution.js';
+export type { AijAttribution, AijDatasetOfRecord } from './validation/aijAttribution.js';
+export {
   validateAijCaseAData,
   interpolateInflowToLattice,
   sampleTrilinear,

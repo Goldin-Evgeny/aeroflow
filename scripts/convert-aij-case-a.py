@@ -27,6 +27,18 @@ import sys
 
 import xlrd
 
+from aij_attribution import attribution
+
+# AIJ requires each derived file to record what was done to the source data (see
+# scripts/aij_attribution.py).
+FIXTURE_PROCESSING = (
+    "Converted by scripts/convert-aij-case-a.py from the AIJ Case A workbook: the Inflow "
+    "and three Results sheets transcribed verbatim to JSON in the workbook's own units "
+    "(lengths in multiples of b, velocity components in raw m/s), with the z=1.25b "
+    "plane's height taken from the sheet title to work around a stale z column in the "
+    "source. Nothing is normalized here; the loader divides by uRefMps."
+)
+
 B_METERS = 0.08  # prism width; the building is 1:1:2, so H = 2b = 0.16 m
 # Reference velocity: the Inflow sheet's tabulated U at z/b = 2.0 (= building height H).
 # Exact table entry, no interpolation. The workbook itself states no normalization
@@ -107,6 +119,7 @@ def main(xls_path, out_path):
             "(linked from https://www.aij.or.jp/jpn/publish/cfdguide/index_e.htm). "
             "Official AIJ distribution, not a mirror."
         ),
+        "attribution": attribution("A", FIXTURE_PROCESSING),
         "synthetic": False,
         "sourceFile": "CaseA(1_1_2).xls",
         "sourceSha256": digest,

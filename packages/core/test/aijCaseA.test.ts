@@ -9,6 +9,7 @@ import {
   scoreCaseA,
   validateAijCaseAData,
 } from '../src/validation/aijCaseA.js';
+import { AIJ_DATA_PAPER, AIJ_DISCLAIMER } from '../src/validation/aijAttribution.js';
 import { Solver3D } from '../src/cpu/solver3d.js';
 import { EsotericPull3D } from '../src/cpu/esoteric.js';
 import { ablProfileLattice } from '../src/abl.js';
@@ -25,6 +26,12 @@ import { ablProfileLattice } from '../src/abl.js';
 function rawFixtureStub() {
   return {
     source: 's',
+    attribution: {
+      dataPaper: AIJ_DATA_PAPER,
+      caseSources: ['Meng & Hibi (1998)'],
+      processing: 'test fixture',
+      disclaimer: AIJ_DISCLAIMER,
+    },
     uRef: 'u',
     uRefMps: 4,
     bMeters: 0.08,

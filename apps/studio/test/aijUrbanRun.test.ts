@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { CellType, type AijUrbanData, type AijUrbanDirection } from '@aeroflow/core';
+import {
+  AIJ_DATA_PAPER,
+  AIJ_DISCLAIMER,
+  CellType,
+  type AijUrbanData,
+  type AijUrbanDirection,
+} from '@aeroflow/core';
 import {
   buildAijUrbanInflow,
   gltfYUpToEnu,
@@ -27,6 +33,12 @@ const data = (inflow: AijUrbanData['inflow']): AijUrbanData => ({
     retrieved: '2026-07-24',
     convertedFile: 'geometry.glb',
     coordinateTransform: 'source to glTF',
+  },
+  attribution: {
+    dataPaper: AIJ_DATA_PAPER,
+    caseSources: ['experiment paper'],
+    processing: 'test fixture',
+    disclaimer: AIJ_DISCLAIMER,
   },
   coordinateOrigin: 'origin',
   coordinateScale: 'full-scale',

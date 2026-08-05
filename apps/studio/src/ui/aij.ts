@@ -1,4 +1,10 @@
-import { AIJ_CASE_A, powerLawProfile, logLawProfile, type AblSpec } from '@aeroflow/core';
+import {
+  AIJ_CASE_A,
+  formatAijCitation,
+  powerLawProfile,
+  logLawProfile,
+  type AblSpec,
+} from '@aeroflow/core';
 import {
   AIJ_FIXTURE,
   CASE_A_GATES,
@@ -192,6 +198,22 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
   const table = document.createElement('pre');
   table.style.cssText = info.style.cssText;
   root.append(info, verdict, slice, table);
+
+  // AIJ allows redistribution of the derived Case A fixture on condition that users are
+  // told what to cite and that AIJ does not warrant it (see NOTICE). Both render here,
+  // beside the score, rather than only in the repository's licensing files.
+  const attribution = AIJ_FIXTURE.attribution;
+  if (attribution) {
+    const credit = document.createElement('footer');
+    credit.style.cssText = `margin-top:14px;padding-top:10px;border-top:1px solid ${COLORS.border};color:${COLORS.dim};font-size:11px;overflow-wrap:anywhere`;
+    credit.dataset.testid = 'aij-attribution';
+    const cite = document.createElement('p');
+    cite.textContent = `Cite: ${formatAijCitation(attribution)}`;
+    const warranty = document.createElement('p');
+    warranty.textContent = attribution.disclaimer;
+    credit.append(cite, warranty);
+    root.append(credit);
+  }
 
   let run: CaseARun | null = null;
   let mode: CaseARunOptions['mode'] | null = null;

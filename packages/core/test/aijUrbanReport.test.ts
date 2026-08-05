@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { AijUrbanData, AijUrbanDirection, UrbanDomainPlan } from '../src/index.js';
+import { AIJ_DATA_PAPER, AIJ_DISCLAIMER } from '../src/validation/aijAttribution.js';
 import { buildAijUrbanReport } from '../src/validation/aijUrbanReport.js';
 
+const attribution = {
+  dataPaper: AIJ_DATA_PAPER,
+  caseSources: ['experiment paper'],
+  processing: 'test fixture',
+  disclaimer: AIJ_DISCLAIMER,
+};
 const source = {
   url: 'https://www.aij.or.jp/source.xls',
   file: 'source.xls',
@@ -26,6 +33,7 @@ const data = (caseId: 'C' | 'E'): AijUrbanData => ({
   caseId,
   source,
   geometry,
+  attribution,
   geometryVariant: 'After Construction',
   coordinateOrigin: 'origin',
   coordinateScale: 'full-scale',

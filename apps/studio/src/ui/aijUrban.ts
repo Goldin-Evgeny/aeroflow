@@ -1,4 +1,10 @@
-import type { AijUrbanCaseId, AijUrbanReport } from '@aeroflow/core';
+import {
+  AIJ_DATA_PAPER,
+  AIJ_DISCLAIMER,
+  type AijAttribution,
+  type AijUrbanCaseId,
+  type AijUrbanReport,
+} from '@aeroflow/core';
 import type { GpuCapabilities } from '../gpu/context';
 import { hooks } from '../dev/testHooks';
 import { AijUrbanRun, type AijUrbanRunSnapshot } from '../sim/cases/aijUrban';
@@ -271,11 +277,24 @@ export function mountAijUrban(
   tablePanel.append(tableHeading, tableScroll);
   evidence.append(scatterPanel, tablePanel);
 
+  // AIJ agreed to redistribution of the derived benchmark files on condition that users
+  // are told what to cite and that AIJ does not warrant them (see NOTICE). The citation
+  // and the disclaimer therefore render next to every score, not only in the export.
+  const provenanceLines = element('div', 'urban-provenance-lines');
+  const runProvenance = element('span', undefined, 'Preset not loaded');
+  runProvenance.dataset.testid = 'urban-provenance-run';
+  const citation = element('span', 'urban-citation', `Cite: ${AIJ_DATA_PAPER}`);
+  citation.dataset.testid = 'urban-citation';
+  const disclaimer = element('span', 'urban-disclaimer', AIJ_DISCLAIMER);
+  disclaimer.dataset.testid = 'urban-disclaimer';
+  provenanceLines.append(runProvenance, citation, disclaimer);
   const provenance = element('footer', 'urban-provenance');
-  provenance.append(
-    element('strong', undefined, 'Evidence provenance'),
-    element('span', undefined, 'Preset not loaded'),
-  );
+  provenance.append(element('strong', undefined, 'Evidence provenance'), provenanceLines);
+
+  const showCitation = (attribution: AijAttribution): void => {
+    citation.textContent = `Cite: ${[AIJ_DATA_PAPER, ...attribution.caseSources].join(' | ')}`;
+    disclaimer.textContent = attribution.disclaimer;
+  };
   page.append(header, controls, statusBand, metricBand, resolution, evidence, provenance);
   root.append(page);
   drawScatter(scatter, null);
@@ -380,17 +399,12 @@ export function mountAijUrban(
     );
     drawScatter(scatter, report);
     updateTable(report);
-    provenance.replaceChildren(
-      element('strong', undefined, 'Evidence provenance'),
-      element(
-        'span',
-        undefined,
-        `Case ${current.data.caseId}, ${current.direction.windFromDegrees} deg from | ` +
-          `measurements ${current.data.source.sha256.slice(0, 12)}... | ` +
-          `geometry ${current.data.geometry.sha256.slice(0, 12)}... | ` +
-          `${current.geometryVoxels.toLocaleString()} solid voxels`,
-      ),
-    );
+    runProvenance.textContent =
+      `Case ${current.data.caseId}, ${current.direction.windFromDegrees} deg from | ` +
+      `measurements ${current.data.source.sha256.slice(0, 12)}... | ` +
+      `geometry ${current.data.geometry.sha256.slice(0, 12)}... | ` +
+      `${current.geometryVoxels.toLocaleString()} solid voxels`;
+    showCitation(current.data.attribution);
     hooks().urban = {
       ready: true,
       caseId: current.data.caseId,

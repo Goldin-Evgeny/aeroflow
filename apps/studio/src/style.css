@@ -575,6 +575,20 @@ details pre {
   color: #9babb0;
 }
 
+/* Run provenance, the AIJ citation and AIJ's disclaimer stack under one label. */
+.urban-provenance-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.urban-citation,
+.urban-disclaimer {
+  color: #61737a;
+}
+
 @media (max-width: 1100px) {
   .urban-controls {
     grid-template-columns: repeat(4, 1fr);

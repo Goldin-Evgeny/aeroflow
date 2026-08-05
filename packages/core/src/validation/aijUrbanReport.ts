@@ -34,6 +34,8 @@ export interface AijUrbanReport {
   provenance: {
     measurements: AijUrbanData['source'];
     geometry: AijUrbanData['geometry'];
+    /** Citations and AIJ's disclaimer travel with every exported score. */
+    attribution: AijUrbanData['attribution'];
   };
   method: {
     measurementStatistic: AijUrbanData['measurement']['statistic'];
@@ -134,7 +136,11 @@ export function buildAijUrbanReport(
     caseId: data.caseId,
     geometryVariant: data.geometryVariant,
     windFromDegrees: direction.windFromDegrees,
-    provenance: { measurements: data.source, geometry: data.geometry },
+    provenance: {
+      measurements: data.source,
+      geometry: data.geometry,
+      attribution: data.attribution,
+    },
     method: {
       measurementStatistic: data.measurement.statistic,
       inflow: data.inflow,

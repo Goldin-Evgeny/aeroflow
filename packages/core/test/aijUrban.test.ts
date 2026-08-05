@@ -7,8 +7,15 @@ import {
   validateAijUrbanData,
   type AijUrbanRawFixture,
 } from '../src/validation/aijUrban.js';
+import { AIJ_DATA_PAPER, AIJ_DISCLAIMER } from '../src/validation/aijAttribution.js';
 
 const SHA256 = 'a'.repeat(64);
+const ATTRIBUTION = {
+  dataPaper: AIJ_DATA_PAPER,
+  caseSources: ['experiment paper'],
+  processing: 'test fixture',
+  disclaimer: AIJ_DISCLAIMER,
+};
 
 function caseEFixture(): AijUrbanRawFixture {
   const probes = Array.from({ length: 80 }, (_, index) => ({
@@ -35,6 +42,7 @@ function caseEFixture(): AijUrbanRawFixture {
       convertedFile: 'geometry.glb',
       coordinateTransform: 'source (X,Y,Z) -> glTF (X,Z,-Y)',
     },
+    attribution: ATTRIBUTION,
     coordinates: {
       lengthUnit: 'model-m',
       modelScale: 250,

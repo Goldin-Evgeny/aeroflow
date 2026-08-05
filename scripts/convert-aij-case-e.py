@@ -29,6 +29,25 @@ import ezdxf
 import xlrd
 from ezdxf.disassemble import recursive_decompose
 
+from aij_attribution import attribution
+
+# AIJ requires each derived file to record what was done to the source data (see
+# scripts/aij_attribution.py); these two strings are that record for Case E.
+FIXTURE_PROCESSING = (
+    "Converted by scripts/convert-aij-case-e.py from the AIJ Case E workbook: all 16 "
+    "wind directions transcribed to JSON in the workbook's full-scale meters, the "
+    "after-construction results selected into `speed` with the before-construction "
+    "column retained per probe, direction headers read as meteorological FROM bearings, "
+    "and the tabulated inflow retained alongside the published alpha=0.25 profile. The "
+    "already-normalized velocity ratios are not divided again."
+)
+GEOMETRY_PROCESSING = (
+    "Converted by scripts/convert-aij-case-e.py from the AIJ Case E DXF archive: nested "
+    "block inserts expanded to world coordinates, duplicate faces removed, polygons "
+    "triangulated, and written as glTF with DXF (X,Y,Z) -> glTF (X,Z,-Y). Extents and "
+    "face counts are pinned to the source; no geometry is simplified."
+)
+
 from aij_glb import write_glb
 
 WORKBOOK_SHA256 = "6c4421a81d8f4c7199e83bd02958f8fae0f2701e041f1f0bcd4e25a5981a25d1"
@@ -214,6 +233,7 @@ def parse_workbook(path, digest):
             "sha256": digest,
             "retrieved": "2026-07-24",
         },
+        "attribution": attribution("E", FIXTURE_PROCESSING),
         "geometryVariant": SELECTED_VARIANT,
         "coordinates": {
             "lengthUnit": "full-scale-m",
@@ -368,11 +388,14 @@ def main(workbook_name, dxf_name, fixture_name, glb_name):
             "case": "AIJ Case E (Niigata), after construction",
             "workbookSha256": workbook_digest,
             "dxfSha256": dxf_digest,
+            "sourceUrl": DXF_URL,
+            "retrieved": "2026-07-24",
             "sourceCoordinates": "full-scale meters, X east, Y north, Z up",
             "gltfCoordinates": "X east, Y up, Z south",
             "expandedFaces": EXPECTED_EXPANDED_FACES,
             "uniquePolygons": EXPECTED_UNIQUE_POLYGONS,
             "triangles": EXPECTED_TRIANGLES,
+            "attribution": attribution("E", GEOMETRY_PROCESSING),
         },
     )
     fixture_path.parent.mkdir(parents=True, exist_ok=True)

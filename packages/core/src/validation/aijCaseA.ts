@@ -1,4 +1,5 @@
 import { hitRate, pearson } from './score.js';
+import { validateAijAttribution, type AijAttribution } from './aijAttribution.js';
 import type { ResolvedVelocityStatistic } from '../stats/velocityTimeAverage.js';
 
 /**
@@ -36,6 +37,12 @@ export interface AijMeasurementPoint {
 export interface AijCaseAData {
   /** Citation: where the numbers came from (URL + retrieval note). */
   source: string;
+  /**
+   * Citations, processing and AIJ's disclaimer — required of every real AIJ-derived
+   * fixture (see aijAttribution.ts), absent only on a synthetic placeholder, which is
+   * not AIJ data and must never be scored anyway.
+   */
+  attribution?: AijAttribution;
   /**
    * TRUE for the schema-development placeholder. A synthetic fixture exercises the
    * pipeline but MUST NEVER be scored as a validation result (Hard rule 5) — runners
@@ -79,6 +86,7 @@ export interface AijCaseARawPlane {
 
 export interface AijCaseARaw {
   source: string;
+  attribution?: AijAttribution;
   synthetic?: boolean;
   uRef: string;
   uRefMps: number;
@@ -121,6 +129,11 @@ export function validateAijCaseAData(d: unknown): AijCaseAData {
   ) {
     throw new Error('aij-case-a fixture: missing source/uRef/uRefMps/bMeters/inflow/planes');
   }
+  // Real AIJ measurements carry AIJ's citations and disclaimer or they do not load at all
+  // (redistribution condition). A synthetic placeholder is not AIJ data and is exempt.
+  if (o.synthetic !== true) {
+    validateAijAttribution(o.attribution, 'aij-case-a fixture');
+  }
 
   const b = o.bMeters;
   const uRefMps = o.uRefMps;
@@ -153,6 +166,7 @@ export function validateAijCaseAData(d: unknown): AijCaseAData {
 
   return {
     source: o.source,
+    attribution: o.attribution,
     synthetic: o.synthetic,
     uRef: o.uRef,
     uRefMps,

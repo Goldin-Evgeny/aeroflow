@@ -55,3 +55,14 @@ The MIT grant does not extend to third-party benchmark data. The AIJ pedestrian-
 download and convert it yourself; everything else runs without it. The Ghia et al. 1982
 cavity values are reproduced as cited reference data. Both are attributed in
 [NOTICE](NOTICE).
+
+If you do obtain the AIJ data, **AIJ requires you to cite the data paper
+([Kikumoto et al. 2026](https://doi.org/10.1002/2475-8876.70083)) together with each case's
+original publication** — see [docs/BENCHMARK-DATA.md](docs/BENCHMARK-DATA.md) for the exact
+references, including [Okaze et al. (2026)](https://doi.org/10.1016/j.jweia.2025.106321),
+the AIJ guideline for applying these benchmarks to LES codes. Files produced by the
+conversion scripts carry those citations, their provenance and AIJ's disclaimer: **they are
+created and processed independently for AeroFlow, and AIJ does not guarantee their quality,
+accuracy, completeness, or suitability for any particular purpose.** AIJ has not reviewed or
+endorsed AeroFlow's results. The terms are recorded in
+[docs/decisions/D2](docs/decisions/D2-aij-data-redistribution.md).

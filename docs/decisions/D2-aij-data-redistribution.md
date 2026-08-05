@@ -8,15 +8,14 @@ validation UIs and the exported run reports
 ## Why this record exists
 
 This project validates against the Architectural Institute of Japan's pedestrian-wind
-benchmark cases (A, C and E). It does not redistribute AIJ's workbooks, and — since the
-commit that stripped them — it does not redistribute values derived from them either. What
-ships is the loaders, the scoring code and the offline converters; a developer downloads
-the data and converts it on their own machine.
+benchmark cases (A, C and E), and ships files derived from AIJ's published data: measurement
+fixtures and converted geometry for each case. AIJ's own workbooks are not redistributed.
 
-That left a question the project could not answer for itself: **may files derived from AIJ's
-published data be redistributed in a public MIT-licensed repository at all, and on what
-terms?** Removing the data was a holding position taken while that question was open, not
-an answer to it.
+Whether even the derived files could be redistributed was a question the project could not
+answer for itself: **may files derived from AIJ's published data be redistributed in a
+public MIT-licensed repository at all, and on what terms?** For three days in August 2026
+they were removed from this repository entirely — a holding position taken while the
+question was open, not an answer to it.
 
 It was put to AIJ directly. This record fixes the answer and the obligations that come with
 it, so no future change has to re-derive them from an email.
@@ -59,13 +58,14 @@ LES code, so this is the directly applicable guideline, not background reading.
 
 ## Decision
 
-1. **This repository continues to ship no AIJ-derived files.** The permission is recorded
-   and available, but not exercised: users obtain the data themselves
-   ([BENCHMARK-DATA.md](../BENCHMARK-DATA.md)). Nothing here depends on AIJ's grant, which
-   is the most conservative position and costs the project nothing.
-2. **The three conditions are nonetheless binding on what this project produces**, because
-   the converters generate derived files on users' machines and this project publishes
-   numbers scored against AIJ data. They are treated as terms, not as a style preference.
+1. **The derived files are restored to this repository** and stay here, under the three
+   conditions above, which are treated as binding terms and not as a style preference. The
+   permission was asked for in order to be used: without the fixtures the urban validation
+   pages cannot run for a visitor, and V12–V15 become claims a reader has to take on trust
+   rather than re-run. AIJ's own workbooks remain outside the repository.
+2. **The conditions bind more than the shipped files.** The converters also generate derived
+   files on users' machines, and this project publishes numbers scored against AIJ data;
+   both are covered.
 3. **The conditions are enforced by code, not by prose.** A machine-readable `attribution`
    block — data paper, case sources, dataset of record, LES guideline, processing, and
    AIJ's disclaimer verbatim — is written into every file the converters produce, and the
@@ -96,9 +96,8 @@ LES code, so this is the directly applicable guideline, not background reading.
 - Published numbers (site, README, papers, posts) carry the data-paper citation plus the
   case's original publications. "Validated against AIJ Case C" alone does not satisfy the
   terms this permission was granted under.
-- If this repository ever does ship derived files again, conditions 1–3 apply to them
-  directly and the machinery to satisfy them is already in place — but NOTICE §1 must stop
-  saying that nothing is redistributed.
+- NOTICE §1d lists every derived file with its source, checksum, retrieval date and
+  processing. A new derived file that is not listed there is not covered by this record.
 - If AIJ's wording ever changes, `AIJ_DISCLAIMER` is the single place to change it; the
   tests pin the converters and any present fixture against that constant.
 - The honest-claims rule (CLAUDE.md rule 5) now has a second edge here: AIJ explicitly does

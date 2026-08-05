@@ -1,12 +1,16 @@
 /**
  * Generates the SYNTHETIC AIJ Case A placeholder fixture.
  *
- * This file contains NO AIJ data. It is an analytic stand-in with the same schema, so the
- * app builds, typechecks and tests without the real benchmark data present. Anything scored
- * against it is labelled SYNTHETIC and is never a verdict (CLAUDE.md rule 5).
+ * This file contains NO AIJ data. It is an analytic stand-in with the same schema, for
+ * schema work without the real benchmark data present. Anything scored against it is
+ * labelled SYNTHETIC and is never a verdict (CLAUDE.md rule 5). It deliberately carries no
+ * AIJ citation: claiming AIJ provenance for data AIJ did not produce would be as wrong as
+ * dropping the citation from data they did, so the loader exempts `synthetic: true`
+ * fixtures from the attribution requirement rather than fabricating one.
  *
- * To score the real benchmark, follow docs/BENCHMARK-DATA.md: download the AIJ workbook and
- * run scripts/convert-aij-case-a.py, which overwrites this file with the measured fixture.
+ * The measured Meng & Hibi fixture is what ships (NOTICE §1d). Running this OVERWRITES it;
+ * restore with `git checkout apps/studio/src/sim/cases/data/aij-case-a.json`, or re-derive
+ * from AIJ's workbook via scripts/convert-aij-case-a.py (docs/BENCHMARK-DATA.md).
  *
  *   node scripts/make-synthetic-case-a.mjs
  */

@@ -109,13 +109,7 @@ function assetUrl(caseId: AijUrbanCaseId, file: string): string {
 
 async function fetchOk(url: string): Promise<Response> {
   const response = await fetch(url);
-  if (!response.ok) {
-    // The AIJ benchmark data is not redistributed with this repository, so a 404 here is
-    // the expected state of a fresh clone rather than a bug.
-    const hint =
-      response.status === 404 ? ' — see docs/BENCHMARK-DATA.md to obtain the AIJ data' : '';
-    throw new Error(`failed to fetch ${url}: HTTP ${response.status}${hint}`);
-  }
+  if (!response.ok) throw new Error(`failed to fetch ${url}: HTTP ${response.status}`);
   return response;
 }
 

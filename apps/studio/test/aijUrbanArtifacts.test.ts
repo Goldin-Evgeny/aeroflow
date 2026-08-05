@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import {
@@ -27,19 +26,7 @@ async function gltfJson(url: URL): Promise<{ extras: Record<string, unknown> }> 
   };
 }
 
-/**
- * The AIJ benchmark data is not redistributed with this repository (see NOTICE and
- * docs/BENCHMARK-DATA.md), so these assertions only run once a developer has fetched and
- * converted it. Absent data skips them; it never weakens them.
- */
-const artifactsPresent = [
-  caseCFixtureUrl,
-  caseCGeometryUrl,
-  caseEFixtureUrl,
-  caseEGeometryUrl,
-].every((url) => existsSync(url));
-
-describe.skipIf(!artifactsPresent)('official AIJ urban artifacts', () => {
+describe('official AIJ urban artifacts', () => {
   it('loads all three Case C directions and the selected 2H measurements', async () => {
     const raw = JSON.parse(await readFile(caseCFixtureUrl, 'utf8')) as unknown;
     const data = validateAijUrbanData(raw);
@@ -109,11 +96,10 @@ describe.skipIf(!artifactsPresent)('official AIJ urban artifacts', () => {
 /**
  * AIJ agreed to redistribution of files derived from their benchmark data on condition
  * that each one keeps its citations, its provenance and AIJ's no-warranty statement
- * (NOTICE §1). This repository ships none of those files — `scripts/convert-aij-*.py`
- * produce them locally — so what is checked here is that the converters put the
- * attribution in, on the machine where the derived files actually exist.
+ * (NOTICE §1). Each shipped file is checked on its own, because any of them can be copied
+ * out of the repository alone and must still say where it came from.
  */
-describe.skipIf(!artifactsPresent)('converted AIJ files carry their attribution', () => {
+describe('shipped AIJ derived files carry their attribution', () => {
   it('cites the data paper, the case experiment and the AIJ dataset in each fixture', async () => {
     for (const [url, doi] of [
       [caseCFixtureUrl, 'zenodo.15401792'],
@@ -153,12 +139,11 @@ describe.skipIf(!artifactsPresent)('converted AIJ files carry their attribution'
 });
 
 /**
- * Case A is the one AIJ-shaped file that always exists here: a synthetic placeholder on a
- * fresh clone, overwritten in place by real measurements the moment
- * `scripts/convert-aij-case-a.py` runs. That overwrite is exactly where this repository
- * could begin carrying AIJ data without saying so, and it is not gated on the data being
- * present — so this check is not skippable. A placeholder must claim no AIJ provenance;
- * real measurements must carry the full attribution or fail to load.
+ * Case A occupies one path that can hold either kind of file: the shipped Meng & Hibi
+ * measurements, or the synthetic placeholder `scripts/make-synthetic-case-a.mjs` writes
+ * over them. Both directions are a correctness question — real measurements must carry the
+ * full attribution or fail to load, and a placeholder must claim no AIJ provenance, since
+ * citing AIJ on data they did not produce is the same defect pointing the other way.
  */
 describe('the shipped Case A fixture', () => {
   it('is either an unattributed synthetic placeholder or fully attributed AIJ data', async () => {

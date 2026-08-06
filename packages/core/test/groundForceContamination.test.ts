@@ -23,6 +23,22 @@ import { ahmedScene, CellType, EsotericPull3D } from '../src/index.js';
  *
  * Re is kept low so τ sits well above the floor and the CPU run is stable; the accounting
  * question is independent of Re.
+ *
+ * KNOWN, BENIGN, AND NOT A TEST FAILURE (diagnosed 2026-08-06): this file makes every
+ * `npm test` run print `Error: [vitest-worker]: Timeout calling "onTaskUpdate"` as an
+ * unhandled error. It is deterministic, not flaky — reproduced 3/3, including with this file
+ * run alone. Cause: the stepping loop below is ~160 s of UNBROKEN synchronous CPU with no
+ * `await` anywhere, so the worker's event loop cannot service the ack for the `onTaskUpdate`
+ * RPC it sent at test start, and birpc's 60 s DEFAULT_TIMEOUT
+ * (vitest/dist/chunks/index.B521nVV-.js) fires. It is reporter plumbing timing out, not the
+ * test: the assertions still run and pass, and any file whose synchronous body exceeds 60 s
+ * would do the same.
+ *
+ * Do NOT silence it by raising the RPC timeout or filtering the reporter — the honest fix is
+ * to make the loop yield (chunk the steps behind `await Promise.resolve()`) or to shrink the
+ * grid, and neither is worth doing while the noise is one line and understood. If a future
+ * run shows this error attached to a DIFFERENT file, that one is a new instance of the same
+ * mechanism, not this one.
  */
 describe('M9: the Ahmed drag accumulator weighs the body, not the ground', () => {
   it(

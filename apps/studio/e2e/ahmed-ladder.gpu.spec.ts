@@ -288,8 +288,9 @@ function comparisonTable(
     x === undefined || Number.isNaN(x) ? '—' : x.toFixed(digits);
 
   const header =
-    `${'Cs'.padStart(5)} ${'prec'.padStart(5)} ${'T_conv'.padStart(7)}  ` +
-    `${`ALL complete ${BLOCK_TCONV}-T_conv Cd block means`.padEnd(46)} ${'spread'.padStart(7)} ${'blocks?'.padStart(8)}  ` +
+    `${'Cs'.padStart(5)} ${'prec'.padStart(5)} ${'T_conv'.padStart(7)} ${'trig'.padStart(6)}  ` +
+    `${`ALL complete ${BLOCK_TCONV}-T_conv Cd block means`.padEnd(46)} ` +
+    `${'range(all)'.padStart(10)} ${'blocks?'.padStart(8)}  ` +
     `${'δ99'.padStart(5)} ${'ν appr'.padStart(7)} ${'ν whole'.padStart(8)} ${'ν body'.padStart(7)} ` +
     `${'dom%'.padStart(6)} ${'τ p50'.padStart(9)}  ` +
     `${'massdrift'.padStart(10)} ${'ρ min'.padStart(9)} ${'ρ max'.padStart(9)} ${'Ma'.padStart(6)} ${'NaN'.padStart(5)}`;
@@ -311,9 +312,9 @@ function comparisonTable(
         : 'agree';
     return (
       `${String(r.rung.lesCs).padStart(5)} ${r.rung.precision.padStart(5)} ` +
-      `${num(r.lastTConv, 1).padStart(7)}  ` +
+      `${num(r.lastTConv, 1).padStart(7)} ${num(r.triggerTConv, 1).padStart(6)}  ` +
       `${blocks.padEnd(46)} ` +
-      `${(Number.isFinite(r.allSpread) ? `${(r.allSpread * 100).toFixed(2)}%` : '—').padStart(7)} ` +
+      `${(Number.isFinite(r.allSpread) ? `${(r.allSpread * 100).toFixed(2)}%` : '—').padStart(10)} ` +
       `${blocksVerdict.padStart(8)}  ` +
       `${(ref ? String(ref.blThicknessCells) : '—').padStart(5)} ` +
       `${region(r.tau, 'approach freestream').padStart(7)} ` +
@@ -337,9 +338,18 @@ function comparisonTable(
     'dom% is the LES-dominant cell fraction over the whole domain; stability from the settled',
     'final field, or from the last in-run snapshot for a rung that diverged.',
     '',
-    'The Cd column lists EVERY complete block mean over the whole run, and "spread" is that',
-    'series\' range. "blocks?" reports ONLY whether the post-trigger independent blocks agree',
-    'within the 3% gate. It is not a convergence verdict, and nothing here is:',
+    '"trig" is the convective time of the rung\'s first isConverged(20, 3%) trigger, or "—" if',
+    'it never fired. The Cd column lists EVERY complete block mean over the whole run.',
+    '',
+    '  "range(all)" IS NOT A CONVERGENCE FIGURE. It is the range of that whole series, which',
+    '  STARTS AT t=0 AND THEREFORE INCLUDES THE STARTUP TRANSIENT — the first block or two',
+    '  are taken while the flow is still developing and routinely sit far above the settled',
+    '  value, so this number reads tens of percent on a rung whose settled blocks agree to',
+    '  ~1%. It is here to show whether Cd WANDERED across the run, which the post-trigger',
+    '  tail alone can hide; read it against the block series beside it, never on its own.',
+    '',
+    '"blocks?" reports ONLY whether the post-trigger independent blocks agree within the 3%',
+    'gate. It is not a convergence verdict either, and nothing here is:',
     '',
     '  NO RUNG IS CONVERGED UNLESS ITS OWN INDEPENDENT BLOCKS SAY SO. The common T_conv floor',
     '  every rung is held to exists to make the snapshots COMPARABLE — same point in each',

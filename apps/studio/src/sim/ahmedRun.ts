@@ -261,6 +261,60 @@ export function lostWithin(lost: Promise<void>, graceMs: number): Promise<boolea
 export const DEVICE_LOST_GRACE_MS = 250;
 
 /**
+ * The teardown surface `quarantineRun` needs, structurally — not `RunState`, so the worker's
+ * fatal path can be proven headlessly against fakes exactly as `stepOrLost` is.
+ */
+export interface QuarantineTarget {
+  db: IDBDatabase;
+  sim: { destroy(): void };
+  gpu: { device: { destroy(): void } };
+}
+
+/**
+ * Tear down everything a DIVERGED run could otherwise leave behind for the next rung.
+ *
+ * A ladder rung is only a controlled comparison if it starts from the same fresh state as
+ * every other rung, and a run that ends in NaN has two ways to leak into its successor:
+ *
+ *  - **A poisoned checkpoint.** The 5-minute auto-save is unconditional, so a diverging run can
+ *    persist NaN DDFs to IndexedDB, which survives navigation. `start(resume: false)` does
+ *    clear checkpoints before running, so this is already covered — but it is covered by the
+ *    NEXT rung remembering to, which is the wrong place for the guarantee. Clearing here makes
+ *    the diverged run responsible for its own mess.
+ *  - **GPU memory.** ~0.5 GB of DDF buffers at the 8M FP16 tier. Navigation does collect it
+ *    with the worker, but not necessarily before the next rung requests its allocation, and an
+ *    OOM there would look like a physics result.
+ *
+ * Every step is independently guarded and its failure swallowed. Two reasons, both load-bearing:
+ * this runs on an already-failed path and must not replace a physics error message with a
+ * teardown one; and a device that is already lost — the most likely way to get here — throws
+ * from exactly these calls, so a single try block would let the first failure skip the rest.
+ *
+ * `clear` is injected (the worker passes `clearCheckpoints`) to keep this module free of the
+ * IndexedDB glue while the fatal path stays testable.
+ */
+export async function quarantineRun(
+  r: QuarantineTarget,
+  clear: (db: IDBDatabase) => Promise<void>,
+): Promise<void> {
+  try {
+    await clear(r.db);
+  } catch {
+    /* the next rung clears again on a fresh start */
+  }
+  try {
+    r.sim.destroy();
+  } catch {
+    /* already gone */
+  }
+  try {
+    r.gpu.device.destroy();
+  } catch {
+    /* already gone */
+  }
+}
+
+/**
  * The Smagorinsky Cs the acceptance configuration is DEFINED at (M7's Re=10⁴ recipe, carried
  * into M9). Named rather than left as a bare 0.1 in `buildSim` for the same reason
  * `AHMED_EXPERIMENTAL_RE` is named: the Cd 0.285 verdict is only defined for this

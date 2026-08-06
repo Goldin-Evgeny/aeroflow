@@ -29,6 +29,7 @@ import {
   DEVICE_LOST_GRACE_MS,
   lostWithin,
   makeLostSignal,
+  quarantineRun,
   stepOrLost,
   type AhmedDiagnostics,
   type AhmedTauReport,
@@ -519,44 +520,10 @@ async function loop(): Promise<void> {
   }
   if (run) {
     const totalSteps = run.sim.totalSteps;
-    if (run.fatal) await quarantine(run);
+    // Spec + rationale: `quarantineRun` in ahmedRun.ts (proven headlessly in
+    // apps/studio/test/quarantine.test.ts).
+    if (run.fatal) await quarantineRun(run, clearCheckpoints);
     post({ type: 'stopped', totalSteps });
-  }
-}
-
-/**
- * Tear down everything a DIVERGED run could otherwise leave behind for the next rung.
- *
- * A ladder rung is only a controlled comparison if it starts from the same fresh state as
- * every other rung, and a run that ends in NaN has two ways to leak into its successor:
- *
- *  - **A poisoned checkpoint.** The 5-minute auto-save is unconditional, so a diverging run can
- *    persist NaN DDFs to IndexedDB, which survives navigation. `start(resume: false)` does
- *    clear checkpoints before running, so this is already covered — but it is covered by the
- *    NEXT rung remembering to, which is the wrong place for the guarantee. Clearing here makes
- *    the diverged run responsible for its own mess.
- *  - **GPU memory.** ~0.5 GB of DDF buffers at the 8M FP16 tier. Navigation does collect it
- *    with the worker, but not necessarily before the next rung requests its allocation, and an
- *    OOM there would look like a physics result.
- *
- * Failures here are swallowed: this runs on an already-failed path and must not replace a
- * physics error message with a teardown one.
- */
-async function quarantine(r: RunState): Promise<void> {
-  try {
-    await clearCheckpoints(r.db);
-  } catch {
-    /* the next rung clears again on a fresh start */
-  }
-  try {
-    r.sim.destroy();
-  } catch {
-    /* already gone */
-  }
-  try {
-    r.gpu.device.destroy();
-  } catch {
-    /* already gone */
   }
 }
 

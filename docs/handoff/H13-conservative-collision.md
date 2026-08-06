@@ -1,8 +1,9 @@
 # H13 — Finite-precision conservative collision
 
-> **Status:** CPU-oracle phase started 2026-08-01 after the M3 long-run drift probe.
-> Doctrine: this document and the Float64 identities land first, then D2Q9 WGSL and its
-> 4-million-step discriminator, then D3Q19 WGSL + parity before M9 uses the option.
+> **Status: all five gates PASS (C3 closed 2026-08-06, RTX 3090).** The CPU-oracle phase
+> started 2026-08-01 after the M3 long-run drift probe; C1/C2/C4/C5 landed with the WGSL
+> port on 2026-08-02, and C3 — the 4-million-step D2Q9 discriminator — passed on
+> 2026-08-06. The option is therefore licensed for M9's long runs. Results below.
 
 ## Why
 
@@ -54,6 +55,38 @@ as WGSL so parity remains a transliteration test, even though its residual is mu
 5. **C5 M9 checkpoint:** the 64³ raw-FP16 checkpoint gate remains bit-identical when the
    option is enabled; checkpoint bytes need no format change because the option is static
    scene configuration, not dynamic state.
+
+## C3 result — 2026-08-06, RTX 3090
+
+`cavity-drift.gpu.spec.ts`, H=64 Re=100, three configurations to 4M steps each (~66 s per
+run). Sampled at the fixed checkpoints; `wallΔ/step` is the replayed moving-wall roundoff.
+
+| steps | TRT plain `u_min` / drift  | TRT+H10 `u_min` / drift    | TRT+H10+H13 `u_min` / drift    |
+| ----- | -------------------------- | -------------------------- | ------------------------------ |
+| 20 k  | −0.20717307 / 2.085e−4     | −0.20749032 / 1.472e−4     | −0.20752342 / **8.668e−7**     |
+| 200 k | −0.20672187 / 2.073e−3     | −0.20715642 / 1.527e−3     | −0.20752380 / **6.683e−7**     |
+| 1 M   | −0.20474338 / 1.042e−2     | −0.20569973 / 7.609e−3     | −0.20752461 / **6.653e−7**     |
+| 4 M   | −0.19754993 / **4.214e−2** | −0.20040275 / **3.051e−2** | −0.20752497 / **7.017e−7**     |
+
+**Gate: absolute mass drift 7.017e−7 against the 1e−4 bar (142× margin); `u_min` drift
+from its 20k value 7.5e−6 against the 0.5% bar (670× margin).** No tolerance was changed.
+
+Three things this establishes beyond the pass itself:
+
+1. **The premise is confirmed.** The correction removes the drift it was written to remove
+   — 4.214e−2 → 7.017e−7, a ~60,000× reduction — and the uncorrected runs preserved as
+   negative controls reproduce the M3 finding exactly (plain 4.214%, H10 3.051%).
+2. **The moving wall is exonerated a second time, empirically.** `wallΔ/step` stays at
+   ~1e−8 in all three configurations, including the two that gain 3–4% mass. The Why
+   section's arithmetic falsification is now also a measurement.
+3. **The FP32 residual floor improves ~5×** (3.4e−6 → 6.8e−7), because the steady-state
+   residual was partly measuring the drift itself. This does not reach M3's documented
+   1e−7 criterion, so the `plateau` stop rule stays necessary.
+
+**Consequence for M3:** "run longer destroys the result" is a property of the uncorrected
+kernel only. With `conserveMass` on, the H=64 cavity holds its answer to 7.5e−6 across
+4M steps. The M3 headline runs were recorded without the option and are unchanged; any
+re-run must say which configuration produced it.
 
 ## Port order
 

@@ -19,3 +19,19 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  # Deployment itself is out of scope for this repo — it's owned by a private
+  # downstream project that builds this repo and hosts it. This just notifies
+  # that a new commit landed on main; the target decides what to do with it.
+  notify-downstream:
+    needs: ci
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch downstream build event
+        run: |
+          curl -sSf -X POST \
+            -H "Authorization: Bearer ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "${{ secrets.DOWNSTREAM_DISPATCH_URL }}" \
+            -d "{\"event_type\":\"aeroflow-deploy\",\"client_payload\":{\"sha\":\"${{ github.sha }}\"}}"

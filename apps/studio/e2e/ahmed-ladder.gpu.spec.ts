@@ -1,7 +1,12 @@
 import { expect, test, BASE_URL } from './fixtures/gpu';
 import { readHooks } from './helpers/hooks';
 import type { AeroflowHooks } from '../src/dev/testHooks';
-import type { AhmedDiagnostics, AhmedSceneSummary, AhmedWorkerEvent } from '../src/sim/ahmedRun';
+import type {
+  AhmedDiagnostics,
+  AhmedSceneSummary,
+  AhmedTauReport,
+  AhmedWorkerEvent,
+} from '../src/sim/ahmedRun';
 
 /**
  * M9 acceptance-1 harness: the resolution / effective-Re ladder, plus the two diagnostics
@@ -56,6 +61,18 @@ const RUNG_BUDGET_MS = Number(process.env.AHMED_RUNG_BUDGET_MS ?? 30 * 60_000);
 const EXTRA_TCONV = Number(process.env.AHMED_EXTRA_TCONV ?? 80);
 /** Width of each independent block mean, in convective times. */
 const BLOCK_TCONV = Number(process.env.AHMED_BLOCK_TCONV ?? 20);
+/**
+ * Capture the τ_eff snapshot per rung. On by default — it is the measurement M9 is currently
+ * blocked on. `AHMED_TAU=0` skips it when only Cd is wanted, since the oracle streams the
+ * whole DDF image to the host and costs minutes at the 8M tier.
+ */
+const WANT_TAU = process.env.AHMED_TAU !== '0';
+/**
+ * Common floor on total convective time across every rung, so the τ_eff snapshots are taken
+ * at equivalent points in each flow's development. 0 disables it and each rung stops at its
+ * own trigger + EXTRA_TCONV.
+ */
+const MIN_TCONV = Number(process.env.AHMED_MIN_TCONV ?? 0);
 
 type Sample = Extract<AhmedWorkerEvent, { type: 'sample' }>;
 type Ready = Extract<AhmedWorkerEvent, { type: 'ready' }>;
@@ -131,6 +148,58 @@ function diagnosticsLines(d: AhmedDiagnostics): string {
   return lines.join('\n');
 }
 
+/**
+ * The τ_eff block. This is the measurement that decides whether the nominal Reynolds number
+ * still controls the physics, so it prints more than min/mean/max:
+ *
+ *  - full percentiles and the maximum, per region;
+ *  - the fraction of cells at the τ₀ floor (τ_t ≥ 0, so τ₀ IS the floor — there is no clamp);
+ *  - ν_LES/ν_mol percentiles, which is the ratio that actually matters: ν_mol falls 10× from
+ *    Re 1e4 to Re 1e5, so the same eddy viscosity is 10× more dominant at the higher Re;
+ *  - per-y-layer profiles at the same three stations as the δ99 velocity profiles, because
+ *    δ99 growing 6 → 43 cells across that step is backwards for a physical boundary layer and
+ *    only a layer-by-layer ν_LES can say whether the model is doing the thickening.
+ */
+function tauLines(t: AhmedTauReport): string {
+  const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+  const lines = [
+    `  τ_eff @ ${t.convectiveTimes.toFixed(1)} T_conv  τ₀ ${t.tau0.toFixed(6)}  ` +
+      `ν_mol ${t.nuMolecular.toExponential(3)}  lesK ${t.lesK.toFixed(4)}  parity ${t.parity}  ` +
+      `fluid ${t.fluidCells.toLocaleString()}  skipped(freeSlip) ${t.freeSlipAdjacentSkipped.toLocaleString()}` +
+      (t.nonFinite ? `  *** NON-FINITE ${t.nonFinite} — SNAPSHOT INVALID ***` : ''),
+    `    ${'region'.padEnd(30)} ${'n'.padStart(9)}  ` +
+      `${'τ p50'.padStart(9)} ${'τ p99'.padStart(9)} ${'τ max'.padStart(9)}  ` +
+      `${'ν p50'.padStart(8)} ${'ν p90'.padStart(8)} ${'ν p99'.padStart(8)} ${'ν max'.padStart(9)}  ` +
+      `${'floor'.padStart(7)} ${'dom'.padStart(7)} ${'ovwhlm'.padStart(7)}`,
+    ...t.regions.map((r) => {
+      const s = r.stats;
+      return (
+        `    ${r.name.padEnd(30)} ${String(s.cells).padStart(9)}  ` +
+        `${s.tauPercentiles[3].toFixed(6).padStart(9)} ${s.tauPercentiles[7].toFixed(6).padStart(9)} ` +
+        `${s.tauMax.toFixed(6).padStart(9)}  ` +
+        `${s.nuRatioPercentiles[3].toFixed(2).padStart(8)} ${s.nuRatioPercentiles[5].toFixed(2).padStart(8)} ` +
+        `${s.nuRatioPercentiles[7].toFixed(2).padStart(8)} ${s.nuRatioMax.toFixed(1).padStart(9)}  ` +
+        `${pct(s.atFloorFraction).padStart(7)} ${pct(s.lesDominantFraction).padStart(7)} ` +
+        `${pct(s.lesOverwhelmingFraction).padStart(7)}`
+      );
+    }),
+    ...t.layers.flatMap((l) => [
+      `    y-layers at x=${l.x} (ν_LES/ν_mol per ground-parallel layer):`,
+      ...l.layers
+        // Every 4th layer near the ground, then coarser — the full 64-layer dump is noise.
+        .filter((y) => y.y < 16 || y.y % 4 === 0)
+        .map(
+          (y) =>
+            `      y=${String(y.y).padStart(3)}  n=${String(y.cells).padStart(5)}  ` +
+            `τ̄ ${Number.isNaN(y.tauMean) ? '     —   ' : y.tauMean.toFixed(6)}  ` +
+            `τmax ${Number.isNaN(y.tauMax) ? '     —   ' : y.tauMax.toFixed(6)}  ` +
+            `ν_LES/ν_mol ${Number.isNaN(y.nuRatioMean) ? '  —  ' : y.nuRatioMean.toFixed(2)}`,
+        ),
+    ]),
+  ];
+  return lines.join('\n');
+}
+
 test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
   gpuPage: page,
 }, testInfo) => {
@@ -167,8 +236,14 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
     const trigger = samples(h).find((s) => s.converged);
 
     // Phase 2 — keep going EXTRA_TCONV past the trigger, so independent blocks exist.
+    //
+    // MIN_TCONV additionally holds every rung to a common floor. Without it each rung stops
+    // at its own trigger + EXTRA, and the triggers differ by Re (42.3 vs 55.9 T_conv at 1e4
+    // vs 1e5), so the τ_eff snapshots would be taken at 123 and 137 T_conv — different points
+    // in each flow's development. Comparing eddy viscosity between two Reynolds numbers
+    // requires the same convective time as much as it requires the same masks.
     if (trigger && !errored()) {
-      const target = trigger.convectiveTimes + EXTRA_TCONV;
+      const target = Math.max(trigger.convectiveTimes + EXTRA_TCONV, MIN_TCONV);
       await expect
         .poll(
           async () => {
@@ -200,6 +275,31 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
         [...events(h)].reverse().find((e) => e.type === 'diagnostics') as
           Extract<AhmedWorkerEvent, { type: 'diagnostics' }> | undefined
       )?.diagnostics;
+    }
+
+    // τ_eff on the same settled field, immediately after the approach-flow diagnostics —
+    // so every rung's snapshot is taken at the same point in its run and the two Reynolds
+    // numbers are compared at equivalent convective times over identical masks.
+    let tau: AhmedTauReport | undefined;
+    if (!errored() && WANT_TAU) {
+      await page.getByTestId('ahmed-tau').click();
+      await expect
+        .poll(
+          async () => {
+            const hh = await readHooks(page);
+            return events(hh).some((e) => e.type === 'tau');
+          },
+          // The oracle streams the whole DDF image to the host and gathers 19 directions per
+          // cell in scalar JS; at the 8M tier that is minutes, not seconds.
+          { timeout: 900_000, intervals: [5_000] },
+        )
+        .toBe(true);
+      h = await readHooks(page);
+      tau = (
+        [...events(h)].reverse().find((e) => e.type === 'tau') as
+          | Extract<AhmedWorkerEvent, { type: 'tau' }>
+          | undefined
+      )?.tau;
     }
 
     const all = samples(h);
@@ -237,7 +337,8 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
                 : 'within the 3% gate: independent blocks agree, so the trigger holds up'
               : 'not enough post-trigger blocks to judge') +
             `\n` +
-            (diagnostics ? `${diagnosticsLines(diagnostics)}\n` : '')),
+            (diagnostics ? `${diagnosticsLines(diagnostics)}\n` : '') +
+            (tau ? `${tauLines(tau)}\n` : '')),
     );
 
     await testInfo.attach(`ahmed-${(rung.cells / 1e6).toFixed(1)}M-Re${rung.Re}.png`, {

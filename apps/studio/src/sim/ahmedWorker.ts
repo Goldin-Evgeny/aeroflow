@@ -6,8 +6,12 @@ import {
   forceToNewtons,
   sectionStats,
   upstreamStations,
+  ahmedTauRegions,
+  tauLayersAt,
+  tauStats,
   type AhmedScene,
 } from '@aeroflow/core';
+import { computeTauField, evaluatedSelector } from './tauOracle';
 import { initDevice, type GpuDeviceInit } from '../gpu/context';
 import { Lbm3D } from './lbm3d';
 import {
@@ -23,6 +27,7 @@ import {
   makeLostSignal,
   stepOrLost,
   type AhmedDiagnostics,
+  type AhmedTauReport,
   type AhmedRunOptions,
   type AhmedSceneSummary,
   type AhmedWorkerCommand,
@@ -137,6 +142,78 @@ async function collectDiagnostics(r: RunState): Promise<AhmedDiagnostics> {
       ...s,
       cellsFromInlet: s.x,
       cellsToNose: scene.noseX - s.x,
+    })),
+  };
+}
+
+/**
+ * τ_eff snapshot at the acceptance tier (M9 step 6).
+ *
+ * Reconstructs the kernel's per-cell relaxation time from the raw DDF image (validated by
+ * `?tauoracle` — see `tauOracleCheck.ts`) and reduces it over geometry-derived regions. The
+ * masks depend only on the grid and the body, never on the field, so a Re 1e4 and a Re 1e5
+ * snapshot reduce over byte-identical cell sets; comparing them is otherwise meaningless.
+ *
+ * The layer profiles use the same three upstream stations as the δ99 velocity profiles, which
+ * is the point: δ99 growing from 6 to 43 cells between those two Reynolds numbers is backwards
+ * for a physical boundary layer, and ν_LES/ν_mol layer-by-layer is what distinguishes "the
+ * subgrid model is doing the thickening" from "the flow is".
+ */
+async function collectTau(r: RunState): Promise<AhmedTauReport> {
+  const { scene, sim } = r;
+  const field = await computeTauField(sim);
+  const isFluid = evaluatedSelector(field.evaluated);
+  const stationsX = upstreamStations(scene.noseX);
+
+  const mmPerCell = scene.dx * 1e3;
+  const bodyHeight = Math.round((AHMED.groundClearance + AHMED.height) / mmPerCell);
+  const slantDx = AHMED.slantChord * Math.cos((25 * Math.PI) / 180);
+  const slantStartX = Math.round(scene.noseX + (AHMED.length - slantDx) / mmPerCell);
+
+  const regions = ahmedTauRegions({
+    nx: scene.nx,
+    ny: scene.ny,
+    noseX: scene.noseX,
+    bodyLength: Math.round(scene.lengthCells),
+    bodyHeight,
+    slantStartX,
+    stations: stationsX,
+    isFluid,
+  });
+
+  // How far up to profile: enough to contain the 43-cell δ99 seen at Re 1e5 with headroom,
+  // capped at the domain height.
+  const layerTop = Math.min(scene.ny, Math.max(4 * bodyHeight, 64));
+
+  return {
+    totalSteps: field.totalSteps,
+    convectiveTimes: field.totalSteps / scene.convectiveTimeSteps,
+    parity: field.parity,
+    tau0: field.tau0,
+    nuMolecular: (field.tau0 - 0.5) / 3,
+    lesK: field.lesK,
+    Re: scene.Re,
+    fluidCells: field.fluidCells,
+    freeSlipAdjacentSkipped: field.freeSlipAdjacentSkipped,
+    nonFinite: field.nonFinite,
+    bodyHeight,
+    slantStartX,
+    regions: regions.map((region) => ({
+      name: region.name,
+      stats: tauStats(field.tauEff, field.tau0, region.select),
+    })),
+    layers: stationsX.map((x) => ({
+      x,
+      layers: tauLayersAt(
+        field.tauEff,
+        field.tau0,
+        scene.nx,
+        scene.ny,
+        scene.nz,
+        x,
+        layerTop,
+        isFluid,
+      ),
     })),
   };
 }
@@ -370,6 +447,13 @@ self.onmessage = (ev: MessageEvent<AhmedWorkerCommand>) => {
         void collectDiagnostics(run)
           .then((diagnostics) => post({ type: 'diagnostics', diagnostics }))
           .catch((e) => post({ type: 'error', message: `diagnostics: ${String(e)}` }));
+      }
+      break;
+    case 'tau':
+      if (run) {
+        void collectTau(run)
+          .then((tau) => post({ type: 'tau', tau }))
+          .catch((e) => post({ type: 'error', message: `tau: ${String(e)}` }));
       }
       break;
     case 'simulate-device-loss':

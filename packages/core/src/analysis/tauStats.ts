@@ -182,13 +182,20 @@ export function ahmedTauRegions(opts: {
   noseX: number;
   /** Body length in cells; the tail sits at noseX + bodyLength. */
   bodyLength: number;
-  /** Body height in cells, measured up from the ground. */
+  /** Top of the body in cells above the ground (ground clearance + body height). */
   bodyHeight: number;
+  /**
+   * First cell of the 25° slant. Taken from the geometry (L − slantChord·cos α), not
+   * approximated as a fraction of the body — the slant is where the separation that decides
+   * the literature Cd lives, and a mask that starts in the wrong place would attribute roof
+   * flow to it.
+   */
+  slantStartX: number;
   /** Upstream diagnostic stations — the same x used for the δ99 profiles. */
   stations: readonly number[];
   isFluid: (idx: number) => boolean;
 }): TauRegion[] {
-  const { nx, ny, noseX, bodyLength, bodyHeight, stations, isFluid } = opts;
+  const { nx, ny, noseX, bodyLength, bodyHeight, slantStartX, stations, isFluid } = opts;
   const at = (idx: number): { x: number; y: number; z: number } => {
     const x = idx % nx;
     const y = Math.floor(idx / nx) % ny;
@@ -225,12 +232,11 @@ export function ahmedTauRegions(opts: {
       },
     },
     {
-      // The slant is the aft quarter of the body — where the 25° separation lives and where
-      // the literature Cd is decided.
+      // Where the 25° separation lives, and where the literature Cd is decided.
       name: 'slant',
       select: (i) => {
         const { x, y } = at(i);
-        return isFluid(i) && x >= tailX - Math.round(bodyLength / 4) && x <= tailX && y < 2 * bodyHeight;
+        return isFluid(i) && x >= slantStartX && x <= tailX && y < 2 * bodyHeight;
       },
     },
     {

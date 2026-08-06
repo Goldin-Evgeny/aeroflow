@@ -84,14 +84,17 @@ export function mountAhmed(root: HTMLElement): void {
   const stopBtn = mkBtn('Stop');
   const ckptBtn = mkBtn('Checkpoint now');
   const diagBtn = mkBtn('Approach-flow diagnostics');
+  const tauBtn = mkBtn('τ_eff / LES diagnostics');
   const chaosBtn = mkBtn('Simulate device loss');
   startBtn.dataset.testid = 'ahmed-start';
   resumeBtn.dataset.testid = 'ahmed-resume';
   stopBtn.dataset.testid = 'ahmed-stop';
   ckptBtn.dataset.testid = 'ahmed-ckpt';
   diagBtn.dataset.testid = 'ahmed-diag';
+  tauBtn.dataset.testid = 'ahmed-tau';
   chaosBtn.dataset.testid = 'ahmed-chaos';
-  stopBtn.disabled = ckptBtn.disabled = diagBtn.disabled = chaosBtn.disabled = true;
+  stopBtn.disabled = ckptBtn.disabled = diagBtn.disabled = tauBtn.disabled = chaosBtn.disabled =
+    true;
 
   const info = document.createElement('pre');
   info.className = 'readout';
@@ -150,7 +153,8 @@ export function mountAhmed(root: HTMLElement): void {
 
   const setRunning = (running: boolean): void => {
     startBtn.disabled = resumeBtn.disabled = running;
-    stopBtn.disabled = ckptBtn.disabled = diagBtn.disabled = chaosBtn.disabled = !running;
+    stopBtn.disabled = ckptBtn.disabled = diagBtn.disabled = tauBtn.disabled = chaosBtn.disabled =
+      !running;
     shouldHoldLock = running;
     if (running) void acquireLock();
     else void wakeLock?.release().catch(() => undefined);
@@ -176,6 +180,7 @@ export function mountAhmed(root: HTMLElement): void {
   stopBtn.onclick = () => send({ type: 'stop' });
   ckptBtn.onclick = () => send({ type: 'checkpoint' });
   diagBtn.onclick = () => send({ type: 'diagnostics' });
+  tauBtn.onclick = () => send({ type: 'tau' });
   chaosBtn.onclick = () => {
     logLine('CHAOS: forcing device loss (acceptance 4)');
     send({ type: 'simulate-device-loss' });
@@ -258,6 +263,37 @@ export function mountAhmed(root: HTMLElement): void {
         logLine(
           `diagnostics @ ${d.convectiveTimes.toFixed(1)} T_conv: ` +
             `bulk/cmd ${pct(d.cdBulk > 0 ? Math.sqrt(d.cdCommanded / d.cdBulk) : NaN)}`,
+        );
+        break;
+      }
+      case 'tau': {
+        const t = m.tau;
+        const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+        // ν_LES/ν_mol is the number that decides whether nominal Re still reaches the
+        // physics. τ₀ is the floor (τ_t ≥ 0, no clamp anywhere), so "at floor" = LES silent.
+        info.textContent = [
+          `τ_eff @ ${t.convectiveTimes.toFixed(1)} T_conv — Re ${t.Re.toExponential(2)}  ` +
+            `τ₀ ${t.tau0.toFixed(6)}  ν_mol ${t.nuMolecular.toExponential(3)}  ` +
+            `parity ${t.parity}  fluid ${t.fluidCells.toLocaleString()}  ` +
+            `skipped(freeSlip) ${t.freeSlipAdjacentSkipped.toLocaleString()}` +
+            (t.nonFinite ? `  NON-FINITE ${t.nonFinite} — SNAPSHOT INVALID` : ''),
+          ...t.regions.map((r) => {
+            const s = r.stats;
+            return (
+              `  ${r.name.padEnd(30)} n=${String(s.cells).padStart(9)}  ` +
+              `τ p50 ${s.tauPercentiles[3].toFixed(5)} p99 ${s.tauPercentiles[7].toFixed(5)} ` +
+              `max ${s.tauMax.toFixed(5)}  ` +
+              `ν_LES/ν_mol p50 ${s.nuRatioPercentiles[3].toFixed(2)} ` +
+              `p99 ${s.nuRatioPercentiles[7].toFixed(2)} max ${s.nuRatioMax.toFixed(1)}  ` +
+              `floor ${pct(s.atFloorFraction)} dom ${pct(s.lesDominantFraction)} ` +
+              `overwhelm ${pct(s.lesOverwhelmingFraction)}`
+            );
+          }),
+        ].join('\n');
+        logLine(
+          `τ_eff @ ${t.convectiveTimes.toFixed(1)} T_conv: whole-domain ν_LES/ν_mol p50 ` +
+            `${t.regions[0].stats.nuRatioPercentiles[3].toFixed(2)}, ` +
+            `LES-dominant ${pct(t.regions[0].stats.lesDominantFraction)}`,
         );
         break;
       }

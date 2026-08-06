@@ -1,4 +1,4 @@
-import type { AhmedSceneOptions } from '@aeroflow/core';
+import type { AhmedSceneOptions, TauLayer, TauStats } from '@aeroflow/core';
 import type { Precision } from '../gpu/ddfLayout';
 
 /**
@@ -82,11 +82,44 @@ export interface AhmedDiagnostics {
   }[];
 }
 
+/**
+ * τ_eff snapshot (M9 step 6) — reconstructed from the GPU's own DDF image by `tauOracle.ts`
+ * and validated by `?tauoracle` before any number here is believed.
+ *
+ * The question it answers: **is the nominal Reynolds number still controlling the physics?**
+ * ν = (τ − ½)/3, so ν_mol = (τ₀ − ½)/3 and ν_LES = (τ_eff − τ₀)/3. At Re 1e5 the Ahmed scene
+ * runs τ₀ = 0.500144, i.e. ν_mol ≈ 4.8e-5 — ten times smaller than at Re 1e4. If the eddy
+ * viscosity dwarfs that over most of the domain, the effective Re is set by the model and the
+ * grid, and the Re label on the ladder describes an input that no longer reaches the solver.
+ *
+ * There is no clamp in the model: τ_t ≥ 0, so τ₀ is itself the floor and `atFloorFraction`
+ * counts cells where the LES contributes nothing — not cells where a limiter fired.
+ */
+export interface AhmedTauReport {
+  totalSteps: number;
+  convectiveTimes: number;
+  parity: 0 | 1;
+  tau0: number;
+  nuMolecular: number;
+  lesK: number;
+  Re: number;
+  fluidCells: number;
+  /** Cells the oracle declined to evaluate because a neighbour is FreeSlip. */
+  freeSlipAdjacentSkipped: number;
+  /** Any non-zero value invalidates the snapshot. */
+  nonFinite: number;
+  bodyHeight: number;
+  slantStartX: number;
+  regions: { name: string; stats: TauStats }[];
+  layers: { x: number; layers: TauLayer[] }[];
+}
+
 export type AhmedWorkerCommand =
   | { type: 'start'; opts: AhmedRunOptions }
   | { type: 'stop' }
   | { type: 'checkpoint' }
   | { type: 'diagnostics' }
+  | { type: 'tau' }
   | { type: 'simulate-device-loss' };
 
 export type AhmedWorkerEvent =
@@ -106,6 +139,7 @@ export type AhmedWorkerEvent =
       mlups: number;
     }
   | { type: 'diagnostics'; diagnostics: AhmedDiagnostics }
+  | { type: 'tau'; tau: AhmedTauReport }
   | { type: 'checkpoint-saved'; bytes: number; ms: number; totalSteps: number; savedAt: number }
   | { type: 'resumed'; totalSteps: number }
   | { type: 'device-lost'; reason: string; recoveries: number }

@@ -137,6 +137,7 @@ describe('τ_eff statistics (M9)', () => {
       noseX: 10,
       bodyLength: 12,
       bodyHeight: 5,
+      slantStartX: 18,
       stations: [2, 5, 9],
       isFluid: () => true,
     });
@@ -161,6 +162,7 @@ describe('τ_eff statistics (M9)', () => {
       noseX: 10,
       bodyLength: 12,
       bodyHeight: 5,
+      slantStartX: 18,
       stations: [2, 5, 9],
       isFluid: () => true,
     });

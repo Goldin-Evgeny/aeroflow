@@ -1,4 +1,4 @@
-import { CellType } from '../lattice.js';
+import { CellType, isSolid } from '../lattice.js';
 import { icosphere, type TriangleMesh } from '../geometry/icosphere.js';
 import { voxelizeSolid } from '../voxel/voxelize.js';
 import {
@@ -164,7 +164,7 @@ export function stlSphereScene(
     for (let y = 1; y < ny - 1; y++)
       for (let x = 1; x < nx - 1; x++) {
         const idx = x + nx * (y + ny * z);
-        if (base.flags[idx] === CellType.Solid) base.flags[idx] = CellType.Fluid;
+        if (isSolid(base.flags[idx])) base.flags[idx] = CellType.Fluid;
       }
 
   const calibration = calibrateMeshSphereRadius(base.radius, subdivisions);
@@ -182,7 +182,10 @@ export function stlSphereScene(
     for (let y = 0; y < g.ny; y++)
       for (let x = 0; x < g.nx; x++) {
         if (tightMask[x + g.nx * (y + g.ny * z)] === CellType.Solid) {
-          base.flags[x + ox + nx * (y + oy + ny * (z + oz))] = CellType.Solid;
+          // The voxelizer emits plain Solid; the pasted sphere is the measured body, so it
+          // carries BodySolid exactly as the analytic sphereScene does — otherwise the
+          // STL-vs-analytic A/B would compare a measured body against an unweighed one.
+          base.flags[x + ox + nx * (y + oy + ny * (z + oz))] = CellType.BodySolid;
           sphereVoxels++;
         }
       }

@@ -1,4 +1,4 @@
-import { CellType } from '../lattice.js';
+import { isSolid } from '../lattice.js';
 
 /**
  * Residual-based steady-state detector (M3 step 5).
@@ -38,7 +38,7 @@ export function steadyStateResidual(
   let sum = 0;
   let fluid = 0;
   for (let i = 0; i < n; i++) {
-    if (flags[i] === CellType.Solid) continue;
+    if (isSolid(flags[i])) continue;
     const dx = ux[i] - prevUx[i];
     const dy = uy[i] - prevUy[i];
     sum += dx * dx + dy * dy;

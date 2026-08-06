@@ -66,10 +66,12 @@ function tunnelFlags(nx: number, ny: number, nz: number): Uint8Array {
         else if (x === nx - 1) flags[idx(x, y, z)] = CellType.Outlet;
       }
   // Cube obstacle, kept clear of the x=nx-2 plane (no solid directly upstream of outlet).
+  // BodySolid: the cube is the measured object, and the surrounding y/z shell is plain
+  // Solid — so the forces config also gates that walls are no longer weighed as drag.
   const c = Math.floor(nx / 3);
   for (let z = c; z < c + 4; z++)
     for (let y = c; y < c + 4; y++)
-      for (let x = c; x < c + 4; x++) flags[idx(x, y, z)] = CellType.Solid;
+      for (let x = c; x < c + 4; x++) flags[idx(x, y, z)] = CellType.BodySolid;
   return flags;
 }
 
@@ -135,7 +137,7 @@ function ablFlags(nx: number, ny: number, nz: number): Uint8Array {
   const c = Math.floor(nx / 3);
   for (let z = c; z < c + 4; z++)
     for (let y = c; y < c + 4; y++)
-      for (let x = c; x < c + 4; x++) flags[idx(x, y, z)] = CellType.Solid;
+      for (let x = c; x < c + 4; x++) flags[idx(x, y, z)] = CellType.BodySolid;
   return flags;
 }
 
@@ -181,9 +183,13 @@ export async function runParity3D(
   cpu.reset(1, 0, 0, 0);
   cpu.step(STEPS);
   const macCpu = cpuMacro(cpu);
-  // CPU total force (walls + cube) accumulated during the STEPS-th step — the reference the
-  // GPU force pass must reproduce at the same step/parity (H2 §4a: same-step comparison).
-  const cpuForce = cpu.force;
+  // CPU force on the MEASURED BODY (the cube), accumulated during the STEPS-th step — the
+  // reference the GPU force pass must reproduce at the same step/parity (H2 §4a: same-step
+  // comparison). `maskedForce`, not `force`: the kernel weighs BodySolid links only, and
+  // this scene's shell walls are plain Solid. Reading the unmasked accumulator here would
+  // compare a body drag against a body-plus-walls sum — measured 3.57e-1 vs 4.89e+0 on the
+  // tunnel, i.e. the walls were 93% of it.
+  const cpuForce = cpu.maskedForce;
 
   // Capture any WebGPU validation/out-of-memory errors that would otherwise be swallowed
   // (a rejected dispatch silently discards the command buffer → zeros → "error 1.0").

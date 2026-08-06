@@ -82,7 +82,13 @@ async function runAndAwait(
   } catch (e) {
     failure = e;
   }
-  await testInfo.attach(name, { body: fmt(latest), contentType: 'text/plain' });
+  // Attach AND print. These numbers are the milestone's evidence (M7 acceptance 1–4 are
+  // "recorded, not asserted"), and an attachment alone is only retrievable by unpacking the
+  // HTML report's zip — which makes a regression check needlessly archaeological. Every
+  // other GPU spec here prints its result line; this one now does too.
+  const report = fmt(latest);
+  await testInfo.attach(name, { body: report, contentType: 'text/plain' });
+  console.log(`\n=== ${name} ===\n${report}\n`);
   if (failure) {
     throw new Error(
       `INCONCLUSIVE: ${name} produced no completed run within ${POLL / 60_000} min. ` +

@@ -499,6 +499,14 @@ export function mountImport3D(device: GPUDevice, caps: GpuCapabilities, root: HT
         maxStorageBuffersPerStage: caps.maxStorageBuffersPerShaderStage,
       });
       sim.flags.set(vox.mask);
+      // The voxelizer emits plain Solid; the imported model IS the measured body, so re-tag
+      // it BodySolid — only those links feed the momentum-exchange sum, and an untagged
+      // scene reports zero drag (PHYSICS.md §8). The boundary overlay below is inlet-type
+      // and therefore forceless either way, but the tag is what makes the drag readout the
+      // model's own rather than a property of what happens to be solid.
+      for (let i = 0; i < sim.flags.length; i++) {
+        if (sim.flags[i] === CellType.Solid) sim.flags[i] = CellType.BodySolid;
+      }
       // Boundary overlay AFTER the mask so faces stay boundaries even if the model touches
       // them: inlet x=0, outlet x=nx−1, freestream (inlet-type) lateral far field (M7).
       const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);

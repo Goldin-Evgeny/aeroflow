@@ -67,7 +67,8 @@ describe('stlSphereScene', () => {
           const x = cx + dx * Math.floor(radius / 2);
           const y = Math.round(cy + dy * (radius / 2));
           const z = Math.round(cz + dz * (radius / 2));
-          expect(scene.flags[x + nx * (y + ny * z)]).toBe(CellType.Solid);
+          // BodySolid: the pasted sphere is the measured body (same as sphereScene).
+          expect(scene.flags[x + nx * (y + ny * z)]).toBe(CellType.BodySolid);
         }
   });
 });

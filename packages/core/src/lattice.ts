@@ -42,6 +42,34 @@ export enum CellType {
    * CPU-only until the WGSL port (H12 §6).
    */
   VelocityInlet = 5,
+  /**
+   * A solid cell that belongs to **the measured body** (M9). Streams and bounces exactly
+   * like `Solid` — `isSolid()` covers both — but it is the only flag that contributes to
+   * the momentum-exchange force.
+   *
+   * Why it exists: the force accumulator sums over every fluid cell that bounces off a
+   * solid neighbour, with no notion of which solid. That was harmless while the only 3D
+   * force scenes were M7's spheres, whose far-field walls are `FreeSlip` (forceless). The
+   * Ahmed scene is the first with a **no-slip ground**, and that ground is solid across the
+   * whole domain footprint — so the reported drag was the body plus the entire floor's skin
+   * friction, measured at 74.6% of the total on a 62k-cell reference run. Marking the body
+   * separately is the 3D equivalent of the `forceMask` `scenes/cylinder2d.ts` already
+   * builds in 2D.
+   *
+   * Any scene that measures a force must mark that object `BodySolid`; a scene that marks
+   * nothing reports zero force, which is a loud failure rather than a quiet wrong number.
+   * Keep the value synchronized by hand with the shader constants (WGSL `BODY`).
+   */
+  BodySolid = 6,
+}
+
+/**
+ * True for every flag that behaves as a wall for streaming and bounce-back. Use this
+ * anywhere the question is "is this cell solid?" — writing `flag === CellType.Solid`
+ * silently treats the measured body as fluid.
+ */
+export function isSolid(flag: number): boolean {
+  return flag === CellType.Solid || flag === CellType.BodySolid;
 }
 
 /**

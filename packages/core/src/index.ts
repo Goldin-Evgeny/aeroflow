@@ -1,4 +1,4 @@
-export { D2Q9, CellType, equilibrium } from './lattice.js';
+export { D2Q9, CellType, equilibrium, isSolid } from './lattice.js';
 export { D3Q19 } from './lattice3d.js';
 export { latticeUnits, forceToNewtons, AIR_KINEMATIC_VISCOSITY, AIR_DENSITY } from './units.js';
 export type { UnitMapping, UnitMappingInput } from './units.js';
@@ -61,7 +61,7 @@ export {
   windFramePointToEnu,
 } from './geometry/windFrame.js';
 export type { EnuVector, WindFrameVector, WindFrameBasis } from './geometry/windFrame.js';
-export { ahmedScene } from './scenes/ahmed3d.js';
+export { ahmedScene, AHMED_EXPERIMENTAL_RE } from './scenes/ahmed3d.js';
 export type { AhmedScene, AhmedSceneOptions } from './scenes/ahmed3d.js';
 export { powerLawProfile, logLawProfile, ablProfileLattice, LATTICE_MACH_LIMIT } from './abl.js';
 export type { AblSpec, AblLatticeProfile } from './abl.js';

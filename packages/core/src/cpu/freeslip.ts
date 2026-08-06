@@ -1,4 +1,4 @@
-import { CellType } from '../lattice.js';
+import { CellType, isSolid } from '../lattice.js';
 import { D3Q19 } from '../lattice3d.js';
 
 /**
@@ -54,7 +54,7 @@ export function resolveFreeSlipPull(
   for (let pass = 0; pass < 3; pass++) {
     const flag = flags[sx + nx * (sy + ny * sz)];
     if (flag !== CellType.FreeSlip) {
-      return { sx, sy, sz, dir, fallback: flag === CellType.Solid };
+      return { sx, sy, sz, dir, fallback: isSolid(flag) };
     }
     let reflected = false;
     // Undo the displacement BEFORE negating (H11 pitfall 2): S_k += (e_J)_k, then flip.

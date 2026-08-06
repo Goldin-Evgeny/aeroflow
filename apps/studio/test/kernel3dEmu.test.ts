@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CellType, D3Q19, EsotericPull3D } from '@aeroflow/core';
+import { CellType, D3Q19, EsotericPull3D, isSolid } from '@aeroflow/core';
 
 /**
  * Faithful TypeScript emulation of stream_collide_3d.wgsl — same single-array layout,
@@ -146,7 +146,7 @@ class KernelEmu {
         for (let x = 0; x < nx; x++) {
           const idx = this.idx(x, y, z);
           const flag = this.flag(idx);
-          if (flag === CellType.Solid || flag === CellType.FreeSlip) continue;
+          if (isSolid(flag) || flag === CellType.FreeSlip) continue;
           const f = new Float64Array(q);
           if (flag === CellType.Inlet || flag === CellType.VelocityInlet) {
             const prof = this.opts.inletProfile;
@@ -168,12 +168,12 @@ class KernelEmu {
             const naIdx = this.idx(x - ex[a], y - ey[a], z - ez[a]);
             const nbIdx = this.idx(x + ex[a], y + ey[a], z + ez[a]);
             const flagA = this.flag(naIdx);
-            if (flagA === CellType.Solid) f[a] = even ? R[b * n + idx] : R[a * n + naIdx];
+            if (isSolid(flagA)) f[a] = even ? R[b * n + idx] : R[a * n + naIdx];
             else if (flagA === CellType.FreeSlip)
               f[a] = this.freeSlipRead(R, x, y, z, a, even, idx, naIdx);
             else f[a] = even ? R[a * n + naIdx] : R[b * n + idx];
             const flagB = this.flag(nbIdx);
-            if (flagB === CellType.Solid) f[b] = even ? R[a * n + idx] : R[b * n + nbIdx];
+            if (isSolid(flagB)) f[b] = even ? R[a * n + idx] : R[b * n + nbIdx];
             else if (flagB === CellType.FreeSlip)
               f[b] = this.freeSlipRead(R, x, y, z, b, even, idx, nbIdx);
             else f[b] = even ? R[b * n + nbIdx] : R[a * n + idx];
@@ -215,7 +215,7 @@ class KernelEmu {
         dir = reflectZ[dir];
       }
     }
-    if (flag === CellType.Solid) {
+    if (isSolid(flag)) {
       return even ? R[opp[i] * n + idx] : R[i * n + nIdx];
     }
     const sIdx = this.idx(sx, sy, sz);

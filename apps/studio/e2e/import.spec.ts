@@ -30,6 +30,13 @@ test('STL import → voxelize → live drag sample', async ({ page }) => {
     .toBeGreaterThan(0);
   const sample = (await readHooks(page)).import3d!.sample!;
   expect(Number.isFinite(sample.cd)).toBe(true);
+  // NON-ZERO, not merely finite. M8 acceptance 5 is "live drag in newtons matching
+  // ½ρCdAU²", and zero is finite — this assertion was silent when the momentum-exchange
+  // sum was restricted to CellType.BodySolid (2026-08-06) and this page's voxelizer mask,
+  // which emits plain Solid, would have reported exactly zero drag. A cube in a stream has
+  // a drag of order one; the loose bounds only exclude "nothing" and "diverged".
+  expect(Math.abs(sample.cd)).toBeGreaterThan(0.01);
+  expect(Math.abs(sample.newtons)).toBeGreaterThan(0);
 
   await page.getByTestId('import-stop').click();
 });

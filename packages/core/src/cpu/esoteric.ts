@@ -1,4 +1,4 @@
-import { CellType } from '../lattice.js';
+import { CellType, isSolid } from '../lattice.js';
 import { D3Q19 } from '../lattice3d.js';
 import {
   collideCell,
@@ -144,6 +144,16 @@ export class EsotericPull3D {
     return { ...this._maskedForce };
   }
 
+  /**
+   * Is this solid cell part of the measured body? Two equivalent encodings are accepted so
+   * the 2D scenes' `forceMask` and the 3D scenes' `CellType.BodySolid` mean the same thing
+   * to the accumulator — the GPU kernel only has the flag, since a per-cell mask buffer
+   * would cost 4 B/cell against the binding budget D1 measures.
+   */
+  private isMeasured(idx: number): boolean {
+    return this.flags[idx] === CellType.BodySolid || this.forceMask?.[idx] === 1;
+  }
+
   private validate(): void {
     const { nx, ny, nz, flags } = this;
     for (let z = 0; z < nz; z++) {
@@ -158,7 +168,7 @@ export class EsotericPull3D {
           if (f === CellType.Outlet && x !== nx - 1) {
             throw new Error('EsotericPull3D: Outlet cells must sit on the +x face');
           }
-          if (f === CellType.Outlet && flags[this.idx(x - 1, y, z)] === CellType.Solid) {
+          if (f === CellType.Outlet && isSolid(flags[this.idx(x - 1, y, z)])) {
             throw new Error(
               `EsotericPull3D: Outlet at (${x},${y},${z}) has a Solid upstream neighbor (H4 §10.9)`,
             );
@@ -217,7 +227,7 @@ export class EsotericPull3D {
           const flag = flags[idx];
           // Solid and FreeSlip cells are passive; their slots are functional scratch
           // (H4 §5, H11 §5) — the EVEN crosswise writes into them are load-bearing.
-          if (flag === CellType.Solid || flag === CellType.FreeSlip) continue;
+          if (isSolid(flag) || flag === CellType.FreeSlip) continue;
 
           if (flag === CellType.Inlet || flag === CellType.VelocityInlet) {
             const uIn = this.inletProfile
@@ -255,7 +265,7 @@ export class EsotericPull3D {
             const nIdxB = nbx + nx * (nby + ny * nbz);
 
             let va: number;
-            if (flags[nIdxA] === CellType.Solid) {
+            if (isSolid(flags[nIdxA])) {
               va = even ? A[b * n + idx] : A[a * n + nIdxA];
               // Into-solid direction is b (= opp(a)): F_link = 2·e_b·v.
               const cxv = 2 * ex[b] * va;
@@ -264,7 +274,7 @@ export class EsotericPull3D {
               fx += cxv;
               fy += cyv;
               fz += czv;
-              if (this.forceMask && this.forceMask[nIdxA] === 1) {
+              if (this.isMeasured(nIdxA)) {
                 mfx += cxv;
                 mfy += cyv;
                 mfz += czv;
@@ -277,7 +287,7 @@ export class EsotericPull3D {
             f[a] = va;
 
             let vb: number;
-            if (flags[nIdxB] === CellType.Solid) {
+            if (isSolid(flags[nIdxB])) {
               vb = even ? A[a * n + idx] : A[b * n + nIdxB];
               const cxv = 2 * ex[a] * vb;
               const cyv = 2 * ey[a] * vb;
@@ -285,7 +295,7 @@ export class EsotericPull3D {
               fx += cxv;
               fy += cyv;
               fz += czv;
-              if (this.forceMask && this.forceMask[nIdxB] === 1) {
+              if (this.isMeasured(nIdxB)) {
                 mfx += cxv;
                 mfy += cyv;
                 mfz += czv;

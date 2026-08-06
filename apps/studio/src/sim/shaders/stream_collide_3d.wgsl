@@ -61,6 +61,13 @@ const INLET    = 2u;
 const OUTLET   = 3u;
 const FREESLIP = 4u;
 const VELINLET = 5u;
+// Solid cell belonging to the MEASURED body. Streams and bounces exactly like SOLID —
+// isSolidFlag() covers both — but only these links contribute to the momentum-exchange
+// force, so a no-slip ground (plain SOLID) can no longer be counted as drag. Mirrors
+// CellType.BodySolid; keep the value synchronized by hand with lattice.ts.
+const BODY     = 6u;
+
+fn isSolidFlag(f: u32) -> bool { return f == SOLID || f == BODY; }
 
 struct Params {
   nx: u32,
@@ -264,7 +271,7 @@ fn freeSlipRead(x: u32, y: u32, z: u32, i: u32, even: bool, idx: u32, nIdx: u32)
       dir = REFZ[dir];
     }
   }
-  if (flag == SOLID) {
+  if (isSolidFlag(flag)) {
     return select(ld(i, nIdx), ld(OPP[i], idx), even);
   }
   let sIdx = cellIndex(u32(sx), u32(sy), u32(sz));
@@ -461,7 +468,7 @@ fn stream_collide(@builtin(global_invocation_id) gid: vec3u) {
   let flag = getFlag(idx);
   // Solid and FreeSlip cells are passive; their slots are functional scratch (H4 §5,
   // H11 §5) — the EVEN crosswise writes into them are load-bearing.
-  if (flag == SOLID || flag == FREESLIP) {
+  if (isSolidFlag(flag) || flag == FREESLIP) {
 //#ifdef FORCES
     if (P.collectForces == 1u) { cellForce[idx] = vec3f(0.0); }
 //#endif
@@ -510,10 +517,14 @@ fn stream_collide(@builtin(global_invocation_id) gid: vec3u) {
 
     let flagA = getFlag(naIdx);
     var va: f32;
-    if (flagA == SOLID) {
+    if (isSolidFlag(flagA)) {
       va = select(ld(a, naIdx), ld(b, idx), even);
 //#ifdef FORCES
-      force += 2.0 * vec3f(f32(EX[b]), f32(EY[b]), f32(EZ[b])) * va;
+      // Only the measured body contributes (CPU: EsotericPull3D.isMeasured). A plain
+      // SOLID neighbour still bounces — it just is not weighed.
+      if (flagA == BODY) {
+        force += 2.0 * vec3f(f32(EX[b]), f32(EY[b]), f32(EZ[b])) * va;
+      }
 //#endif
 //#ifdef FREESLIP
     } else if (flagA == FREESLIP) {
@@ -526,10 +537,12 @@ fn stream_collide(@builtin(global_invocation_id) gid: vec3u) {
 
     let flagB = getFlag(nbIdx);
     var vb: f32;
-    if (flagB == SOLID) {
+    if (isSolidFlag(flagB)) {
       vb = select(ld(b, nbIdx), ld(a, idx), even);
 //#ifdef FORCES
-      force += 2.0 * vec3f(f32(EX[a]), f32(EY[a]), f32(EZ[a])) * vb;
+      if (flagB == BODY) {
+        force += 2.0 * vec3f(f32(EX[a]), f32(EY[a]), f32(EZ[a])) * vb;
+      }
 //#endif
 //#ifdef FREESLIP
     } else if (flagB == FREESLIP) {

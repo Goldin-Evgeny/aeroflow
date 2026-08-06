@@ -152,7 +152,15 @@ export function sphereScene(spec: Sphere3DCaseSpec, opts: SphereSceneOptions = {
   // edge; the boundary overlay wins on the six faces regardless.
   const flags = sphereMask(nx, ny, nz, cx, cy, cz, radius);
   let sphereVoxels = 0;
-  for (let i = 0; i < flags.length; i++) if (flags[i] === CellType.Solid) sphereVoxels++;
+  // The sphere IS the measured body, so re-tag it before any boundary overlay: only
+  // BodySolid contributes to the momentum-exchange force, and with `lateralBC: 'wall'`
+  // the lateral walls below are plain Solid and must not be weighed as drag.
+  for (let i = 0; i < flags.length; i++) {
+    if (flags[i] === CellType.Solid) {
+      flags[i] = CellType.BodySolid;
+      sphereVoxels++;
+    }
+  }
 
   const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
   if (lateralBC === 'freeslip') {

@@ -351,9 +351,10 @@ of each inlet cell and clamp $u(z) \le u_{max,lattice} = 0.1$ via the unit mappi
 | `CellType` (lattice.ts) | Rule | Section |
 |---|---|---|
 | `Fluid = 0` | pull-stream + collide | 3–6 |
-| `Solid = 1` | neighbors bounce back; storage unused | 7.1 |
+| `Solid = 1` | neighbors bounce back; storage unused; **not weighed** | 7.1 |
 | `Inlet = 2` | equilibrium at $\rho=1$, $\mathbf{u}_{in}(z)$ | 7.2, 7.5 |
 | `Outlet = 3` | copy upstream neighbor's previous state | 7.3 |
+| `BodySolid = 6` | identical to `Solid`, **and** its links carry the force sum | 7.1, 8 |
 
 Free-slip applies to domain faces, not cell flags.
 
@@ -385,6 +386,16 @@ and the total instantaneous force on the body (lattice units, force = momentum p
 timestep since $\Delta t = 1$) is
 
 $$\mathbf{F} = \sum_{\text{boundary links}} 2\,\mathbf{e}_j\,\tilde{f}_j(\mathbf{x}_f, t)$$
+
+**Which links are in that sum matters as much as the formula.** "Boundary links" means
+links onto **the body being measured**, not onto every solid cell in the domain. A scene
+whose walls are `FreeSlip` or `Inlet` makes the distinction invisible — those are forceless
+— but a scene with a no-slip **ground** does not: the ground is solid across the whole
+domain footprint, so summing indiscriminately adds the entire floor's skin friction to the
+drag. Measured on the M9 Ahmed scene, that was **74.6%** of the reported force. The body is
+therefore tagged `BodySolid` (Section 7.6) and only its links enter the sum; in 2D the same
+job is done by the `forceMask` in `scenes/cylinder2d.ts`. The normalization area must be
+counted over the same cells that are weighed, or $C_d$ mixes two different bodies.
 
 In the pull scheme this is evaluated without extra passes: when cell $\mathbf{x}$
 pulls direction $i$ and the bounce branch triggers (Section 7.1), the pulled value *is*

@@ -75,13 +75,21 @@ export interface AhmedScene {
 
 const MM = 1e-3;
 
+/**
+ * The experiment's Reynolds number on body length (Ahmed et al. 1984, SAE 840300 — U ≈
+ * 60 m/s over the 1044 mm body). Named because the acceptance verdict is only defined
+ * here: Cd 0.285 is a measurement at this Re, so a run at any other Re is a diagnostic,
+ * not an acceptance run.
+ */
+export const AHMED_EXPERIMENTAL_RE = 4.29e6;
+
 export function ahmedScene(opts: AhmedSceneOptions = {}): AhmedScene {
   const maxCells = opts.maxCells ?? 15_700_000;
   const u = opts.uLattice ?? 0.05;
   const cap = opts.blockageCap ?? 0.05;
   const upstreamL = opts.upstreamL ?? 1;
   const downstreamL = opts.downstreamL ?? 2;
-  const Re = opts.Re ?? 4.29e6;
+  const Re = opts.Re ?? AHMED_EXPERIMENTAL_RE;
   const clearance = (opts.groundClearance ?? AHMED.groundClearance) * MM;
 
   // Physical domain (meters). Cross-section: equal margins m beside and above the body,
@@ -160,16 +168,20 @@ export function ahmedScene(opts: AhmedSceneOptions = {}): AhmedScene {
         if (gx <= 0 || gx >= nx - 1 || gy <= 0 || gy >= ny - 1 || gz <= 0 || gz >= nz - 1) {
           throw new Error(`ahmedScene: body voxel (${gx},${gy},${gz}) touches the shell`);
         }
-        flags[at(gx, gy, gz)] = CellType.Solid;
+        // BodySolid, not Solid: the ground written above is Solid and spans the whole
+        // domain footprint, so weighing every solid would report the floor's skin friction
+        // as drag (measured at 74.6% of the total — see groundForceContamination.test.ts).
+        flags[at(gx, gy, gz)] = CellType.BodySolid;
         bodyVoxels++;
       }
 
-  // Frontal projection over interior columns (excludes the ground/shell rows).
+  // Frontal projection over interior columns (excludes the ground/shell rows). Counts the
+  // BODY only — it is the Cd normalization area, so it must match what is being weighed.
   let frontalCells = 0;
   for (let z = 1; z < nz - 1; z++)
     for (let y = 1; y < ny - 1; y++) {
       for (let x = 1; x < nx - 1; x++) {
-        if (flags[at(x, y, z)] === CellType.Solid) {
+        if (flags[at(x, y, z)] === CellType.BodySolid) {
           frontalCells++;
           break;
         }

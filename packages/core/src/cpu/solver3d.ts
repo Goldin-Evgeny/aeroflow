@@ -1,4 +1,4 @@
-import { CellType } from '../lattice.js';
+import { CellType, isSolid } from '../lattice.js';
 import { D3Q19 } from '../lattice3d.js';
 import {
   collideCell,
@@ -140,6 +140,14 @@ export class Solver3D {
     return { ...this._maskedForce };
   }
 
+  /**
+   * Is this solid cell part of the measured body? Mirrors EsotericPull3D exactly — the two
+   * solvers must agree cell-for-cell or their bit-identity test fails.
+   */
+  private isMeasured(idx: number): boolean {
+    return this.flags[idx] === CellType.BodySolid || this.forceMask?.[idx] === 1;
+  }
+
   /** H3 §2: fluid cells must never see out-of-bounds neighbors. */
   private validateShell(): void {
     const { nx, ny, nz, flags } = this;
@@ -173,7 +181,7 @@ export class Solver3D {
           // (measured: naive copies zeros, esoteric copies scratch — H4 §10.9).
           if (flags[this.idx(x, y, z)] === CellType.Outlet && x > 0) {
             const up = flags[this.idx(x - 1, y, z)];
-            if (up === CellType.Solid) {
+            if (isSolid(up)) {
               throw new Error(
                 `Solver3D: Outlet at (${x},${y},${z}) has a Solid upstream neighbor — ` +
                   'keep at least one non-solid cell upstream of every outlet',
@@ -187,7 +195,7 @@ export class Solver3D {
 
   reset(rho = 1, ux = 0, uy = 0, uz = 0): void {
     for (let idx = 0; idx < this.n; idx++) {
-      const solid = this.flags[idx] === CellType.Solid;
+      const solid = isSolid(this.flags[idx]);
       for (let i = 0; i < q; i++) {
         this.fSrc[i * this.n + idx] = solid ? 0 : equilibrium3(D3Q19_SPEC, i, rho, ux, uy, uz);
         this.fDst[i * this.n + idx] = 0;
@@ -216,7 +224,7 @@ export class Solver3D {
           const flag = flags[idx];
           // Solid and FreeSlip cells are passive — FreeSlip semantics live entirely in
           // the neighbors' redirected gathers (H11 §4).
-          if (flag === CellType.Solid || flag === CellType.FreeSlip) continue;
+          if (isSolid(flag) || flag === CellType.FreeSlip) continue;
 
           if (flag === CellType.Inlet || flag === CellType.VelocityInlet) {
             const uIn = this.inletProfile
@@ -262,7 +270,7 @@ export class Solver3D {
             }
             if (!bounce) {
               const s = sx + nx * (sy + ny * sz);
-              if (flags[s] === CellType.Solid) {
+              if (isSolid(flags[s])) {
                 bounce = true;
                 solidIdx = s;
               } else if (flags[s] === CellType.FreeSlip) {
@@ -289,7 +297,7 @@ export class Solver3D {
                 fx += cx;
                 fy += cy;
                 fz += cz;
-                if (this.forceMask && this.forceMask[solidIdx] === 1) {
+                if (this.isMeasured(solidIdx)) {
                   mfx += cx;
                   mfy += cy;
                   mfz += cz;
@@ -328,7 +336,7 @@ export class Solver3D {
     const cy = ctx.forcing === 'guo' ? 0.5 * ctx.gy : 0;
     const cz = ctx.forcing === 'guo' ? 0.5 * ctx.gz : 0;
     for (let idx = 0; idx < n; idx++) {
-      if (flags[idx] === CellType.Solid) continue;
+      if (isSolid(flags[idx])) continue;
       let r = 0;
       let mx = 0;
       let my = 0;
@@ -352,7 +360,7 @@ export class Solver3D {
     const { n, fSrc, flags } = this;
     let m = 0;
     for (let idx = 0; idx < n; idx++) {
-      if (flags[idx] === CellType.Solid) continue;
+      if (isSolid(flags[idx])) continue;
       for (let i = 0; i < q; i++) m += fSrc[i * n + idx];
     }
     return m;

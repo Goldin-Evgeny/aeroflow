@@ -52,10 +52,16 @@ describe('sphereScene (M7 sphere-drag scenes)', () => {
     expect(flags[at(nx >> 1, 0, nz >> 1)]).toBe(CellType.Inlet);
     expect(flags[at(nx >> 1, ny - 1, nz >> 1)]).toBe(CellType.Inlet);
     expect(flags[at(nx >> 1, ny >> 1, 0)]).toBe(CellType.Inlet);
-    // The only Solid cells are the sphere (interior), so their count equals sphereVoxels.
+    // The sphere is the measured body, so it carries BodySolid and its count equals
+    // sphereVoxels; nothing else in this scene is solid at all.
+    let bodies = 0;
     let solids = 0;
-    for (let i = 0; i < flags.length; i++) if (flags[i] === CellType.Solid) solids++;
-    expect(solids).toBe(s.sphereVoxels);
+    for (let i = 0; i < flags.length; i++) {
+      if (flags[i] === CellType.BodySolid) bodies++;
+      if (flags[i] === CellType.Solid) solids++;
+    }
+    expect(bodies).toBe(s.sphereVoxels);
+    expect(solids).toBe(0);
   });
 
   it("'wall' lateral BC turns the lateral faces Solid", () => {
@@ -77,10 +83,16 @@ describe('sphereScene (M7 sphere-drag scenes)', () => {
     expect(flags[at(0, ny >> 1, nz >> 1)]).toBe(CellType.Inlet);
     expect(flags[at(nx - 1, ny >> 1, nz >> 1)]).toBe(CellType.Outlet);
     expect(flags[at(nx - 1, 0, nz >> 1)]).toBe(CellType.FreeSlip); // outlet-face edge, not Outlet
-    // The sphere is still the ONLY Solid ⇒ total force == sphere force (free-slip ≠ Solid).
+    // The sphere is still the ONLY weighed body ⇒ total force == sphere force
+    // (free-slip is forceless, and nothing here is plain Solid).
+    let bodies = 0;
     let solids = 0;
-    for (let i = 0; i < flags.length; i++) if (flags[i] === CellType.Solid) solids++;
-    expect(solids).toBe(s.sphereVoxels);
+    for (let i = 0; i < flags.length; i++) {
+      if (flags[i] === CellType.BodySolid) bodies++;
+      if (flags[i] === CellType.Solid) solids++;
+    }
+    expect(bodies).toBe(s.sphereVoxels);
+    expect(solids).toBe(0);
     // No Outlet has a FreeSlip upstream (−x) neighbor — the H11 §3.2 constraint the run relies on.
     expect(() => validateFreeSlip(flags, nx, ny, nz, SPHERE_FREESLIP_FACES)).not.toThrow();
   });

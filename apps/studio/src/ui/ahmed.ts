@@ -26,31 +26,27 @@ const BUDGETS: Record<string, number> = {
 
 export function mountAhmed(root: HTMLElement): void {
   root.innerHTML = '';
-  root.style.cssText =
-    'font:13px/1.5 ui-monospace,monospace;color:#e6edf3;padding:16px;max-width:860px';
+  root.classList.add('page');
 
   const h = document.createElement('h2');
+  h.className = 'page-title';
   h.textContent = 'M9 — Ahmed body 25° (Re 4.29×10⁶) long run';
   const sub = document.createElement('p');
-  sub.style.color = '#8b949e';
+  sub.className = 'subtitle';
   sub.textContent =
     'Screening-grade uniform grid, no wall functions: published band is ±15% around Cd 0.285. ' +
     'Runs in a worker (background-tab safe), checkpoints to IndexedDB every 5 min and on tab-hide, ' +
     'auto-recovers from GPU device loss.';
 
   const controls = document.createElement('div');
-  controls.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;align-items:center';
+  controls.className = 'button-row';
   const mkBtn = (label: string): HTMLButtonElement => {
     const b = document.createElement('button');
     b.textContent = label;
-    b.style.cssText =
-      'padding:6px 10px;background:#21262d;color:#e6edf3;border:1px solid #444c56;border-radius:4px;cursor:pointer';
     controls.append(b);
     return b;
   };
   const budgetSel = document.createElement('select');
-  budgetSel.style.cssText =
-    'background:#21262d;color:#e6edf3;border:1px solid #444c56;border-radius:4px;padding:5px';
   for (const k of Object.keys(BUDGETS)) budgetSel.append(new Option(k, k));
   applyCellsOverride(BUDGETS, budgetSel);
   controls.append(budgetSel);
@@ -58,7 +54,7 @@ export function mountAhmed(root: HTMLElement): void {
   fp16Box.type = 'checkbox';
   fp16Box.checked = true;
   const fp16Label = document.createElement('label');
-  fp16Label.style.color = '#8b949e';
+  fp16Label.className = 'muted';
   fp16Label.append(fp16Box, ' FP16 storage (falls back if not granted)');
   controls.append(fp16Label);
   const startBtn = mkBtn('Start fresh');
@@ -74,16 +70,21 @@ export function mountAhmed(root: HTMLElement): void {
   stopBtn.disabled = ckptBtn.disabled = chaosBtn.disabled = true;
 
   const info = document.createElement('pre');
-  info.style.cssText =
-    'background:#0b0e13;border:1px solid #2d333b;border-radius:4px;padding:10px;white-space:pre-wrap';
+  info.className = 'readout';
   info.textContent = 'idle';
   const panel = document.createElement('pre');
-  panel.style.cssText = info.style.cssText + ';font-size:14px';
+  panel.className = 'readout';
+  panel.style.fontSize = '14px';
   const plot = new ForcePlot(640, 200);
   const verdict = document.createElement('div');
-  verdict.style.cssText = 'margin-top:10px;font-size:15px;font-weight:bold';
+  verdict.className = 'verdict';
+  const setVerdict = (text: string, status: 'ok' | 'bad' | 'warn' | 'muted'): void => {
+    verdict.className = status === 'muted' ? 'verdict muted' : `verdict status-${status}`;
+    verdict.textContent = text;
+  };
   const log = document.createElement('pre');
-  log.style.cssText = info.style.cssText + ';max-height:180px;overflow-y:auto;color:#8b949e';
+  log.className = 'readout';
+  log.style.cssText = 'max-height:180px;overflow-y:auto;color:var(--muted)';
 
   root.append(h, sub, controls, info, panel, plot.element, verdict, log);
 
@@ -187,10 +188,11 @@ export function mountAhmed(root: HTMLElement): void {
         if (m.converged) {
           const inBand = m.meanCd >= AHMED_CD_BAND[0] && m.meanCd <= AHMED_CD_BAND[1];
           const inStretch = m.meanCd >= AHMED_CD_STRETCH[0] && m.meanCd <= AHMED_CD_STRETCH[1];
-          verdict.style.color = inBand ? '#3fb950' : '#f85149';
-          verdict.textContent =
+          setVerdict(
             `${inBand ? (inStretch ? 'PASS (stretch ±10%)' : 'PASS (±15%)') : 'OUT OF BAND'}  ` +
-            `mean Cd ${m.meanCd.toFixed(4)} vs ${AHMED_CD_TARGET} [${AHMED_CD_BAND[0]}, ${AHMED_CD_BAND[1]}]`;
+              `mean Cd ${m.meanCd.toFixed(4)} vs ${AHMED_CD_TARGET} [${AHMED_CD_BAND[0]}, ${AHMED_CD_BAND[1]}]`,
+            inBand ? 'ok' : 'bad',
+          );
         }
         break;
       }
@@ -214,8 +216,7 @@ export function mountAhmed(root: HTMLElement): void {
         break;
       case 'error':
         logLine(`ERROR: ${m.message}`);
-        verdict.style.color = '#f85149';
-        verdict.textContent = m.message;
+        setVerdict(m.message, 'bad');
         setRunning(false);
         break;
     }

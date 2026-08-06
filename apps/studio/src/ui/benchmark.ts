@@ -153,6 +153,52 @@ function rowsToMarkdown(rows: BenchRow[], adapter: string, caps: GpuCapabilities
   return lines.join('\n');
 }
 
+const TABLE_COLUMNS = [
+  'grid',
+  'precision',
+  'B/cell',
+  'mem (MB)',
+  'MLUPs',
+  'steps/s',
+  'timed',
+  'source',
+] as const;
+
+function td(text: string, cls?: string): HTMLTableCellElement {
+  const cell = document.createElement('td');
+  cell.textContent = text;
+  if (cls) cell.className = cls;
+  return cell;
+}
+
+function rowToTr(row: BenchRow): HTMLTableRowElement {
+  const tr = document.createElement('tr');
+  if (row.skipped) {
+    tr.append(
+      td(`${row.grid}³`),
+      td(row.precision),
+      td(row.bytesPerCell.toFixed(0)),
+      td(row.totalMB.toFixed(0)),
+      td('—'),
+      td('—'),
+      td('—'),
+      td(`skipped: ${row.skipped}`, 'muted'),
+    );
+  } else {
+    tr.append(
+      td(`${row.grid}³`),
+      td(row.precision),
+      td(row.bytesPerCell.toFixed(0)),
+      td(row.totalMB.toFixed(0)),
+      td(row.mlups.toFixed(0)),
+      td(row.stepsPerSec.toFixed(1)),
+      td(String(row.steps)),
+      td(row.timestamped ? 'timestamp' : 'wall-clock', 'muted'),
+    );
+  }
+  return tr;
+}
+
 /** Mount the benchmark UI (browser dev route ?bench3d). */
 export function mountBenchmark(
   device: GPUDevice,
@@ -160,36 +206,85 @@ export function mountBenchmark(
   adapter: string,
   root: HTMLElement,
 ): void {
-  root.innerHTML = `
-    <h2>AeroFlow — first browser 3D LBM benchmark</h2>
-    <p style="max-width:60ch">D3Q19 Esoteric-Pull stream-collide. Throughput only — no accuracy
-    claims. Prior 3D browser-LBM figures were <em>derived</em>; these are measured. Note your
-    power state (plugged in vs battery) and that browser tab throttling / thermals skew results.</p>
-    <p><b>Adapter:</b> ${adapter}<br>
-       <b>shader-f16:</b> ${caps.hasF16} · <b>timestamp-query:</b> ${caps.hasTimestamp}</p>
-    <button id="run-bench">Run ladder (128³ → 192³ → 256³, FP32 + FP16)</button>
-    <div id="bench-out"></div>`;
-  const out = root.querySelector('#bench-out') as HTMLElement;
-  const btn = root.querySelector('#run-bench') as HTMLButtonElement;
+  root.innerHTML = '';
+  root.classList.add('page');
+
+  const h = document.createElement('h2');
+  h.className = 'page-title';
+  h.textContent = 'AeroFlow — first browser 3D LBM benchmark';
+
+  const sub = document.createElement('p');
+  sub.className = 'subtitle';
+  sub.textContent =
+    'D3Q19 Esoteric-Pull stream-collide. Throughput only — no accuracy claims. Prior 3D ' +
+    'browser-LBM figures were derived; these are measured. Note your power state (plugged ' +
+    'in vs battery) and that browser tab throttling / thermals skew results.';
+
+  const info = document.createElement('p');
+  info.className = 'readout';
+  const adapterLine = document.createElement('div');
+  adapterLine.textContent = `Adapter: ${adapter}`;
+  const capsLine = document.createElement('div');
+  capsLine.className = 'muted';
+  capsLine.textContent = `shader-f16: ${caps.hasF16} · timestamp-query: ${caps.hasTimestamp}`;
+  info.append(adapterLine, capsLine);
+
+  const buttonRow = document.createElement('div');
+  buttonRow.className = 'button-row';
+  const btn = document.createElement('button');
+  btn.id = 'run-bench';
+  btn.textContent = 'Run ladder (128³ → 192³ → 256³, FP32 + FP16)';
+  buttonRow.append(btn);
+
+  const out = document.createElement('div');
+  root.append(h, sub, info, buttonRow, out);
+
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     const rows: BenchRow[] = [];
     hooks().benchRows = rows;
     hooks().benchDone = false;
-    out.innerHTML = '<p>Running… (warm-up + 1000 timed steps per config)</p><pre id="live"></pre>';
-    const live = out.querySelector('#live') as HTMLElement;
+
+    out.innerHTML = '';
+    const status = document.createElement('p');
+    status.className = 'muted';
+    status.textContent = 'Running… (warm-up + 1000 timed steps per config)';
+
+    const table = document.createElement('table');
+    table.className = 'data-table';
+    const thead = document.createElement('thead');
+    const headRow = document.createElement('tr');
+    for (const col of TABLE_COLUMNS) {
+      const th = document.createElement('th');
+      th.textContent = col;
+      headRow.append(th);
+    }
+    thead.append(headRow);
+    const tbody = document.createElement('tbody');
+    table.append(thead, tbody);
+
+    out.append(status, table);
+
     await runBenchmark(device, caps, (row) => {
       rows.push(row);
-      const label = row.skipped
-        ? `${row.grid}³ ${row.precision}: skipped (${row.skipped})`
-        : `${row.grid}³ ${row.precision}: ${row.mlups.toFixed(0)} MLUPs, ${row.stepsPerSec.toFixed(1)} steps/s ` +
-          `(${row.bytesPerCell.toFixed(0)} B/cell, ${row.timestamped ? 'timestamp' : 'wall-clock'})`;
-      live.textContent += label + '\n';
+      tbody.append(rowToTr(row));
     });
+
     const md = rowsToMarkdown(rows, adapter, caps);
     hooks().benchMarkdown = md;
     hooks().benchDone = true;
-    out.innerHTML += `<h3>Copyable results</h3><textarea style="width:100%;height:16em">${md}\n\n${JSON.stringify(rows, null, 2)}</textarea>`;
+    status.textContent = 'Done.';
+
+    const details = document.createElement('details');
+    const summary = document.createElement('summary');
+    summary.textContent = 'Copy for milestone Status';
+    const copyBox = document.createElement('textarea');
+    copyBox.readOnly = true;
+    copyBox.style.cssText = 'width:100%;height:16em';
+    copyBox.value = `${md}\n\n${JSON.stringify(rows, null, 2)}`;
+    details.append(summary, copyBox);
+    out.append(details);
+
     btn.disabled = false;
   });
 }

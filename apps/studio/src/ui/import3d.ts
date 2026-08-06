@@ -53,25 +53,23 @@ const BUDGETS: Record<string, number> = {
 
 export function mountImport3D(device: GPUDevice, caps: GpuCapabilities, root: HTMLElement): void {
   root.innerHTML = '';
-  root.style.cssText =
-    'display:flex;gap:16px;font:13px/1.5 ui-monospace,monospace;color:#e6edf3;padding:16px;' +
-    'align-items:flex-start;flex-wrap:wrap';
+  root.classList.add('import3d-host');
 
   // --- Left column: preview + slice viewer ---
   const left = document.createElement('div');
   left.style.cssText = 'display:flex;flex-direction:column;gap:10px;min-width:480px;flex:1';
   const previewCanvas = document.createElement('canvas');
   previewCanvas.style.cssText =
-    'width:100%;height:360px;background:#0b0e13;border:1px solid #2d333b;border-radius:4px';
+    'width:100%;height:360px;background:var(--panel-inset);border:1px solid var(--border);border-radius:6px';
   const sliceWrap = document.createElement('div');
   sliceWrap.style.cssText = 'display:none;flex-direction:column;gap:4px';
   const sliceCanvas = document.createElement('canvas');
   sliceCanvas.style.cssText =
-    'width:100%;image-rendering:pixelated;border:1px solid #2d333b;border-radius:4px;background:#0b0e13';
+    'width:100%;image-rendering:pixelated;border:1px solid var(--border);border-radius:6px;background:var(--panel-inset)';
   const sliceSlider = document.createElement('input');
   sliceSlider.type = 'range';
   const sliceLabel = document.createElement('span');
-  sliceLabel.style.color = '#8b949e';
+  sliceLabel.className = 'muted';
   sliceWrap.append(sliceCanvas, sliceSlider, sliceLabel);
   left.append(previewCanvas, sliceWrap);
 
@@ -81,13 +79,14 @@ export function mountImport3D(device: GPUDevice, caps: GpuCapabilities, root: HT
   root.append(left, side);
 
   const h = document.createElement('h2');
+  h.className = 'page-title';
   h.textContent = 'M8 — Import a model, read drag in newtons';
-  h.style.margin = '0';
 
   const drop = document.createElement('div');
   drop.textContent = 'Drop an .stl / .glb / .gltf here — or click to pick a file';
+  drop.className = 'muted';
   drop.style.cssText =
-    'border:2px dashed #444c56;border-radius:6px;padding:22px;text-align:center;cursor:pointer;color:#8b949e';
+    'border:2px dashed var(--border);border-radius:6px;padding:22px;text-align:center;cursor:pointer';
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
   fileInput.accept = '.stl,.glb,.gltf';
@@ -95,12 +94,10 @@ export function mountImport3D(device: GPUDevice, caps: GpuCapabilities, root: HT
   fileInput.dataset.testid = 'import-file';
 
   const genRow = document.createElement('div');
-  genRow.style.cssText = 'display:flex;gap:8px;flex-wrap:wrap';
+  genRow.className = 'button-row';
   const mkBtn = (label: string): HTMLButtonElement => {
     const b = document.createElement('button');
     b.textContent = label;
-    b.style.cssText =
-      'padding:6px 10px;background:#21262d;color:#e6edf3;border:1px solid #444c56;border-radius:4px;cursor:pointer';
     return b;
   };
   const genBench = mkBtn('Generate benchmark sphere (1,310,720 tris, D=0.5 m)');
@@ -108,8 +105,8 @@ export function mountImport3D(device: GPUDevice, caps: GpuCapabilities, root: HT
   genRow.append(genBench, genAhmed);
 
   const meshInfo = document.createElement('pre');
-  meshInfo.style.cssText =
-    'background:#0b0e13;border:1px solid #2d333b;border-radius:4px;padding:10px;white-space:pre-wrap;margin:0';
+  meshInfo.className = 'readout';
+  meshInfo.style.margin = '0';
   meshInfo.textContent = 'no model loaded';
   meshInfo.dataset.testid = 'import-mesh-info';
 
@@ -120,15 +117,13 @@ export function mountImport3D(device: GPUDevice, caps: GpuCapabilities, root: HT
   const field = <T extends HTMLElement>(label: string, el: T): T => {
     const lab = document.createElement('label');
     lab.textContent = label;
-    lab.style.color = '#8b949e';
+    lab.className = 'muted';
     form.append(lab, el);
     return el;
   };
   const mkSelect = (options: string[]): HTMLSelectElement => {
     const s = document.createElement('select');
     for (const o of options) s.append(new Option(o, o));
-    s.style.cssText =
-      'background:#21262d;color:#e6edf3;border:1px solid #444c56;border-radius:4px;padding:4px';
     return s;
   };
   const mkNumber = (value: number, step: number): HTMLInputElement => {
@@ -136,8 +131,6 @@ export function mountImport3D(device: GPUDevice, caps: GpuCapabilities, root: HT
     n.type = 'number';
     n.value = String(value);
     n.step = String(step);
-    n.style.cssText =
-      'background:#21262d;color:#e6edf3;border:1px solid #444c56;border-radius:4px;padding:4px';
     return n;
   };
   const unitSel = field('STL unit', mkSelect(Object.keys(UNITS)));
@@ -156,13 +149,14 @@ export function mountImport3D(device: GPUDevice, caps: GpuCapabilities, root: HT
   applyCellsOverride(BUDGETS, budgetSel);
 
   const plan = document.createElement('pre');
-  plan.style.cssText = meshInfo.style.cssText;
+  plan.className = 'readout';
+  plan.style.margin = '0';
   plan.textContent = '—';
   const warnBox = document.createElement('div');
   warnBox.style.cssText = 'display:flex;flex-direction:column;gap:6px';
 
   const runRow = document.createElement('div');
-  runRow.style.cssText = 'display:flex;gap:8px';
+  runRow.className = 'button-row';
   const runBtn = mkBtn('Voxelize + Run');
   runBtn.disabled = true;
   runBtn.dataset.testid = 'import-run';
@@ -172,9 +166,10 @@ export function mountImport3D(device: GPUDevice, caps: GpuCapabilities, root: HT
   runRow.append(runBtn, stopBtn);
 
   const voxInfo = document.createElement('div');
-  voxInfo.style.cssText = 'color:#8b949e';
+  voxInfo.className = 'muted';
   const hud = document.createElement('pre');
-  hud.style.cssText = meshInfo.style.cssText + ';font-size:14px';
+  hud.className = 'readout';
+  hud.style.cssText = 'margin:0;font-size:14px';
   hud.textContent = '';
   const plot = new ForcePlot(400, 160);
 
@@ -298,7 +293,8 @@ export function mountImport3D(device: GPUDevice, caps: GpuCapabilities, root: HT
     warnBox.innerHTML = '';
     for (const w of fit.warnings) {
       const row = document.createElement('div');
-      row.style.cssText = 'color:#d29922;display:flex;gap:8px;align-items:baseline';
+      row.className = 'status-warn';
+      row.style.cssText = 'display:flex;gap:8px;align-items:baseline';
       const msg = document.createElement('span');
       msg.textContent = `⚠ ${w.message}`;
       row.append(msg);
@@ -338,14 +334,14 @@ export function mountImport3D(device: GPUDevice, caps: GpuCapabilities, root: HT
   drop.onclick = () => fileInput.click();
   drop.ondragover = (e) => {
     e.preventDefault();
-    drop.style.borderColor = '#58a6ff';
+    drop.style.borderColor = 'var(--accent)';
   };
   drop.ondragleave = () => {
-    drop.style.borderColor = '#444c56';
+    drop.style.borderColor = 'var(--border)';
   };
   drop.ondrop = (e) => {
     e.preventDefault();
-    drop.style.borderColor = '#444c56';
+    drop.style.borderColor = 'var(--border)';
     const f = e.dataTransfer?.files?.[0];
     if (f) void loadFile(f);
   };

@@ -70,6 +70,7 @@ function addCylinder(sim: Lbm2D): void {
 }
 
 function showFallback(app: HTMLElement, err: unknown): void {
+  app.classList.add('fallback-host');
   const message =
     err instanceof WebGPUUnsupportedError
       ? err.message
@@ -203,6 +204,8 @@ async function boot(): Promise<void> {
     await mount(app, gpu);
     return;
   }
+
+  app.classList.add('playground-host');
 
   const sim = new Lbm2D(gpu.device, NX, NY, {
     omega: 1 / DEFAULTS.tau,

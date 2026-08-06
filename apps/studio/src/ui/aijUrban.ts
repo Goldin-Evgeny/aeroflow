@@ -9,6 +9,17 @@ import type { GpuCapabilities } from '../gpu/context';
 import { hooks } from '../dev/testHooks';
 import { AijUrbanRun, type AijUrbanRunSnapshot } from '../sim/cases/aijUrban';
 
+/** Canvas2D draw colors mirroring style.css's shared tokens (can't reference CSS vars here). */
+const CHART_COLORS = {
+  bg: '#0b0e13', // --panel-inset
+  grid: '#2d333b', // --border
+  muted: '#9aa4af', // --muted
+  reference: '#e6edf3', // --text
+  band: 'rgba(63, 185, 80, 0.09)', // --ok, low opacity
+  hit: '#3fb950', // --ok
+  miss: '#f85149', // --bad
+};
+
 const NOMINAL_CELLS = 384 * 384 * 128;
 const DIRECTIONS: Record<AijUrbanCaseId, number[]> = {
   C: [270, 247.5, 225],
@@ -55,7 +66,7 @@ function drawScatter(canvas: HTMLCanvasElement, report: AijUrbanReport | null): 
   const margin = { left: 62, right: 24, top: 24, bottom: 52 };
   const plotWidth = width - margin.left - margin.right;
   const plotHeight = height - margin.top - margin.bottom;
-  context.fillStyle = '#10161b';
+  context.fillStyle = CHART_COLORS.bg;
   context.fillRect(0, 0, width, height);
 
   const rows = report?.rows ?? [];
@@ -68,21 +79,21 @@ function drawScatter(canvas: HTMLCanvasElement, report: AijUrbanReport | null): 
   context.lineWidth = 1;
   for (let index = 0; index <= 5; index++) {
     const value = (limit * index) / 5;
-    context.strokeStyle = '#27343b';
+    context.strokeStyle = CHART_COLORS.grid;
     context.beginPath();
     context.moveTo(x(value), margin.top);
     context.lineTo(x(value), height - margin.bottom);
     context.moveTo(margin.left, y(value));
     context.lineTo(width - margin.right, y(value));
     context.stroke();
-    context.fillStyle = '#84939a';
+    context.fillStyle = CHART_COLORS.muted;
     context.textAlign = 'center';
     context.fillText(value.toFixed(1), x(value), height - margin.bottom + 20);
     context.textAlign = 'right';
     context.fillText(value.toFixed(1), margin.left - 10, y(value) + 4);
   }
 
-  context.fillStyle = 'rgba(50, 196, 141, 0.09)';
+  context.fillStyle = CHART_COLORS.band;
   context.beginPath();
   context.moveTo(x(0), y(0.25));
   context.lineTo(x(Math.max(0, limit - 0.25)), y(limit));
@@ -90,7 +101,7 @@ function drawScatter(canvas: HTMLCanvasElement, report: AijUrbanReport | null): 
   context.lineTo(x(0.25), y(0));
   context.closePath();
   context.fill();
-  context.strokeStyle = '#cad8dc';
+  context.strokeStyle = CHART_COLORS.reference;
   context.lineWidth = 1.5;
   context.beginPath();
   context.moveTo(x(0), y(0));
@@ -98,12 +109,12 @@ function drawScatter(canvas: HTMLCanvasElement, report: AijUrbanReport | null): 
   context.stroke();
 
   for (const row of rows) {
-    context.fillStyle = row.hit ? '#32c48d' : '#f06f52';
+    context.fillStyle = row.hit ? CHART_COLORS.hit : CHART_COLORS.miss;
     context.beginPath();
     context.arc(x(row.measured), y(row.simulated), 3.5, 0, 2 * Math.PI);
     context.fill();
   }
-  context.fillStyle = '#aebbc0';
+  context.fillStyle = CHART_COLORS.muted;
   context.textAlign = 'center';
   context.fillText('MEASURED U / Uref', margin.left + plotWidth / 2, height - 14);
   context.save();
@@ -112,7 +123,7 @@ function drawScatter(canvas: HTMLCanvasElement, report: AijUrbanReport | null): 
   context.fillText('SIMULATED U / Uref', 0, 0);
   context.restore();
   if (rows.length === 0) {
-    context.fillStyle = '#84939a';
+    context.fillStyle = CHART_COLORS.muted;
     context.font = '14px ui-monospace, monospace';
     context.fillText(
       'Awaiting time-averaged probe evidence',

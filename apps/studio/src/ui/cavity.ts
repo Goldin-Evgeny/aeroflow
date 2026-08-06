@@ -169,23 +169,24 @@ export function mountCavity(device: GPUDevice, root: HTMLElement): void {
   const diagnostic = params.get('diagnostic') === '1';
   const overridden = Number.isFinite(hOverride) && hOverride > 0;
 
+  root.classList.add('page');
   root.innerHTML = `
-    <h2>M3 — lid-driven cavity vs Ghia, Ghia &amp; Shin (1982)</h2>
-    <p style="max-width:72ch">Validation harness. Each case runs the shared cavity scene
+    <h2 class="page-title">M3 — lid-driven cavity vs Ghia, Ghia &amp; Shin (1982)</h2>
+    <p class="subtitle">Validation harness. Each case runs the shared cavity scene
     (TRT, Λ=3/16, u<sub>lid</sub>=0.1) to the documented residual criterion, then compares both
     centrelines against the published 17-point tables. Convergence is decided by the residual
     alone — the flow looks steady long before the extrema settle.</p>
     ${
       overridden
-        ? `<p style="color:#b60"><b>Grid override active (H=${hOverride}).</b> This is a
+        ? `<p class="callout status-warn"><b>Grid override active (H=${hOverride}).</b> This is a
            plumbing run, not an acceptance run: the ±1.5 % / ±2 % bars are statements about
            256² and 512² respectively.</p>`
         : ''
     }
-    ${diagnostic ? `<p><b>Long-run diagnostic:</b> H10 ${regularize ? 'on' : 'off'}, H13 ${conserveMass ? 'on' : 'off'}; fixed checkpoints record u_min and mass drift.</p>` : ''}
-    <div id="cavity-buttons"></div>
-    <pre id="cavity-out" style="white-space:pre-wrap"></pre>
-    <div id="cavity-plots" style="display:flex;gap:12px;flex-wrap:wrap"></div>`;
+    ${diagnostic ? `<p class="muted"><b>Long-run diagnostic:</b> H10 ${regularize ? 'on' : 'off'}, H13 ${conserveMass ? 'on' : 'off'}; fixed checkpoints record u_min and mass drift.</p>` : ''}
+    <div id="cavity-buttons" class="button-row"></div>
+    <pre id="cavity-out" class="readout"></pre>
+    <div id="cavity-plots" style="display:flex;gap:var(--space-md);flex-wrap:wrap;margin-top:var(--space-md)"></div>`;
 
   const out = root.querySelector('#cavity-out') as HTMLElement;
   const plots = root.querySelector('#cavity-plots') as HTMLElement;
@@ -196,7 +197,6 @@ export function mountCavity(device: GPUDevice, root: HTMLElement): void {
     const H = overridden ? hOverride : c.H;
     btn.textContent = overridden ? `${c.label} — overridden to ${H}²` : `Run ${c.label}`;
     btn.dataset.testid = c.testId;
-    btn.style.marginRight = '8px';
     btn.addEventListener('click', async () => {
       for (const b of buttons.querySelectorAll('button')) b.disabled = true;
       const h = hooks();
@@ -244,7 +244,7 @@ export function mountCavity(device: GPUDevice, root: HTMLElement): void {
           const cv = document.createElement('canvas');
           cv.width = w;
           cv.height = hgt;
-          cv.style.border = '1px solid #ccc';
+          cv.style.border = '1px solid var(--border)';
           plots.append(cv);
           return cv;
         };

@@ -27,17 +27,18 @@ import { deviceBindingCap } from '../gpu/ddfLayout';
  * the acceptance runs use ≥16 on real GPUs).
  */
 
-const COLORS = { bg: '#0b0e13', border: '#2d333b', dim: '#8b949e', ok: '#3fb950', bad: '#f85149' };
+/** Backing colors for the ABL preview canvas (Canvas2D can't reference CSS custom properties). */
+const CANVAS_COLORS = { bg: '#0b0e13', dim: '#8b949e' };
 
 export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLElement): void {
   root.innerHTML = '';
-  root.style.cssText =
-    'font:13px/1.5 ui-monospace,monospace;color:#e6edf3;padding:16px;max-width:900px';
+  root.classList.add('page');
 
   const h = document.createElement('h2');
+  h.className = 'page-title';
   h.textContent = 'M10 — ABL wind tunnel: AIJ Case A (1:1:2 building)';
   const sub = document.createElement('p');
-  sub.style.color = COLORS.dim;
+  sub.className = 'subtitle';
   sub.textContent =
     'VDI 3783/9 gates: hit rate q ≥ 0.66 (allowed 0.25), Pearson r ≥ 0.70 on time-averaged ' +
     'mean speeds; empty-domain fetch ≤ 5%. Screening-grade LES, never compliance-grade.';
@@ -45,7 +46,7 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
 
   if (AIJ_FIXTURE.synthetic) {
     const warn = document.createElement('p');
-    warn.style.cssText = 'color:#d29922;border:1px solid #d29922;border-radius:4px;padding:8px';
+    warn.className = 'callout status-warn';
     warn.dataset.testid = 'aij-synthetic-warning';
     warn.textContent =
       'SYNTHETIC fixture loaded — the AIJ download page needs a real browser (WAF). Runs below ' +
@@ -54,13 +55,11 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
   }
 
   const controls = document.createElement('div');
-  controls.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin:12px 0;align-items:center';
+  controls.className = 'button-row';
   const mkBtn = (label: string, testid: string): HTMLButtonElement => {
     const b = document.createElement('button');
     b.textContent = label;
     b.dataset.testid = testid;
-    b.style.cssText =
-      'padding:6px 10px;background:#21262d;color:#e6edf3;border:1px solid #444c56;border-radius:4px;cursor:pointer';
     controls.append(b);
     return b;
   };
@@ -71,8 +70,6 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
   stopBtn.disabled = true;
 
   const bSel = document.createElement('select');
-  bSel.style.cssText =
-    'background:#21262d;color:#e6edf3;border:1px solid #444c56;border-radius:4px;padding:5px';
   for (const b of [16, 24, 32]) bSel.append(new Option(`${b} cells / b`, String(b)));
   const bOverride = Number(new URLSearchParams(location.search).get('b'));
   if (Number.isFinite(bOverride) && bOverride > 0) {
@@ -84,7 +81,9 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
 
   // Demo controls (acceptance 5): wind dial + ABL editor with a live preview plot.
   const demoBox = document.createElement('div');
-  demoBox.style.cssText = `border:1px solid ${COLORS.border};border-radius:4px;padding:10px;margin-bottom:12px;display:flex;flex-wrap:wrap;gap:14px;align-items:center`;
+  demoBox.className = 'panel';
+  demoBox.style.cssText =
+    'margin-bottom:var(--space-md);display:flex;flex-wrap:wrap;gap:14px;align-items:center';
   const dial = document.createElement('input');
   dial.type = 'range';
   dial.min = '0';
@@ -92,7 +91,7 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
   dial.value = '0';
   dial.dataset.testid = 'aij-dial';
   const dialLabel = document.createElement('label');
-  dialLabel.style.color = COLORS.dim;
+  dialLabel.className = 'muted';
   dialLabel.append('wind ', dial);
   const dialDeg = document.createElement('span');
   dialDeg.textContent = '0°';
@@ -107,7 +106,7 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
     i.value = String(v);
     i.step = step;
     i.dataset.testid = testid;
-    i.style.cssText = 'width:64px;background:#21262d;color:#e6edf3;border:1px solid #444c56';
+    i.style.width = '64px';
     return i;
   };
   const alphaIn = num(0.25, '0.05', 'aij-alpha');
@@ -116,14 +115,14 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
   const zRefIn = num(10, '1', 'aij-zref');
   const lbl = (text: string, el: HTMLElement): HTMLLabelElement => {
     const l = document.createElement('label');
-    l.style.color = COLORS.dim;
+    l.className = 'muted';
     l.append(`${text} `, el);
     return l;
   };
   const preview = document.createElement('canvas');
   preview.width = 180;
   preview.height = 120;
-  preview.style.cssText = `background:${COLORS.bg};border:1px solid ${COLORS.border}`;
+  preview.style.cssText = 'background:var(--panel-inset);border:1px solid var(--border)';
   demoBox.append(
     dialLabel,
     lbl('profile', kindSel),
@@ -147,7 +146,7 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
   const drawPreview = (): void => {
     const ctx = preview.getContext('2d')!;
     const { width: w, height: hh } = preview;
-    ctx.fillStyle = COLORS.bg;
+    ctx.fillStyle = CANVAS_COLORS.bg;
     ctx.fillRect(0, 0, w, hh);
     const s = spec();
     const zMax = 3 * s.zRef;
@@ -171,7 +170,7 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
       else ctx.lineTo(px, py);
     }
     ctx.stroke();
-    ctx.fillStyle = COLORS.dim;
+    ctx.fillStyle = CANVAS_COLORS.dim;
     ctx.fillText(`u(z) 0…${uMax.toFixed(1)} m/s, z 0…${zMax.toFixed(0)} m`, 6, 12);
     hooks().aij = { ...(hooks().aij ?? {}), previewUMax: uMax };
   };
@@ -188,15 +187,19 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
   });
 
   const info = document.createElement('pre');
-  info.style.cssText = `background:${COLORS.bg};border:1px solid ${COLORS.border};border-radius:4px;padding:10px;white-space:pre-wrap`;
+  info.className = 'readout';
   info.textContent = 'idle — pick a run';
   const verdict = document.createElement('div');
-  verdict.style.cssText = 'margin:10px 0;font-size:15px;font-weight:bold';
+  verdict.className = 'verdict';
   verdict.dataset.testid = 'aij-verdict';
+  const setVerdict = (text: string, status: 'ok' | 'bad' | 'warn' | 'muted'): void => {
+    verdict.className = status === 'muted' ? 'verdict muted' : `verdict status-${status}`;
+    verdict.textContent = text;
+  };
   const slice = document.createElement('canvas');
-  slice.style.cssText = `image-rendering:pixelated;border:1px solid ${COLORS.border};max-width:100%`;
+  slice.style.cssText = 'image-rendering:pixelated;border:1px solid var(--border);max-width:100%';
   const table = document.createElement('pre');
-  table.style.cssText = info.style.cssText;
+  table.className = 'readout';
   root.append(info, verdict, slice, table);
 
   // AIJ allows redistribution of the derived Case A fixture on condition that users are
@@ -205,9 +208,12 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
   const attribution = AIJ_FIXTURE.attribution;
   if (attribution) {
     const credit = document.createElement('footer');
-    credit.style.cssText = `margin-top:14px;padding-top:10px;border-top:1px solid ${COLORS.border};color:${COLORS.dim};font-size:11px;overflow-wrap:anywhere`;
+    credit.className = 'muted';
+    credit.style.cssText =
+      'margin-top:var(--space-lg);padding-top:var(--space-sm);border-top:1px solid var(--border);font-size:11px';
     credit.dataset.testid = 'aij-attribution';
     const cite = document.createElement('p');
+    cite.style.overflowWrap = 'break-word';
     cite.textContent = `Cite: ${formatAijCitation(attribution)}`;
     const warranty = document.createElement('p');
     warranty.textContent = attribution.disclaimer;
@@ -335,18 +341,23 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
             .join('\n');
         const pass = q >= CASE_A_GATES.q && rr >= CASE_A_GATES.r;
         if (run.synthetic) {
-          verdict.style.color = '#d29922';
-          verdict.textContent = `SYNTHETIC pipeline check — q ${q.toFixed(3)}, r ${rr.toFixed(3)} (no verdict on fake data)`;
+          setVerdict(
+            `SYNTHETIC pipeline check — q ${q.toFixed(3)}, r ${rr.toFixed(3)} (no verdict on fake data)`,
+            'warn',
+          );
         } else if (run.underResolved) {
           // Real data, but below the spec's ≥16 cells/b: a number, never a verdict.
-          verdict.style.color = '#d29922';
-          verdict.textContent = `UNDER-RESOLVED pipeline check (${MIN_CELLS_PER_B} cells/b required) — q ${q.toFixed(3)}, r ${rr.toFixed(3)} (no verdict)`;
+          setVerdict(
+            `UNDER-RESOLVED pipeline check (${MIN_CELLS_PER_B} cells/b required) — q ${q.toFixed(3)}, r ${rr.toFixed(3)} (no verdict)`,
+            'warn',
+          );
         } else if (r.steady) {
-          verdict.style.color = pass ? COLORS.ok : COLORS.bad;
-          verdict.textContent = `${pass ? 'PASS' : 'FAIL'}  q ${q.toFixed(3)} (gate ≥ ${CASE_A_GATES.q})   r ${rr.toFixed(3)} (gate ≥ ${CASE_A_GATES.r})`;
+          setVerdict(
+            `${pass ? 'PASS' : 'FAIL'}  q ${q.toFixed(3)} (gate ≥ ${CASE_A_GATES.q})   r ${rr.toFixed(3)} (gate ≥ ${CASE_A_GATES.r})`,
+            pass ? 'ok' : 'bad',
+          );
         } else {
-          verdict.style.color = COLORS.dim;
-          verdict.textContent = `q ${q.toFixed(3)}   r ${rr.toFixed(3)} (not steady yet — no verdict)`;
+          setVerdict(`q ${q.toFixed(3)}   r ${rr.toFixed(3)} (not steady yet — no verdict)`, 'muted');
         }
       } else if (m === 'fetch' && r.fetch) {
         table.textContent =
@@ -358,11 +369,12 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
             })
             .join('\n');
         if (r.steady) {
-          verdict.style.color = r.fetch.pass ? COLORS.ok : COLORS.bad;
-          verdict.textContent = `${r.fetch.pass ? 'PASS' : 'FAIL'}  max deviation ${(r.fetch.maxRel * 100).toFixed(2)}% (gate ≤ 5%, node 2 → H)`;
+          setVerdict(
+            `${r.fetch.pass ? 'PASS' : 'FAIL'}  max deviation ${(r.fetch.maxRel * 100).toFixed(2)}% (gate ≤ 5%, node 2 → H)`,
+            r.fetch.pass ? 'ok' : 'bad',
+          );
         } else {
-          verdict.style.color = COLORS.dim;
-          verdict.textContent = `max deviation ${(r.fetch.maxRel * 100).toFixed(2)}% (not steady yet)`;
+          setVerdict(`max deviation ${(r.fetch.maxRel * 100).toFixed(2)}% (not steady yet)`, 'muted');
         }
       }
       info.textContent = info.textContent.split('\n').slice(0, 4).join('\n') + '\n' + head;

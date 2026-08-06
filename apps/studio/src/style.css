@@ -2,10 +2,20 @@
   color-scheme: dark;
   --bg: #0e1116;
   --panel: #161b22;
+  --panel-inset: #0b0e13;
   --border: #2d333b;
   --text: #e6edf3;
   --muted: #9aa4af;
   --accent: #4dabf7;
+  --ok: #3fb950;
+  --bad: #f85149;
+  --warn: #d29922;
+  --font-mono: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
   font-family:
     system-ui,
     -apple-system,
@@ -24,9 +34,124 @@ body {
   color: var(--text);
 }
 
-#app {
+/*
+ * #app intentionally carries no default layout. Every route mounts into #app directly
+ * and must opt into its own layout by adding a host class (demo3d-host, urban-host,
+ * playground-host, fallback-host, import3d-host) or the shared `.page` container
+ * below — #app itself must never again impose flex/grid on whatever a route appends.
+ */
+
+.playground-host,
+.fallback-host {
   display: flex;
   min-height: 100vh;
+}
+
+/* Shared page scaffold for the simpler validation/dev pages (bench3d, aij, cavity,
+   spheredrag, ahmed). Anything denser than a single scrolling column (import3d,
+   urban) uses its own host class instead. */
+.page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: var(--space-lg);
+  font: 13px/1.5 var(--font-mono);
+  color: var(--text);
+}
+
+.page-title {
+  margin: 0 0 var(--space-xs);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.subtitle {
+  margin: 0 0 var(--space-md);
+  max-width: 72ch;
+  color: var(--muted);
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: var(--space-md);
+}
+
+.readout {
+  background: var(--panel-inset);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: var(--space-md);
+  margin: 0;
+  white-space: pre-wrap;
+  font: 13px/1.5 var(--font-mono);
+  color: var(--text);
+}
+
+.button-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: var(--space-md) 0;
+}
+
+.verdict {
+  margin: var(--space-md) 0 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.status-ok {
+  color: var(--ok);
+}
+
+.status-bad {
+  color: var(--bad);
+}
+
+.status-warn {
+  color: var(--warn);
+}
+
+.callout {
+  border: 1px solid currentcolor;
+  border-radius: 6px;
+  padding: var(--space-sm) var(--space-md);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: 12px/1.4 var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table th,
+.data-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+}
+
+.data-table th:first-child,
+.data-table td:first-child {
+  text-align: left;
+}
+
+.import3d-host {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  font: 13px/1.5 var(--font-mono);
+  color: var(--text);
 }
 
 .canvas-wrap {
@@ -119,7 +244,8 @@ body {
 }
 
 button,
-select {
+select,
+input[type='number'] {
   background: #21262d;
   color: var(--text);
   border: 1px solid var(--border);
@@ -127,6 +253,10 @@ select {
   padding: 6px 10px;
   font-size: 13px;
   cursor: pointer;
+}
+
+input[type='number'] {
+  cursor: text;
 }
 
 button:hover {
@@ -203,9 +333,7 @@ details pre {
 .urban-host {
   display: block !important;
   min-width: 0;
-  background:
-    linear-gradient(135deg, rgba(45, 154, 138, 0.08), transparent 34%),
-    repeating-linear-gradient(90deg, transparent 0 79px, rgba(255, 255, 255, 0.018) 80px), #0b1014;
+  background: var(--bg);
 }
 
 .urban-workbench {
@@ -213,8 +341,8 @@ details pre {
   min-height: 100vh;
   margin: 0 auto;
   padding: 24px clamp(16px, 3vw, 44px) 30px;
-  color: #e8eeef;
-  font-family: 'Segoe UI', 'Helvetica Neue', sans-serif;
+  color: var(--text);
+  font-family: var(--font-mono);
 }
 
 .urban-header {
@@ -223,21 +351,20 @@ details pre {
   justify-content: space-between;
   gap: 24px;
   padding-bottom: 18px;
-  border-bottom: 1px solid #304047;
+  border-bottom: 1px solid var(--border);
 }
 
 .urban-header h1 {
   margin: 3px 0 4px;
-  font-family: Georgia, 'Times New Roman', serif;
+  font-family: var(--font-mono);
   font-size: clamp(28px, 4vw, 46px);
   font-weight: 500;
-  letter-spacing: 0;
 }
 
 .urban-header p {
   max-width: 720px;
   margin: 0;
-  color: #9aabb1;
+  color: var(--muted);
   font-size: 14px;
 }
 
@@ -245,8 +372,8 @@ details pre {
 .urban-label,
 .urban-metrics dt,
 .urban-table-panel th {
-  color: #7f9299;
-  font-family: ui-monospace, 'SFMono-Regular', Consolas, monospace;
+  color: var(--muted);
+  font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -255,11 +382,9 @@ details pre {
 .urban-badge {
   flex: none;
   padding: 8px 10px;
-  border: 1px solid #3b9b82;
-  color: #62d4ae;
-  font:
-    11px ui-monospace,
-    monospace;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font: 11px var(--font-mono);
 }
 
 .urban-controls {
@@ -268,7 +393,7 @@ details pre {
   gap: 12px;
   align-items: end;
   padding: 18px 0;
-  border-bottom: 1px solid #304047;
+  border-bottom: 1px solid var(--border);
 }
 
 .urban-field {
@@ -282,10 +407,10 @@ details pre {
 .urban-segment button,
 .urban-actions button {
   height: 38px;
-  border-color: #3a4b52;
-  border-radius: 3px;
-  background: #141c21;
-  color: #dfe8ea;
+  border-color: var(--border);
+  border-radius: 6px;
+  background: var(--panel-inset);
+  color: var(--text);
 }
 
 .urban-field select {
@@ -298,18 +423,19 @@ details pre {
 }
 
 .urban-segment button:first-child {
-  border-radius: 3px 0 0 3px;
+  border-radius: 6px 0 0 6px;
 }
 
 .urban-segment button:last-child {
   border-left: 0;
-  border-radius: 0 3px 3px 0;
+  border-radius: 0 6px 6px 0;
 }
 
 .urban-segment button[aria-pressed='true'] {
-  background: #1c645b;
-  border-color: #42a995;
-  color: #f3fffb;
+  background: #1e2530;
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
 }
 
 .urban-actions {
@@ -326,9 +452,9 @@ details pre {
 }
 
 .urban-actions .urban-primary {
-  background: #d6e6e3;
-  border-color: #d6e6e3;
-  color: #10201e;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--panel-inset);
   font-weight: 700;
 }
 
@@ -360,10 +486,8 @@ details pre {
 
 .urban-status-copy span {
   overflow: hidden;
-  color: #84969d;
-  font:
-    11px ui-monospace,
-    monospace;
+  color: var(--muted);
+  font: 11px var(--font-mono);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -371,14 +495,14 @@ details pre {
 .urban-progress {
   height: 5px;
   overflow: hidden;
-  background: #263139;
+  background: var(--border);
 }
 
 .urban-progress span {
   display: block;
   width: 0;
   height: 100%;
-  background: linear-gradient(90deg, #35aa91, #e7b04a);
+  background: linear-gradient(90deg, var(--accent), var(--warn));
   transition: width 180ms ease-out;
 }
 
@@ -386,13 +510,13 @@ details pre {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   margin: 0;
-  border-block: 1px solid #304047;
+  border-block: 1px solid var(--border);
 }
 
 .urban-metrics div {
   min-width: 0;
   padding: 13px 14px;
-  border-right: 1px solid #304047;
+  border-right: 1px solid var(--border);
 }
 
 .urban-metrics div:first-child {
@@ -406,25 +530,23 @@ details pre {
 .urban-metrics dd {
   overflow: hidden;
   margin: 5px 0 0;
-  color: #eef4f5;
-  font:
-    14px ui-monospace,
-    monospace;
+  color: var(--text);
+  font: 14px var(--font-mono);
   text-overflow: ellipsis;
 }
 
 .urban-metrics dd.urban-pass,
 .urban-hit td:last-child {
-  color: #54d4a5;
+  color: var(--ok);
 }
 
 .urban-metrics dd.urban-fail,
 .urban-miss td:last-child {
-  color: #f08367;
+  color: var(--bad);
 }
 
 .urban-metrics dd.urban-suppressed {
-  color: #e7b04a;
+  color: var(--warn);
 }
 
 .urban-resolution {
@@ -433,8 +555,8 @@ details pre {
   gap: 5px 18px;
   margin-top: 16px;
   padding: 13px 15px;
-  border-left: 3px solid #e7b04a;
-  background: rgba(231, 176, 74, 0.08);
+  border-left: 3px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
 }
 
 .urban-resolution[hidden] {
@@ -442,12 +564,12 @@ details pre {
 }
 
 .urban-resolution strong {
-  color: #f0c96f;
+  color: var(--warn);
 }
 
 .urban-resolution span,
 .urban-resolution li {
-  color: #aab7bb;
+  color: var(--muted);
   font-size: 12px;
 }
 
@@ -462,11 +584,11 @@ details pre {
 }
 
 .urban-resolution .urban-check-pass {
-  color: #67c9a9;
+  color: var(--ok);
 }
 
 .urban-resolution .urban-check-fail {
-  color: #f0a06f;
+  color: var(--bad);
 }
 
 .urban-evidence {
@@ -474,7 +596,7 @@ details pre {
   grid-template-columns: minmax(420px, 1.05fr) minmax(440px, 0.95fr);
   min-height: 500px;
   margin-top: 22px;
-  border-block: 1px solid #304047;
+  border-block: 1px solid var(--border);
 }
 
 .urban-scatter,
@@ -485,7 +607,7 @@ details pre {
 }
 
 .urban-scatter {
-  border-right: 1px solid #304047;
+  border-right: 1px solid var(--border);
 }
 
 .urban-table-panel {
@@ -505,17 +627,15 @@ details pre {
 .urban-scatter h2,
 .urban-table-heading h2 {
   margin: 0;
-  font-family: Georgia, 'Times New Roman', serif;
+  font-family: var(--font-mono);
   font-size: 19px;
   font-weight: 500;
 }
 
 .urban-scatter figcaption span,
 .urban-table-heading span {
-  color: #819299;
-  font:
-    11px ui-monospace,
-    monospace;
+  color: var(--muted);
+  font: 11px var(--font-mono);
 }
 
 .urban-scatter canvas {
@@ -523,28 +643,26 @@ details pre {
   width: 100%;
   height: auto;
   aspect-ratio: 16 / 11;
-  border: 1px solid #304047;
+  border: 1px solid var(--border);
 }
 
 .urban-table-scroll {
   max-height: 440px;
   overflow: auto;
-  border-top: 1px solid #304047;
+  border-top: 1px solid var(--border);
 }
 
 .urban-table-panel table {
   width: 100%;
   border-collapse: collapse;
-  font:
-    12px ui-monospace,
-    monospace;
+  font: 12px var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
 .urban-table-panel th,
 .urban-table-panel td {
   padding: 9px 8px;
-  border-bottom: 1px solid #243138;
+  border-bottom: 1px solid var(--border);
   text-align: right;
 }
 
@@ -557,22 +675,20 @@ details pre {
   position: sticky;
   z-index: 1;
   top: 0;
-  background: #0b1014;
+  background: var(--bg);
 }
 
 .urban-provenance {
   display: flex;
   gap: 16px;
   padding-top: 14px;
-  color: #768991;
-  font:
-    11px ui-monospace,
-    monospace;
+  color: var(--muted);
+  font: 11px var(--font-mono);
 }
 
 .urban-provenance strong {
   flex: none;
-  color: #9babb0;
+  color: var(--muted);
 }
 
 /* Run provenance, the AIJ citation and AIJ's disclaimer stack under one label. */
@@ -586,7 +702,7 @@ details pre {
 
 .urban-citation,
 .urban-disclaimer {
-  color: #61737a;
+  color: var(--muted);
 }
 
 @media (max-width: 1100px) {
@@ -601,7 +717,7 @@ details pre {
   }
   .urban-scatter {
     border-right: 0;
-    border-bottom: 1px solid #304047;
+    border-bottom: 1px solid var(--border);
   }
   .urban-table-panel {
     padding-left: 0;
@@ -609,7 +725,7 @@ details pre {
 }
 
 @media (max-width: 800px) {
-  #app {
+  .playground-host {
     flex-direction: column;
   }
   .sidebar {
@@ -640,7 +756,7 @@ details pre {
   .urban-metrics div,
   .urban-metrics div:first-child {
     padding: 11px 8px;
-    border-bottom: 1px solid #304047;
+    border-bottom: 1px solid var(--border);
   }
   .urban-resolution ul {
     display: block;

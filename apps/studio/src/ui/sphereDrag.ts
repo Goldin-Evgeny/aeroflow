@@ -23,8 +23,7 @@ const CASE_ORDER: SphereCaseName[] = ['Re100', 'Re1000', 'Re10000'];
 
 export function mountSphereDrag(device: GPUDevice, caps: GpuCapabilities, root: HTMLElement): void {
   root.innerHTML = '';
-  root.style.cssText =
-    'font:13px/1.5 ui-monospace,monospace;color:#e6edf3;padding:16px;max-width:760px';
+  root.classList.add('page');
 
   // e2e overrides (spheredrag.gpu.spec.ts): `?tc=N` lengthens the run for drift/A/B
   // confirmation; `?lateral=freeslip` swaps the far field to H11 free-slip (the Re=10⁴
@@ -39,9 +38,10 @@ export function mountSphereDrag(device: GPUDevice, caps: GpuCapabilities, root: 
   let runId = 0;
 
   const h = document.createElement('h2');
+  h.className = 'page-title';
   h.textContent = 'M7 — Sphere drag ladder';
   const sub = document.createElement('p');
-  sub.style.color = '#8b949e';
+  sub.className = 'subtitle';
   const lateralLabel =
     lateralBC === 'freeslip'
       ? 'H11 free-slip (specular reflection, no confinement)'
@@ -55,15 +55,18 @@ export function mountSphereDrag(device: GPUDevice, caps: GpuCapabilities, root: 
     (caps.hasF16 ? 'shader-f16 available.' : 'shader-f16 NOT granted — A/B disabled.');
 
   const controls = document.createElement('div');
-  controls.style.cssText = 'display:flex;flex-wrap:wrap;gap:8px;margin:12px 0';
+  controls.className = 'button-row';
 
   const info = document.createElement('pre');
-  info.style.cssText =
-    'background:#0b0e13;border:1px solid #2d333b;border-radius:4px;padding:10px;white-space:pre-wrap';
+  info.className = 'readout';
 
   const plot = new ForcePlot(560, 200);
   const verdict = document.createElement('div');
-  verdict.style.cssText = 'margin-top:10px;font-size:15px;font-weight:bold';
+  verdict.className = 'verdict';
+  const setVerdict = (text: string, status: 'ok' | 'bad' | 'warn' | 'muted'): void => {
+    verdict.className = status === 'muted' ? 'verdict muted' : `verdict status-${status}`;
+    verdict.textContent = text;
+  };
 
   root.append(h, sub, controls, info, plot.element, verdict);
 
@@ -91,8 +94,6 @@ export function mountSphereDrag(device: GPUDevice, caps: GpuCapabilities, root: 
     const btn = document.createElement('button');
     btn.textContent = label;
     if (testId) btn.setAttribute('data-testid', testId);
-    btn.style.cssText =
-      'padding:6px 10px;background:#21262d;color:#e6edf3;border:1px solid #444c56;border-radius:4px;cursor:pointer';
     btn.onclick = fn;
     controls.append(btn);
     buttons.push(btn);
@@ -123,16 +124,19 @@ export function mountSphereDrag(device: GPUDevice, caps: GpuCapabilities, root: 
         onSample: ({ cd, meanCd, fy, fz }) => {
           plot.push(cd, meanCd);
           plot.setReadouts({ meanCd, clAmplitude: NaN, st: null, periods: 0 });
-          verdict.style.color = '#8b949e';
-          verdict.textContent = `Cd(t)=${cd.toFixed(4)}  running mean=${meanCd.toFixed(4)}  Fy=${fy.toExponential(2)} Fz=${fz.toExponential(2)}`;
+          setVerdict(
+            `Cd(t)=${cd.toFixed(4)}  running mean=${meanCd.toFixed(4)}  Fy=${fy.toExponential(2)} Fz=${fz.toExponential(2)}`,
+            'muted',
+          );
         },
         shouldStop: () => stop,
       });
       if (res.diverged) {
-        verdict.style.color = '#f85149';
-        verdict.textContent =
+        setVerdict(
           `DIVERGED at step ${res.lastStep} — solver went non-finite (near-floor τ Mach ` +
-          `instability). Raise D or u, or enable regularization/LES for this case.`;
+            `instability). Raise D or u, or enable regularization/LES for this case.`,
+          'bad',
+        );
         hooks().sphereDrag = {
           runId: id,
           case: name,
@@ -166,15 +170,15 @@ export function mountSphereDrag(device: GPUDevice, caps: GpuCapabilities, root: 
         band: t.band,
         inBand,
       };
-      verdict.style.color = pass ? '#3fb950' : '#f85149';
-      verdict.textContent =
+      setVerdict(
         `${pass ? 'PASS' : 'FAIL'}  mean Cd=${cd.toFixed(4)}  target ${t.target} [${t.band[0]}, ${t.band[1]}]  ` +
-        `drift=${(res.stats.runningMeanDrift * 100).toFixed(2)}%  ` +
-        `|Fy|=${res.meanAbsFy.toExponential(2)} |Fz|=${res.meanAbsFz.toExponential(2)}  ` +
-        `(${res.stats.samples} samples, ${res.totalSteps} steps)`;
+          `drift=${(res.stats.runningMeanDrift * 100).toFixed(2)}%  ` +
+          `|Fy|=${res.meanAbsFy.toExponential(2)} |Fz|=${res.meanAbsFz.toExponential(2)}  ` +
+          `(${res.stats.samples} samples, ${res.totalSteps} steps)`,
+        pass ? 'ok' : 'bad',
+      );
     } catch (e) {
-      verdict.style.color = '#f85149';
-      verdict.textContent = `error: ${String(e)}`;
+      setVerdict(`error: ${String(e)}`, 'bad');
     } finally {
       setBusy(false);
     }
@@ -224,17 +228,19 @@ export function mountSphereDrag(device: GPUDevice, caps: GpuCapabilities, root: 
         abPass: ab.pass,
       };
       if (diverged) {
-        verdict.style.color = '#f85149';
-        verdict.textContent = `A/B DIVERGED (fp32 ${ab.fp32.diverged ? 'diverged' : 'ok'}, fp16 ${ab.fp16.diverged ? 'diverged' : 'ok'})`;
+        setVerdict(
+          `A/B DIVERGED (fp32 ${ab.fp32.diverged ? 'diverged' : 'ok'}, fp16 ${ab.fp16.diverged ? 'diverged' : 'ok'})`,
+          'bad',
+        );
         return;
       }
-      verdict.style.color = ab.pass ? '#3fb950' : '#f85149';
-      verdict.textContent =
+      setVerdict(
         `A/B ${ab.pass ? 'PASS' : 'FAIL'}  Cd fp32=${ab.fp32.stats.meanCd.toFixed(4)}  ` +
-        `fp16=${ab.fp16.stats.meanCd.toFixed(4)}  relΔ=${(ab.relDiff * 100).toFixed(2)}% (bar ≤ 2%)`;
+          `fp16=${ab.fp16.stats.meanCd.toFixed(4)}  relΔ=${(ab.relDiff * 100).toFixed(2)}% (bar ≤ 2%)`,
+        ab.pass ? 'ok' : 'bad',
+      );
     } catch (e) {
-      verdict.style.color = '#f85149';
-      verdict.textContent = `error: ${String(e)}`;
+      setVerdict(`error: ${String(e)}`, 'bad');
     } finally {
       setBusy(false);
     }
@@ -267,8 +273,10 @@ export function mountSphereDrag(device: GPUDevice, caps: GpuCapabilities, root: 
         `voxels ${ab.stlScene.sphereVoxels} vs analytic ${ab.stlScene.analyticVoxels} ` +
         `(Δ ${(ab.stlScene.voxelCountMismatch * 100).toFixed(2)}%)`;
       if (ab.analytic.diverged || ab.stl.diverged) {
-        verdict.style.color = '#f85149';
-        verdict.textContent = `DIVERGED (analytic ${ab.analytic.diverged ? 'diverged' : 'ok'}, stl ${ab.stl.diverged ? 'diverged' : 'ok'})`;
+        setVerdict(
+          `DIVERGED (analytic ${ab.analytic.diverged ? 'diverged' : 'ok'}, stl ${ab.stl.diverged ? 'diverged' : 'ok'})`,
+          'bad',
+        );
         return;
       }
       hooks().sphereDrag = {
@@ -283,13 +291,13 @@ export function mountSphereDrag(device: GPUDevice, caps: GpuCapabilities, root: 
         relDiff: ab.relDiff,
         abPass: ab.pass,
       };
-      verdict.style.color = ab.pass ? '#3fb950' : '#f85149';
-      verdict.textContent =
+      setVerdict(
         `M8 acc-2 ${ab.pass ? 'PASS' : 'FAIL'}  Cd analytic=${ab.analytic.stats.meanCd.toFixed(4)}  ` +
-        `stl=${ab.stl.stats.meanCd.toFixed(4)}  relΔ=${(ab.relDiff * 100).toFixed(2)}% (bar ≤ 2%)`;
+          `stl=${ab.stl.stats.meanCd.toFixed(4)}  relΔ=${(ab.relDiff * 100).toFixed(2)}% (bar ≤ 2%)`,
+        ab.pass ? 'ok' : 'bad',
+      );
     } catch (e) {
-      verdict.style.color = '#f85149';
-      verdict.textContent = `error: ${String(e)}`;
+      setVerdict(`error: ${String(e)}`, 'bad');
     } finally {
       setBusy(false);
     }

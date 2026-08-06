@@ -30,6 +30,11 @@ import type { AhmedDiagnostics, AhmedSceneSummary, AhmedWorkerEvent } from '../s
  *    continues past the first trigger and compares INDEPENDENT block means: if consecutive
  *    blocks disagree by more than the gate claims, the trigger was noise.
  *
+ *    The first pass ran 40 extra T_conv, which buys only TWO complete blocks — enough to
+ *    exclude immediate drift, not slow wandering, since a monotone walk looks identical to
+ *    a settled mean when you only have two points on it. The default is 80 for that reason:
+ *    four blocks can show a trend. Two cannot.
+ *
  * Nothing here asserts a Cd band — at any Re but the experimental one there is none, and
  * the page suppresses its verdict for that reason.
  */
@@ -47,8 +52,8 @@ const RUNGS = (process.env.AHMED_RUNGS ?? '8000000@1000')
   });
 
 const RUNG_BUDGET_MS = Number(process.env.AHMED_RUNG_BUDGET_MS ?? 30 * 60_000);
-/** Convective times to keep running AFTER the first 3% trigger (spec asks for 20–40). */
-const EXTRA_TCONV = Number(process.env.AHMED_EXTRA_TCONV ?? 40);
+/** Convective times to keep running AFTER the first 3% trigger. 80 ⇒ four complete blocks. */
+const EXTRA_TCONV = Number(process.env.AHMED_EXTRA_TCONV ?? 80);
 /** Width of each independent block mean, in convective times. */
 const BLOCK_TCONV = Number(process.env.AHMED_BLOCK_TCONV ?? 20);
 

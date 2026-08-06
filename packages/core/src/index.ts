@@ -180,12 +180,9 @@ export type {
 export { sphereDragCoefficient, sphereDragStats } from './analysis/sphereDrag.js';
 export { sectionStats, upstreamStations } from './analysis/sectionProfile.js';
 export type { SectionStats } from './analysis/sectionProfile.js';
-export {
-  tauStats,
-  tauLayersAt,
-  ahmedTauRegions,
-  TAU_PERCENTILES,
-} from './analysis/tauStats.js';
+export { fieldStats } from './analysis/fieldStats.js';
+export type { FieldStats } from './analysis/fieldStats.js';
+export { tauStats, tauLayersAt, ahmedTauRegions, TAU_PERCENTILES } from './analysis/tauStats.js';
 export type { TauStats, TauRegion, TauLayer } from './analysis/tauStats.js';
 export type { SphereDragStats, SphereDragStatsOptions } from './analysis/sphereDrag.js';
 export {

@@ -1,4 +1,4 @@
-import type { AhmedSceneOptions, TauLayer, TauStats } from '@aeroflow/core';
+import type { AhmedSceneOptions, FieldStats, TauLayer, TauStats } from '@aeroflow/core';
 import type { Precision } from '../gpu/ddfLayout';
 
 /**
@@ -10,6 +10,13 @@ import type { Precision } from '../gpu/ddfLayout';
 export interface AhmedRunOptions {
   scene: AhmedSceneOptions;
   precision: Precision;
+  /**
+   * Smagorinsky Cs. Defaults to `AHMED_LES_CS`. A run knob, not a scene property — the scene
+   * decides only that LES is REQUIRED at this τ₀ (`AhmedScene.les`), never how strong it is.
+   *
+   * 0 is a meaningful value (LES fully off) and must be passed through, not treated as unset.
+   */
+  lesCs?: number;
   /** Auto-checkpoint cadence, wall-clock. Spec default: 5 minutes. */
   checkpointEveryMs: number;
   /** Try to resume from the latest checkpoint before starting fresh. */
@@ -34,6 +41,13 @@ export interface AhmedSceneSummary {
   uLattice: number;
   /** Nose station in cells — the upstream diagnostic stations are placed relative to it. */
   noseX: number;
+  /**
+   * The Cs and DDF storage precision the solver was actually BUILT with — not what was typed.
+   * Reported on every row because a Cd, a δ99 or a ν_LES/ν_mol is uninterpretable without
+   * them, and because the page's verdict suppression keys off these exact values.
+   */
+  lesCs: number;
+  precision: Precision;
 }
 
 /**
@@ -80,6 +94,13 @@ export interface AhmedDiagnostics {
     cellsFromInlet: number;
     cellsToNose: number;
   }[];
+  /**
+   * Whole-field stability over the SAME `readMacro()` this diagnostic already performs, so it
+   * costs no extra readback. Answers "did this rung stay healthy?", which a Cd alone cannot:
+   * a run that finishes with mass drifting or ρ excursions widening is a marginal result, not
+   * a data point (M9 step 7).
+   */
+  field: FieldStats;
 }
 
 /**
@@ -102,6 +123,8 @@ export interface AhmedTauReport {
   tau0: number;
   nuMolecular: number;
   lesK: number;
+  /** Cs behind `lesK` (lesK = 18√2·Cs²) — the swept knob, reported directly. */
+  lesCs: number;
   Re: number;
   fluidCells: number;
   /** Cells the oracle declined to evaluate because a neighbour is FreeSlip. */
@@ -140,6 +163,17 @@ export type AhmedWorkerEvent =
     }
   | { type: 'diagnostics'; diagnostics: AhmedDiagnostics }
   | { type: 'tau'; tau: AhmedTauReport }
+  /**
+   * Periodic in-run stability snapshot (M9 step 7). Emitted on a coarse convective-time
+   * cadence, NOT per sample: it costs a whole-field `readMacro()`.
+   *
+   * It exists because a diverged rung cannot be measured after the fact — the field is
+   * already poison and `collectDiagnostics` would return NaNs. The last snapshot before
+   * divergence is the only evidence of what the run looked like while it was still healthy,
+   * and for a Cs sweep that deliberately removes stabilizing dissipation, that evidence is
+   * the difference between "diverged" and "diverged, and here is how it got there".
+   */
+  | { type: 'stability'; totalSteps: number; convectiveTimes: number; field: FieldStats }
   | { type: 'checkpoint-saved'; bytes: number; ms: number; totalSteps: number; savedAt: number }
   | { type: 'resumed'; totalSteps: number }
   | { type: 'device-lost'; reason: string; recoveries: number }
@@ -207,6 +241,21 @@ export function lostWithin(lost: Promise<void>, graceMs: number): Promise<boolea
  *  as a genuine error. device.lost normally fires within a tick; this only delays the
  *  reporting of real (non-loss) errors, which end the run anyway. */
 export const DEVICE_LOST_GRACE_MS = 250;
+
+/**
+ * The Smagorinsky Cs the acceptance configuration is DEFINED at (M7's Re=10⁴ recipe, carried
+ * into M9). Named rather than left as a bare 0.1 in `buildSim` for the same reason
+ * `AHMED_EXPERIMENTAL_RE` is named: the Cd 0.285 verdict is only defined for this
+ * configuration, so the page must be able to test "is this the acceptance configuration?"
+ * rather than assume it.
+ */
+export const AHMED_LES_CS = 0.1;
+
+/**
+ * The DDF storage precision criterion 1′ specifies ("with LES + FP16 storage"). A run at any
+ * other precision is a diagnostic, exactly as a run at any other Re or Cs is.
+ */
+export const AHMED_ACCEPTANCE_PRECISION: Precision = 'fp16';
 
 /** Ahmed 25° literature band (M9 acceptance 1): Cd = 0.285 ± 15% (stretch ± 10%). */
 export const AHMED_CD_TARGET = 0.285;

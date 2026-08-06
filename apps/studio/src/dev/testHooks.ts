@@ -269,3 +269,28 @@ export function reOverride(): number | null {
   const Re = Number(new URLSearchParams(location.search).get('Re'));
   return Number.isFinite(Re) && Re > 0 ? Re : null;
 }
+
+/**
+ * Smagorinsky Cs override (`?lesCs=N`), for the M9 step-7 sensitivity sweep. Returns null when
+ * absent or invalid, i.e. "keep the acceptance default".
+ *
+ * NOTE the guard is `>= 0`, not `> 0` as in `reOverride`: **Cs = 0 is a meaningful rung** (LES
+ * fully off), and rejecting it would silently substitute the default — turning a deliberate
+ * LES-off run into an unlabelled duplicate of the baseline.
+ */
+export function lesCsOverride(): number | null {
+  const raw = new URLSearchParams(location.search).get('lesCs');
+  if (raw === null || raw.trim() === '') return null;
+  const cs = Number(raw);
+  return Number.isFinite(cs) && cs >= 0 ? cs : null;
+}
+
+/**
+ * DDF storage precision override (`?precision=fp16|fp32`). Criterion 1′ specifies FP16, so
+ * fp32 is a diagnostic configuration — it exists to test whether FP16 quantization is behind
+ * the subgrid activation measured in the undisturbed approach freestream.
+ */
+export function precisionOverride(): 'fp16' | 'fp32' | null {
+  const p = new URLSearchParams(location.search).get('precision');
+  return p === 'fp16' || p === 'fp32' ? p : null;
+}

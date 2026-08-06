@@ -1,5 +1,5 @@
 import { CellType, EsotericPull3D } from '@aeroflow/core';
-import { hooks } from '../dev/testHooks';
+import { hooks, lesCsOverride } from '../dev/testHooks';
 import { Lbm3D } from './lbm3d';
 import { computeTauField } from './tauOracle';
 
@@ -93,11 +93,32 @@ function ductFlags(): Uint8Array {
 
 const TAU = 0.51;
 const INLET_U = 0.05;
-const LES_CS = 0.1;
+/** Cs the validation runs at unless one is supplied — the acceptance configuration's value. */
+const DEFAULT_LES_CS = 0.1;
 
-export async function runTauOracleCheck(device: GPUDevice): Promise<TauOracleCheckResult> {
+/**
+ * `lesCs` exists for the M9 step-7 sweep. The oracle itself is Cs-agnostic — `computeTauField`
+ * reads `sim.lesK` off the live solver rather than re-deriving it — so validating at 0.1 does
+ * in principle cover every Cs. But every conclusion in that sweep is read THROUGH this oracle,
+ * and "in principle" is not the standard the handoff doctrine sets for a measurement device.
+ * Re-running the validation at each swept Cs costs seconds and removes the assumption.
+ */
+export async function runTauOracleCheck(
+  device: GPUDevice,
+  lesCs: number = DEFAULT_LES_CS,
+): Promise<TauOracleCheckResult> {
+  const LES_CS = lesCs;
   if (!device.features.has('shader-f16')) {
     throw new Error('τ_eff oracle check requires shader-f16 (the M9 acceptance storage path)');
+  }
+  // Cs = 0 gives lesK = 0, and `computeTauField` refuses to reconstruct a τ field with the LES
+  // off (τ_eff would be the uniform τ₀, so there is nothing to validate). Say that, rather
+  // than surfacing the oracle's internal error from three frames down.
+  if (!(lesCs > 0)) {
+    throw new Error(
+      `τ_eff oracle check needs Cs > 0 (got ${lesCs}): with LES off τ_eff ≡ τ₀ and the ` +
+        `reconstruction is vacuous`,
+    );
   }
   const flags = ductFlags();
   let sim: Lbm3D | undefined;
@@ -234,12 +255,13 @@ export async function runTauOracleCheck(device: GPUDevice): Promise<TauOracleChe
 }
 
 export async function mountTauOracleCheck(device: GPUDevice, root: HTMLElement): Promise<void> {
-  root.innerHTML = '<p>Running M9 τ_eff oracle validation...</p>';
+  const lesCs = lesCsOverride() ?? undefined;
+  root.innerHTML = `<p>Running M9 τ_eff oracle validation${lesCs === undefined ? '' : ` at Cs ${lesCs}`}...</p>`;
   try {
-    const result = await runTauOracleCheck(device);
+    const result = await runTauOracleCheck(device, lesCs);
     hooks().tauOracleCheck = result;
     root.innerHTML = `
-      <h2>M9 τ_eff oracle validation</h2>
+      <h2>M9 τ_eff oracle validation${lesCs === undefined ? '' : ` — Cs ${lesCs}`}</h2>
       <p style="font-size:1.4em;font-weight:bold;color:${result.pass ? '#2a2' : '#c22'}">
         ${result.pass ? 'PASS' : 'FAIL'}
       </p>

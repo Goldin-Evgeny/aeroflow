@@ -1,14 +1,22 @@
 import { ForcePlot } from './forcePlot';
 import {
+  AHMED_ACCEPTANCE_PRECISION,
   AHMED_CD_BAND,
   AHMED_CD_STRETCH,
   AHMED_CD_TARGET,
+  AHMED_LES_CS,
   type AhmedSceneSummary,
   type AhmedWorkerCommand,
   type AhmedWorkerEvent,
 } from '../sim/ahmedRun';
 import { AHMED_EXPERIMENTAL_RE } from '@aeroflow/core';
-import { applyCellsOverride, hooks, reOverride } from '../dev/testHooks';
+import {
+  applyCellsOverride,
+  hooks,
+  lesCsOverride,
+  precisionOverride,
+  reOverride,
+} from '../dev/testHooks';
 
 /**
  * Ahmed 25° long-run page (route ?ahmed; M9 steps 2–6 + acceptance 1/4 harness). The sim
@@ -72,9 +80,28 @@ export function mountAhmed(root: HTMLElement): void {
     const v = Number(reInput.value);
     return Number.isFinite(v) && v > 0 ? v : AHMED_EXPERIMENTAL_RE;
   };
+  // Smagorinsky Cs control (`?lesCs=N`, M9 step 7). The sweep that discriminates the
+  // freestream-SGS-activation mechanism varies this and nothing else; like Re, moving it off
+  // the acceptance value suppresses the Cd verdict below.
+  const csInput = document.createElement('input');
+  csInput.type = 'number';
+  csInput.step = 'any';
+  csInput.min = '0'; // 0 = LES off, a legitimate rung
+  csInput.size = 6;
+  csInput.value = String(lesCsOverride() ?? AHMED_LES_CS);
+  csInput.dataset.testid = 'ahmed-cs';
+  const csLabel = document.createElement('label');
+  csLabel.className = 'muted';
+  csLabel.append('Cs ', csInput);
+  controls.append(csLabel);
+  const chosenCs = (): number => {
+    const v = Number(csInput.value);
+    return Number.isFinite(v) && v >= 0 ? v : AHMED_LES_CS;
+  };
   const fp16Box = document.createElement('input');
   fp16Box.type = 'checkbox';
-  fp16Box.checked = true;
+  fp16Box.checked = (precisionOverride() ?? AHMED_ACCEPTANCE_PRECISION) === 'fp16';
+  fp16Box.dataset.testid = 'ahmed-fp16';
   const fp16Label = document.createElement('label');
   fp16Label.className = 'muted';
   fp16Label.append(fp16Box, ' FP16 storage (falls back if not granted)');
@@ -93,8 +120,12 @@ export function mountAhmed(root: HTMLElement): void {
   diagBtn.dataset.testid = 'ahmed-diag';
   tauBtn.dataset.testid = 'ahmed-tau';
   chaosBtn.dataset.testid = 'ahmed-chaos';
-  stopBtn.disabled = ckptBtn.disabled = diagBtn.disabled = tauBtn.disabled = chaosBtn.disabled =
-    true;
+  stopBtn.disabled =
+    ckptBtn.disabled =
+    diagBtn.disabled =
+    tauBtn.disabled =
+    chaosBtn.disabled =
+      true;
 
   const info = document.createElement('pre');
   info.className = 'readout';
@@ -153,8 +184,12 @@ export function mountAhmed(root: HTMLElement): void {
 
   const setRunning = (running: boolean): void => {
     startBtn.disabled = resumeBtn.disabled = running;
-    stopBtn.disabled = ckptBtn.disabled = diagBtn.disabled = tauBtn.disabled = chaosBtn.disabled =
-      !running;
+    stopBtn.disabled =
+      ckptBtn.disabled =
+      diagBtn.disabled =
+      tauBtn.disabled =
+      chaosBtn.disabled =
+        !running;
     shouldHoldLock = running;
     if (running) void acquireLock();
     else void wakeLock?.release().catch(() => undefined);
@@ -169,6 +204,7 @@ export function mountAhmed(root: HTMLElement): void {
       type: 'start',
       opts: {
         scene: { maxCells: BUDGETS[budgetSel.value], Re: chosenRe() },
+        lesCs: chosenCs(),
         precision: fp16Box.checked ? 'fp16' : 'fp32',
         checkpointEveryMs: 5 * 60 * 1000,
         resume,
@@ -199,7 +235,7 @@ export function mountAhmed(root: HTMLElement): void {
         info.textContent = [
           `GPU: ${m.gpu}   DDF storage: ${m.precision}`,
           `grid ${scene.nx}×${scene.ny}×${scene.nz} = ${(scene.totalCells / 1e6).toFixed(1)}M cells   dx ${scene.dxMm.toFixed(2)} mm   body ${scene.lengthCells.toFixed(0)} cells`,
-          `Re ${scene.Re.toExponential(2)} (U≈${scene.physU.toFixed(1)} m/s)   τ ${scene.tau.toFixed(6)} (LES+regularized+conservative)   u ${scene.uLattice}`,
+          `Re ${scene.Re.toExponential(2)} (U≈${scene.physU.toFixed(1)} m/s)   τ ${scene.tau.toFixed(6)} (LES Cs=${scene.lesCs}+regularized+conservative)   u ${scene.uLattice}`,
           `blockage ${(scene.blockage * 100).toFixed(2)}%   frontal ${scene.frontalCells} cells²   body ${scene.bodyVoxels.toLocaleString()} voxels`,
           `T_conv = ${scene.convectiveTimeSteps} steps   band Cd ${AHMED_CD_TARGET} ±15% [${AHMED_CD_BAND[0]}, ${AHMED_CD_BAND[1]}]`,
         ].join('\n');
@@ -216,14 +252,31 @@ export function mountAhmed(root: HTMLElement): void {
           `converged: ${m.converged ? 'YES' : 'not yet'}   checkpoints: last ${lastCheckpoint}   recoveries: ${recoveries}`,
         ].join('\n');
         if (m.converged) {
-          // Cd 0.285 was measured at Re 4.29e6. A run at any other Re is a diagnostic, so
-          // it reports its number without a verdict rather than a misleading pass/fail —
-          // the same suppression discipline the urban runner applies to under-resolved
-          // grids. `scene.Re` is what the solver actually built, not what was typed.
-          if (scene && scene.Re !== AHMED_EXPERIMENTAL_RE) {
+          // Cd 0.285 was measured at Re 4.29e6 with the M7 LES recipe and FP16 storage. A run
+          // at any other Re, Cs or precision is a diagnostic, so it reports its number without
+          // a verdict rather than a misleading pass/fail — the same suppression discipline the
+          // urban runner applies to under-resolved grids. Every value read here is what the
+          // solver actually BUILT with, not what was typed.
+          //
+          // Cs and precision joined this test for the M9 step-7 sweep, and the reason is
+          // structural rather than cosmetic: that sweep varies Cs looking for a MECHANISM, and
+          // a lowered-Cs rung could plausibly land near 0.285 by coincidence. If the page could
+          // print PASS for it, the sweep would have become a tuning exercise the moment it
+          // succeeded. It cannot.
+          const offSpec = scene
+            ? [
+                scene.Re !== AHMED_EXPERIMENTAL_RE
+                  ? `Re ${scene.Re.toExponential(2)} ≠ ${AHMED_EXPERIMENTAL_RE.toExponential(2)}`
+                  : null,
+                scene.lesCs !== AHMED_LES_CS ? `Cs ${scene.lesCs} ≠ ${AHMED_LES_CS}` : null,
+                scene.precision !== AHMED_ACCEPTANCE_PRECISION
+                  ? `${scene.precision} storage ≠ ${AHMED_ACCEPTANCE_PRECISION}`
+                  : null,
+              ].filter((s): s is string => s !== null)
+            : [];
+          if (offSpec.length > 0) {
             setVerdict(
-              `NOT AN ACCEPTANCE RUN — Re ${scene.Re.toExponential(2)} ≠ experimental ` +
-                `${AHMED_EXPERIMENTAL_RE.toExponential(2)}; mean Cd ${m.meanCd.toFixed(4)} ` +
+              `NOT AN ACCEPTANCE RUN — ${offSpec.join('; ')}. mean Cd ${m.meanCd.toFixed(4)} ` +
                 `is a diagnostic, not a verdict against ${AHMED_CD_TARGET}`,
               'warn',
             );
@@ -259,6 +312,10 @@ export function mountAhmed(root: HTMLElement): void {
             `Cd_bulk ${d.cdBulk.toFixed(4)}   Cd_core ${d.cdCore.toFixed(4)} — diagnostic only`,
           `  Re_nominal ${d.reNominal.toExponential(2)}   Re_bulk ${d.reBulk.toExponential(2)}   ` +
             `Re_core ${d.reCore.toExponential(2)}`,
+          `  stability: mass drift ${d.field.massDriftRel.toExponential(3)}   ` +
+            `ρ [${d.field.rhoMin.toFixed(5)}, ${d.field.rhoMax.toFixed(5)}]   ` +
+            `Ma_max ${d.field.machMax.toFixed(4)}   ` +
+            `non-finite ${d.field.nonFiniteCells}`,
         ].join('\n');
         logLine(
           `diagnostics @ ${d.convectiveTimes.toFixed(1)} T_conv: ` +
@@ -273,6 +330,7 @@ export function mountAhmed(root: HTMLElement): void {
         // physics. τ₀ is the floor (τ_t ≥ 0, no clamp anywhere), so "at floor" = LES silent.
         info.textContent = [
           `τ_eff @ ${t.convectiveTimes.toFixed(1)} T_conv — Re ${t.Re.toExponential(2)}  ` +
+            `Cs ${t.lesCs.toFixed(4)}  ` +
             `τ₀ ${t.tau0.toFixed(6)}  ν_mol ${t.nuMolecular.toExponential(3)}  ` +
             `parity ${t.parity}  fluid ${t.fluidCells.toLocaleString()}  ` +
             `skipped(freeSlip) ${t.freeSlipAdjacentSkipped.toLocaleString()}` +
@@ -294,6 +352,19 @@ export function mountAhmed(root: HTMLElement): void {
           `τ_eff @ ${t.convectiveTimes.toFixed(1)} T_conv: whole-domain ν_LES/ν_mol p50 ` +
             `${t.regions[0].stats.nuRatioPercentiles[3].toFixed(2)}, ` +
             `LES-dominant ${pct(t.regions[0].stats.lesDominantFraction)}`,
+        );
+        break;
+      }
+      case 'stability': {
+        const f = m.field;
+        // Logged, not shown in the main readout: it is a periodic health line, and its value
+        // is the TRAIL it leaves — the last entries before a divergence are the only record of
+        // how the field looked while it was still healthy.
+        logLine(
+          `stability @ ${m.convectiveTimes.toFixed(1)} T_conv: ` +
+            `mass drift ${f.massDriftRel.toExponential(3)}  ` +
+            `ρ [${f.rhoMin.toFixed(5)}, ${f.rhoMax.toFixed(5)}]  ` +
+            `Ma_max ${f.machMax.toFixed(4)}  non-finite ${f.nonFiniteCells}`,
         );
         break;
       }

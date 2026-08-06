@@ -1,12 +1,14 @@
 import { expect, test, BASE_URL } from './fixtures/gpu';
 import { readHooks } from './helpers/hooks';
 import type { AeroflowHooks } from '../src/dev/testHooks';
-import type {
-  AhmedDiagnostics,
-  AhmedSceneSummary,
-  AhmedTauReport,
-  AhmedWorkerEvent,
+import {
+  AHMED_LES_CS,
+  type AhmedDiagnostics,
+  type AhmedSceneSummary,
+  type AhmedTauReport,
+  type AhmedWorkerEvent,
 } from '../src/sim/ahmedRun';
+import type { FieldStats } from '@aeroflow/core';
 
 /**
  * M9 acceptance-1 harness: the resolution / effective-Re ladder, plus the two diagnostics
@@ -40,20 +42,52 @@ import type {
  *    a settled mean when you only have two points on it. The default is 80 for that reason:
  *    four blocks can show a trend. Two cannot.
  *
+ * 3. **Whole-field stability.** Mass drift, density extrema, Ma and non-finite cells, sampled on
+ *    a coarse convective-time cadence. A rung that finishes is not thereby a valid measurement:
+ *    with `conserveMass` on and τ₀ = 0.500144, "survived but marginal" is a distinct outcome from
+ *    "clean", and nothing measured it until M9 step 7.
+ *
+ * **M9 step 7 — the Cs sweep.** Rungs now carry a Smagorinsky Cs and a storage precision, so the
+ * falsifiable test of the freestream-SGS-activation finding runs through this same harness with
+ * everything else held identical. Two consequences for how it behaves:
+ *
+ *  - A rung at reduced Cs is deliberately run with less than the dissipation this τ₀ is
+ *    documented to require, so **divergence is an expected result, not a harness failure.** Rungs
+ *    no longer abort the sweep; only baseline-configuration rungs are asserted to survive.
+ *  - The end-of-run comparison table is the deliverable. The question is not what any one rung
+ *    measured but which quantities moved *together* when Cs changed.
+ *
  * Nothing here asserts a Cd band — at any Re but the experimental one there is none, and
- * the page suppresses its verdict for that reason.
+ * the page suppresses its verdict for that reason (now also for any off-acceptance Cs or
+ * precision, which is what keeps this sweep discrimination rather than calibration).
  */
 
+/**
+ * `<cells>@<Re>[@<Cs>[@<precision>]]`. Cs and precision are positional and optional, so every
+ * pre-existing rung string keeps its exact meaning and defaults to the acceptance configuration.
+ *
+ * Cs is parsed with `>= 0` rather than `> 0`: Cs = 0 (LES fully off) is a legitimate rung.
+ */
 const RUNGS = (process.env.AHMED_RUNGS ?? '8000000@1000')
   .split(',')
   .map((spec) => spec.trim())
   .filter(Boolean)
   .map((spec) => {
-    const [cells, Re] = spec.split('@').map(Number);
+    const [cellsRaw, reRaw, csRaw, precRaw] = spec.split('@');
+    const cells = Number(cellsRaw);
+    const Re = Number(reRaw);
     if (!Number.isFinite(cells) || !Number.isFinite(Re) || cells <= 0 || Re <= 0) {
-      throw new Error(`AHMED_RUNGS entry "${spec}" is not <cells>@<Re>`);
+      throw new Error(`AHMED_RUNGS entry "${spec}" is not <cells>@<Re>[@<Cs>[@<precision>]]`);
     }
-    return { cells, Re };
+    const lesCs = csRaw === undefined || csRaw === '' ? AHMED_LES_CS : Number(csRaw);
+    if (!Number.isFinite(lesCs) || lesCs < 0) {
+      throw new Error(`AHMED_RUNGS entry "${spec}" has a non-finite or negative Cs`);
+    }
+    const precision = precRaw === undefined || precRaw === '' ? 'fp16' : precRaw;
+    if (precision !== 'fp16' && precision !== 'fp32') {
+      throw new Error(`AHMED_RUNGS entry "${spec}" precision must be fp16 or fp32`);
+    }
+    return { cells, Re, lesCs, precision };
   });
 
 const RUNG_BUDGET_MS = Number(process.env.AHMED_RUNG_BUDGET_MS ?? 30 * 60_000);
@@ -88,7 +122,21 @@ function sceneLine(scene: AhmedSceneSummary): string {
     `dx ${scene.dxMm.toFixed(2)} mm   body ${scene.lengthCells.toFixed(0)} cells   ` +
     `blockage ${(scene.blockage * 100).toFixed(2)}%   frontal ${scene.frontalCells} cells²   ` +
     `Re ${scene.Re.toExponential(2)}   τ ${scene.tau.toFixed(6)}   ` +
+    // Cs and precision are on the SCENE line, not buried in the τ block, because they are
+    // configuration — every number below is conditional on them and a row without them is
+    // uninterpretable.
+    `Cs ${scene.lesCs}   ${scene.precision}   ` +
     `T_conv ${scene.convectiveTimeSteps} steps   noseX ${scene.noseX}   U ${scene.physU.toFixed(1)} m/s`
+  );
+}
+
+/** One line of whole-field health — the "did this rung stay clean?" evidence. */
+function fieldLine(f: FieldStats, label: string): string {
+  return (
+    `  ${label}: mass drift ${f.massDriftRel.toExponential(3)}   ` +
+    `ρ [${f.rhoMin.toFixed(6)}, ${f.rhoMax.toFixed(6)}]   ρ̄ ${f.rhoMean.toFixed(6)}   ` +
+    `u_max ${f.uMax.toFixed(5)}   Ma_max ${f.machMax.toFixed(4)}   ` +
+    `non-finite ${f.nonFiniteCells}   fluid ${f.fluidCells.toLocaleString()}`
   );
 }
 
@@ -200,15 +248,113 @@ function tauLines(t: AhmedTauReport): string {
   return lines.join('\n');
 }
 
+/**
+ * Cross-rung comparison. The per-rung blocks above are complete but unreadable side by side,
+ * and this experiment IS a side-by-side: the question is not what any rung measured but which
+ * quantities moved TOGETHER when Cs changed.
+ *
+ * Deliberately reports Cd as its block means and spread rather than as a single mean. With the
+ * Re 1e5 blocks already spreading 5.57%, a lone number would invite reading a Cs delta smaller
+ * than the run-to-run scatter as a real effect.
+ */
+function comparisonTable(
+  rows: {
+    rung: { cells: number; Re: number; lesCs: number; precision: string };
+    errored: boolean;
+    lastTConv: number;
+    blocks: number[];
+    spread: number;
+    diagnostics?: AhmedDiagnostics;
+    tau?: AhmedTauReport;
+    lastField?: FieldStats;
+  }[],
+): string {
+  const region = (t: AhmedTauReport | undefined, name: string): string => {
+    const r = t?.regions.find((x) => x.name === name);
+    return r ? r.stats.nuRatioPercentiles[3].toFixed(2) : '—';
+  };
+  const num = (x: number | undefined, digits: number): string =>
+    x === undefined || Number.isNaN(x) ? '—' : x.toFixed(digits);
+
+  const header =
+    `${'Cs'.padStart(5)} ${'prec'.padStart(5)} ${'T_conv'.padStart(7)}  ` +
+    `${'Cd blocks (independent 20 T_conv)'.padEnd(38)} ${'spread'.padStart(7)} ${'gate'.padStart(5)}  ` +
+    `${'δ99'.padStart(5)} ${'ν appr'.padStart(7)} ${'ν whole'.padStart(8)} ${'ν body'.padStart(7)} ` +
+    `${'dom%'.padStart(6)} ${'τ p50'.padStart(9)}  ` +
+    `${'massdrift'.padStart(10)} ${'ρ min'.padStart(9)} ${'ρ max'.padStart(9)} ${'Ma'.padStart(6)} ${'NaN'.padStart(5)}`;
+
+  const lines = rows.map((r) => {
+    const whole = r.tau?.regions.find((x) => x.name === 'whole domain');
+    const ref = r.diagnostics?.stations.at(-1);
+    // Settled-field stats when the rung finished; the last periodic snapshot when it did not
+    // (a diverged rung has no settled field to reduce).
+    const f = r.diagnostics?.field ?? r.lastField;
+    const blocks = r.blocks.length > 0 ? r.blocks.map((b) => b.toFixed(4)).join(' ') : '—';
+    return (
+      `${String(r.rung.lesCs).padStart(5)} ${r.rung.precision.padStart(5)} ` +
+      `${num(r.lastTConv, 1).padStart(7)}  ` +
+      `${blocks.padEnd(38)} ` +
+      `${(Number.isFinite(r.spread) ? `${(r.spread * 100).toFixed(2)}%` : '—').padStart(7)} ` +
+      `${(Number.isFinite(r.spread) ? (r.spread > 0.03 ? 'ABOVE' : 'ok') : '—').padStart(5)}  ` +
+      `${(ref ? String(ref.blThicknessCells) : '—').padStart(5)} ` +
+      `${region(r.tau, 'approach freestream').padStart(7)} ` +
+      `${region(r.tau, 'whole domain').padStart(8)} ` +
+      `${region(r.tau, 'around body').padStart(7)} ` +
+      `${(whole ? `${(whole.stats.lesDominantFraction * 100).toFixed(1)}%` : '—').padStart(6)} ` +
+      `${(r.tau ? r.tau.regions[0].stats.tauPercentiles[3].toFixed(6) : '—').padStart(9)}  ` +
+      `${(f ? f.massDriftRel.toExponential(2) : '—').padStart(10)} ` +
+      `${(f ? f.rhoMin.toFixed(6) : '—').padStart(9)} ` +
+      `${(f ? f.rhoMax.toFixed(6) : '—').padStart(9)} ` +
+      `${(f ? f.machMax.toFixed(4) : '—').padStart(6)} ` +
+      `${(f ? String(f.nonFiniteCells) : '—').padStart(5)}` +
+      (r.errored ? '   *** DIVERGED ***' : '')
+    );
+  });
+
+  return [
+    '## Cross-rung comparison (M9 step 7 — Cs sensitivity)',
+    '',
+    'ν columns are ν_LES/ν_mol p50 by region; δ99 is at the reference station (cells);',
+    'dom% is the LES-dominant cell fraction over the whole domain; stability from the last',
+    'in-run snapshot. "gate" flags block spread against the 3% convergence criterion.',
+    '',
+    header,
+    '-'.repeat(header.length),
+    ...lines,
+    '',
+    'READ THIS AS MECHANISM DISCRIMINATION, NOT CALIBRATION. The hypothesis under test is that',
+    'the Re 1e4 → 1e5 Cd step is geometric — the body (31 cells tall) going from clean',
+    'freestream into a ground shear layer thickened by subgrid viscosity. It is supported only',
+    'if the ν columns, δ99 and Cd move TOGETHER as Cs falls. A Cd that moves while δ99 does not',
+    '(or a Cd shift smaller than the block spread beside it) is not support. And a rung whose',
+    'mass drift, ρ range or Ma_max degrades is a marginal run, not a data point — no Cs is',
+    'selected here for producing a better Cd.',
+  ].join('\n');
+}
+
 test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
   gpuPage: page,
 }, testInfo) => {
   test.setTimeout(RUNGS.length * (RUNG_BUDGET_MS + 120_000));
 
   const rows: string[] = [];
+  /** One record per rung, reduced into the comparison table at the end. */
+  const table: {
+    rung: (typeof RUNGS)[number];
+    errored: boolean;
+    lastTConv: number;
+    blocks: number[];
+    spread: number;
+    diagnostics?: AhmedDiagnostics;
+    tau?: AhmedTauReport;
+    lastField?: FieldStats;
+  }[] = [];
 
   for (const rung of RUNGS) {
-    await page.goto(`${BASE_URL}/?ahmed&cells=${rung.cells}&Re=${rung.Re}`);
+    await page.goto(
+      `${BASE_URL}/?ahmed&cells=${rung.cells}&Re=${rung.Re}` +
+        `&lesCs=${rung.lesCs}&precision=${rung.precision}`,
+    );
     const startedAt = Date.now();
     await page.getByTestId('ahmed-start').click();
 
@@ -297,8 +443,7 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
       h = await readHooks(page);
       tau = (
         [...events(h)].reverse().find((e) => e.type === 'tau') as
-          | Extract<AhmedWorkerEvent, { type: 'tau' }>
-          | undefined
+          Extract<AhmedWorkerEvent, { type: 'tau' }> | undefined
       )?.tau;
     }
 
@@ -315,11 +460,34 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
     const wallMin = (Date.now() - startedAt) / 60_000;
 
     const err = errored();
+    // The most recent stability snapshot. For a rung that ran clean this is redundant with the
+    // diagnostics block; for a rung that DIVERGED it is the only surviving evidence, because
+    // the post-mortem readback sees a field that is already poison.
+    const lastField = (
+      [...events(h)].reverse().find((e) => e.type === 'stability') as
+        Extract<AhmedWorkerEvent, { type: 'stability' }> | undefined
+    )?.field;
+
+    table.push({
+      rung,
+      errored: err !== undefined,
+      lastTConv: final?.convectiveTimes ?? Number.NaN,
+      blocks: blockVals,
+      spread,
+      diagnostics,
+      tau,
+      lastField,
+    });
+
     rows.push(
-      `### ${(rung.cells / 1e6).toFixed(1)}M cells @ Re ${rung.Re.toExponential(2)}\n` +
+      `### ${(rung.cells / 1e6).toFixed(1)}M cells @ Re ${rung.Re.toExponential(2)} ` +
+        `Cs ${rung.lesCs} ${rung.precision}\n` +
         `${sceneLine(scene)}\n` +
         (err
-          ? `ERROR: ${err.message}\n`
+          ? `DIVERGED / ERROR: ${err.message}\n` +
+            (lastField
+              ? `${fieldLine(lastField, 'last healthy snapshot')}\n`
+              : '  (no stability snapshot was taken before the failure)\n')
           : `steps ${final?.totalSteps.toLocaleString()}   ${final?.convectiveTimes.toFixed(1)} T_conv   ` +
             `${final?.mlups.toFixed(0)} MLUPs   wall ${wallMin.toFixed(1)} min\n` +
             `mean Cd ${final?.meanCd.toFixed(4)} ± ${final?.stdCd.toFixed(4)}   ` +
@@ -338,19 +506,40 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
               : 'not enough post-trigger blocks to judge') +
             `\n` +
             (diagnostics ? `${diagnosticsLines(diagnostics)}\n` : '') +
+            // Prefer the diagnostics' own reduction: it is taken on the SAME readback as the
+            // approach-flow stations, i.e. the settled final field. The periodic snapshot is
+            // up to FIELD_SNAPSHOT_TCONV older.
+            (diagnostics?.field
+              ? `${fieldLine(diagnostics.field, 'stability (final field)')}\n`
+              : lastField
+                ? `${fieldLine(lastField, 'stability (last in-run snapshot)')}\n`
+                : '') +
             (tau ? `${tauLines(tau)}\n` : '')),
     );
 
-    await testInfo.attach(`ahmed-${(rung.cells / 1e6).toFixed(1)}M-Re${rung.Re}.png`, {
-      body: await page.screenshot({ fullPage: true }),
-      contentType: 'image/png',
-    });
+    await testInfo.attach(
+      `ahmed-${(rung.cells / 1e6).toFixed(1)}M-Re${rung.Re}-Cs${rung.lesCs}-${rung.precision}.png`,
+      { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' },
+    );
     await page.getByTestId('ahmed-stop').click();
 
-    expect(err, `rung ${rung.cells}@${rung.Re} errored`).toBeUndefined();
+    // NO per-rung assertion here — see the end-of-test assertion. A rung that diverges must not
+    // prevent the remaining rungs from running, because in a Cs sweep divergence is a RESULT.
   }
 
-  const summary = rows.join('\n');
+  const summary = `${rows.join('\n')}\n\n${comparisonTable(table)}`;
   await testInfo.attach('ahmed-ladder', { body: summary, contentType: 'text/plain' });
   console.log(`\n${summary}\n`);
+
+  // Only the acceptance-configuration rungs are required to survive. A rung at a reduced Cs is
+  // deliberately being run with less than the stabilizing dissipation this τ₀ is documented to
+  // need, so its divergence is data about the scheme — not a broken harness — and failing the
+  // test on it would discard the other rungs' results along with it.
+  const brokenBaselines = table.filter(
+    (r) => r.errored && r.rung.lesCs === AHMED_LES_CS && r.rung.precision === 'fp16',
+  );
+  expect(
+    brokenBaselines.map((r) => `${r.rung.cells}@${r.rung.Re}`),
+    'baseline-configuration rungs (Cs = AHMED_LES_CS, fp16) must not error',
+  ).toEqual([]);
 });

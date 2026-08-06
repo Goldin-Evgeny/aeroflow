@@ -7,11 +7,13 @@ import {
   sectionStats,
   upstreamStations,
   ahmedTauRegions,
+  fieldStats,
   tauLayersAt,
   tauStats,
   type AhmedScene,
 } from '@aeroflow/core';
 import { computeTauField, evaluatedSelector } from './tauOracle';
+import type { Precision } from '../gpu/ddfLayout';
 import { initDevice, type GpuDeviceInit } from '../gpu/context';
 import { Lbm3D } from './lbm3d';
 import {
@@ -22,6 +24,7 @@ import {
   saveCheckpoint,
 } from './checkpoint';
 import {
+  AHMED_LES_CS,
   DEVICE_LOST_GRACE_MS,
   lostWithin,
   makeLostSignal,
@@ -73,12 +76,32 @@ interface RunState {
   /** Physical unit mapping for the newtons HUD (dt from u·dx/U). */
   dx: number;
   dt: number;
+  /** Convective time of the last stability snapshot; drives the coarse cadence. */
+  lastFieldTConv: number;
 }
+
+/**
+ * Convective times between whole-field stability snapshots. Coarse on purpose: each snapshot
+ * is a full `readMacro()` (~128 MB at the 8M tier), so a per-sample cadence would dominate the
+ * run. At 20 T_conv a 140-T_conv rung pays ~7 readbacks — negligible against the run, and
+ * enough resolution to show mass drift or ρ excursions developing rather than only their
+ * endpoint.
+ */
+const FIELD_SNAPSHOT_TCONV = 20;
 
 let run: RunState | null = null;
 
-function summarize(scene: AhmedScene, physU: number): AhmedSceneSummary {
+function summarize(
+  scene: AhmedScene,
+  physU: number,
+  lesCs: number,
+  precision: Precision,
+): AhmedSceneSummary {
   return {
+    lesCs,
+    // The precision the sim actually BUILT with (post-`hasF16` fallback), not what was asked
+    // for — a run that silently fell back to fp32 must not report fp16.
+    precision,
     nx: scene.nx,
     ny: scene.ny,
     nz: scene.nz,
@@ -138,6 +161,8 @@ async function collectDiagnostics(r: RunState): Promise<AhmedDiagnostics> {
     reNominal: scene.Re,
     reBulk: reFrom(ref.bulkUx),
     reCore: reFrom(ref.coreMeanUx),
+    // Same `macro` readback the stations were reduced from — no extra GPU round trip.
+    field: fieldStats(macro, sim.flags, scene.nx, scene.ny, scene.nz),
     stations: stats.map((s) => ({
       ...s,
       cellsFromInlet: s.x,
@@ -192,6 +217,10 @@ async function collectTau(r: RunState): Promise<AhmedTauReport> {
     tau0: field.tau0,
     nuMolecular: (field.tau0 - 0.5) / 3,
     lesK: field.lesK,
+    // Inverted from the kernel's own lesK (18√2·Cs²) rather than echoed from the options, so
+    // the report states the Cs the SOLVER used. If plumbing ever drops the parameter, this
+    // disagrees with the requested value instead of quietly confirming it.
+    lesCs: Math.sqrt(field.lesK / (18 * Math.SQRT2)),
     Re: scene.Re,
     fluidCells: field.fluidCells,
     freeSlipAdjacentSkipped: field.freeSlipAdjacentSkipped,
@@ -230,7 +259,9 @@ function buildSim(state: Pick<RunState, 'scene' | 'gpu' | 'opts'>): Lbm3D {
     collision: 'trt',
     regularize: true, // τ microscopically above 0.5 — the M7 Re=10⁴ stability recipe
     conserveMass: true, // H13: prevent systematic collision-density drift on long runs
-    les: { cs: 0.1 },
+    // Cs is a run parameter (M9 step 7 Cs sweep), defaulting to the acceptance value. `?? `
+    // and not `||`: Cs = 0 means "LES off", a legitimate rung, and must not fall back to 0.1.
+    les: { cs: opts.lesCs ?? AHMED_LES_CS },
     forces: true,
     precision,
     hasF16: gpu.caps.hasF16,
@@ -276,6 +307,29 @@ async function start(opts: AhmedRunOptions): Promise<void> {
     });
     if (meta) {
       if (meta.forceHistory) history = ForceHistory.restore(meta.forceHistory);
+      // A checkpoint written under a different Cs or precision cannot be resumed into this run
+      // without merging two configurations' force histories. Warn loudly rather than fail: the
+      // DDF state is still valid, and the operator may be doing this deliberately — but a Cd
+      // stitched across configurations is not a measurement of either.
+      const saved = meta.sceneOptions as { lesCs?: number; precision?: Precision } | undefined;
+      const wantCs = opts.lesCs ?? AHMED_LES_CS;
+      if (saved?.lesCs !== undefined && saved.lesCs !== wantCs) {
+        post({
+          type: 'status',
+          message:
+            `WARNING: checkpoint was written at Cs ${saved.lesCs}, this run asks for ` +
+            `${wantCs}. The restored force history mixes two configurations — do not quote ` +
+            `its Cd.`,
+        });
+      }
+      if (saved?.precision !== undefined && saved.precision !== sim.precision) {
+        post({
+          type: 'status',
+          message:
+            `WARNING: checkpoint was written at ${saved.precision}, this run is ` +
+            `${sim.precision}. The restored force history mixes two precisions.`,
+        });
+      }
       post({ type: 'resumed', totalSteps: meta.totalSteps });
     }
   } else {
@@ -298,10 +352,11 @@ async function start(opts: AhmedRunOptions): Promise<void> {
     checkpointRequested: false,
     dx: scene.dx,
     dt: (scene.uLattice * scene.dx) / physU,
+    lastFieldTConv: Number.NEGATIVE_INFINITY,
   };
   post({
     type: 'ready',
-    scene: summarize(scene, physU),
+    scene: summarize(scene, physU, opts.lesCs ?? AHMED_LES_CS, sim.precision),
     gpu: gpu.description,
     precision: sim.precision,
   });
@@ -312,7 +367,15 @@ async function doCheckpoint(): Promise<void> {
   if (!run) return;
   const r = await saveCheckpoint(run.db, run.sim, {
     sceneId: 'ahmed-25',
-    sceneOptions: run.opts.scene,
+    // lesCs and precision travel WITH the checkpoint. They are not scene geometry, but a
+    // checkpoint restored under a different Cs would silently mix two configurations into one
+    // Cd history — the exact confound the sweep exists to avoid. Recorded so `restoreCheckpoint`
+    // can say so (see the resume warning in `start`).
+    sceneOptions: {
+      ...run.opts.scene,
+      lesCs: run.opts.lesCs ?? AHMED_LES_CS,
+      precision: run.sim.precision,
+    },
     forceHistory: run.history.serialize(),
   });
   run.lastCheckpointAt = performance.now();
@@ -373,11 +436,22 @@ async function loop(): Promise<void> {
       }
       const f = outcome.value;
       windowSteps += r.sampleInterval;
+      const convectiveTimes = r.sim.totalSteps / r.scene.convectiveTimeSteps;
       const cd = f.fx / (0.5 * r.scene.uLattice ** 2 * r.scene.frontalCells);
-      if (!Number.isFinite(cd)) {
+      // A body-less control run (frontalCells === 0) has no Cd by construction — the
+      // normalization area is zero, so cd is ±Infinity for any force at all. That is not
+      // divergence, and it must not trip the guard below and kill the run: the control exists
+      // to measure ν_LES and δ99 with no body present, and its health is judged by the field
+      // stats instead.
+      const cdIsMeaningful = r.scene.frontalCells > 0;
+      if (cdIsMeaningful && !Number.isFinite(cd)) {
+        // Snapshot before quitting: the field is already poison, so this reads NaNs — but the
+        // LAST healthy periodic snapshot is already on the wire, and the ladder pairs the two.
         post({
           type: 'error',
-          message: `Cd went non-finite at step ${r.sim.totalSteps} — solver diverged (check τ_eff/LES)`,
+          message:
+            `Cd went non-finite at step ${r.sim.totalSteps} (${convectiveTimes.toFixed(1)} ` +
+            `T_conv) — solver diverged (check τ_eff/LES)`,
         });
         r.running = false;
         break;
@@ -395,7 +469,7 @@ async function loop(): Promise<void> {
       post({
         type: 'sample',
         totalSteps: r.sim.totalSteps,
-        convectiveTimes: r.sim.totalSteps / r.scene.convectiveTimeSteps,
+        convectiveTimes,
         cd,
         meanCd: cdOf(stats.mean),
         stdCd: cdOf(stats.std),
@@ -405,6 +479,18 @@ async function loop(): Promise<void> {
         meanNewtons: forceToNewtons(stats.mean, { dx: r.dx, dt: r.dt }),
         mlups,
       });
+      // Coarse stability snapshot. Placed BEFORE the checkpoint so that if a run is about to
+      // diverge, the last snapshot is as close to the failure as the cadence allows.
+      if (convectiveTimes - r.lastFieldTConv >= FIELD_SNAPSHOT_TCONV) {
+        r.lastFieldTConv = convectiveTimes;
+        const macro = await r.sim.readMacro();
+        post({
+          type: 'stability',
+          totalSteps: r.sim.totalSteps,
+          convectiveTimes,
+          field: fieldStats(macro, r.sim.flags, r.scene.nx, r.scene.ny, r.scene.nz),
+        });
+      }
       if (r.checkpointRequested || now - r.lastCheckpointAt > r.opts.checkpointEveryMs) {
         await doCheckpoint();
       }

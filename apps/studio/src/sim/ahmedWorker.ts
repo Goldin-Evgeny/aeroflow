@@ -4,6 +4,8 @@ import {
   ForceHistory,
   ahmedScene,
   forceToNewtons,
+  sectionStats,
+  upstreamStations,
   type AhmedScene,
 } from '@aeroflow/core';
 import { initDevice, type GpuDeviceInit } from '../gpu/context';
@@ -20,6 +22,7 @@ import {
   lostWithin,
   makeLostSignal,
   stepOrLost,
+  type AhmedDiagnostics,
   type AhmedRunOptions,
   type AhmedSceneSummary,
   type AhmedWorkerCommand,
@@ -85,6 +88,56 @@ function summarize(scene: AhmedScene, physU: number): AhmedSceneSummary {
     convectiveTimeSteps: scene.convectiveTimeSteps,
     physU,
     uLattice: scene.uLattice,
+    noseX: scene.noseX,
+  };
+}
+
+/**
+ * Approach-flow diagnostics: what velocity does the flow ACTUALLY reach upstream of the
+ * body? One `readMacro()` covers every station, so this costs a single readback.
+ *
+ * The acceptance coefficient is unchanged — `cdCommanded` is normalized by the commanded
+ * lattice velocity exactly as before. `cdBulk`/`cdCore` are reported alongside it to
+ * quantify the plain-`Inlet` sag M10 measured (0.660·u_in in a frictionless duct), never to
+ * re-normalize the verdict: Cd ∝ 1/U², so choosing the denominator that flatters the
+ * number is precisely the tolerance-shopping hard rule 3 forbids.
+ */
+async function collectDiagnostics(r: RunState): Promise<AhmedDiagnostics> {
+  const { scene, sim } = r;
+  const macro = await sim.readMacro();
+  const stationsX = upstreamStations(scene.noseX);
+  const stats = stationsX.map((x) =>
+    sectionStats(macro, sim.flags, scene.nx, scene.ny, scene.nz, x),
+  );
+
+  // The station nearest the nose is the reference: it is what the body actually sees,
+  // while still upstream of the nose's own stagnation rise.
+  const ref = stats[stats.length - 1];
+  // Same force and same 20-T_conv window the `sample` event reports, so cdCommanded here
+  // is identical to the acceptance number rather than a parallel computation of it.
+  const meanFx = r.history.stats(0, 20).mean;
+  const cdFrom = (u: number): number =>
+    u > 0 ? meanFx / (0.5 * u * u * scene.frontalCells) : Number.NaN;
+  const meanCdCommanded = cdFrom(scene.uLattice);
+  const reFrom = (u: number): number =>
+    scene.uLattice > 0 ? (scene.Re * u) / scene.uLattice : NaN;
+
+  return {
+    totalSteps: sim.totalSteps,
+    convectiveTimes: sim.totalSteps / scene.convectiveTimeSteps,
+    cdCommanded: meanCdCommanded,
+    cdBulk: cdFrom(ref.bulkUx),
+    cdCore: cdFrom(ref.coreMeanUx),
+    uCommanded: scene.uLattice,
+    referenceStationX: ref.x,
+    reNominal: scene.Re,
+    reBulk: reFrom(ref.bulkUx),
+    reCore: reFrom(ref.coreMeanUx),
+    stations: stats.map((s) => ({
+      ...s,
+      cellsFromInlet: s.x,
+      cellsToNose: scene.noseX - s.x,
+    })),
   };
 }
 
@@ -311,6 +364,13 @@ self.onmessage = (ev: MessageEvent<AhmedWorkerCommand>) => {
       break;
     case 'checkpoint':
       if (run?.running) run.checkpointRequested = true;
+      break;
+    case 'diagnostics':
+      if (run) {
+        void collectDiagnostics(run)
+          .then((diagnostics) => post({ type: 'diagnostics', diagnostics }))
+          .catch((e) => post({ type: 'error', message: `diagnostics: ${String(e)}` }));
+      }
       break;
     case 'simulate-device-loss':
       // destroy() fires device.lost with reason 'destroyed' — acceptance 4's forced loss.

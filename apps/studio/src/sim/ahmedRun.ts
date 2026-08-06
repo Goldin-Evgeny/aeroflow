@@ -32,12 +32,61 @@ export interface AhmedSceneSummary {
   /** Physical free-stream speed implied by Re (≈ 60 m/s at the experimental Re). */
   physU: number;
   uLattice: number;
+  /** Nose station in cells — the upstream diagnostic stations are placed relative to it. */
+  noseX: number;
+}
+
+/**
+ * Approach-flow diagnostics (M9 acceptance-1). The Cd the page reports normalizes by the
+ * COMMANDED lattice velocity, which is only meaningful if the flow reaches it — and the
+ * Ahmed scene still uses the plain equilibrium `Inlet` that M10 measured settling at
+ * 0.660·u_in. These statistics say what the approach flow actually is.
+ *
+ * **Diagnostic only.** `cdCommanded` remains the acceptance-facing coefficient; `cdBulk`
+ * and `cdCore` exist to quantify the normalization question, never to re-normalize a
+ * verdict into passing.
+ */
+export interface AhmedDiagnostics {
+  totalSteps: number;
+  convectiveTimes: number;
+  /** Mean Cd over the force history, normalized by the commanded velocity — acceptance. */
+  cdCommanded: number;
+  /** Same force, normalized by the mass-flux velocity at the reference station. */
+  cdBulk: number;
+  /** Same force, normalized by the core (boundary-layer-excluded) velocity. */
+  cdCore: number;
+  /** Commanded lattice velocity the scene was built with. */
+  uCommanded: number;
+  /** Station used for cdBulk/cdCore/Re — the one nearest the nose. */
+  referenceStationX: number;
+  /** Re implied by the measured bulk velocity vs the nominal Re. */
+  reNominal: number;
+  reBulk: number;
+  reCore: number;
+  stations: {
+    x: number;
+    fluidCells: number;
+    meanRho: number;
+    areaMeanUx: number;
+    massFlux: number;
+    bulkUx: number;
+    stdUx: number;
+    nonUniformity: number;
+    coreMeanUx: number;
+    coreCells: number;
+    yCore: number;
+    blThicknessCells: number;
+    /** Cells downstream of the inlet plane, and upstream of the nose. */
+    cellsFromInlet: number;
+    cellsToNose: number;
+  }[];
 }
 
 export type AhmedWorkerCommand =
   | { type: 'start'; opts: AhmedRunOptions }
   | { type: 'stop' }
   | { type: 'checkpoint' }
+  | { type: 'diagnostics' }
   | { type: 'simulate-device-loss' };
 
 export type AhmedWorkerEvent =
@@ -56,6 +105,7 @@ export type AhmedWorkerEvent =
       meanNewtons: number;
       mlups: number;
     }
+  | { type: 'diagnostics'; diagnostics: AhmedDiagnostics }
   | { type: 'checkpoint-saved'; bytes: number; ms: number; totalSteps: number; savedAt: number }
   | { type: 'resumed'; totalSteps: number }
   | { type: 'device-lost'; reason: string; recoveries: number }

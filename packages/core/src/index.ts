@@ -174,6 +174,8 @@ export type {
   SphereRadiusCalibration,
 } from './scenes/stlSphere3d.js';
 export { sphereDragCoefficient, sphereDragStats } from './analysis/sphereDrag.js';
+export { sectionStats, upstreamStations } from './analysis/sectionProfile.js';
+export type { SectionStats } from './analysis/sectionProfile.js';
 export type { SphereDragStats, SphereDragStatsOptions } from './analysis/sphereDrag.js';
 export {
   triBoxOverlap,

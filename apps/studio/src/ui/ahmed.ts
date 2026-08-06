@@ -83,13 +83,15 @@ export function mountAhmed(root: HTMLElement): void {
   const resumeBtn = mkBtn('Resume from checkpoint');
   const stopBtn = mkBtn('Stop');
   const ckptBtn = mkBtn('Checkpoint now');
+  const diagBtn = mkBtn('Approach-flow diagnostics');
   const chaosBtn = mkBtn('Simulate device loss');
   startBtn.dataset.testid = 'ahmed-start';
   resumeBtn.dataset.testid = 'ahmed-resume';
   stopBtn.dataset.testid = 'ahmed-stop';
   ckptBtn.dataset.testid = 'ahmed-ckpt';
+  diagBtn.dataset.testid = 'ahmed-diag';
   chaosBtn.dataset.testid = 'ahmed-chaos';
-  stopBtn.disabled = ckptBtn.disabled = chaosBtn.disabled = true;
+  stopBtn.disabled = ckptBtn.disabled = diagBtn.disabled = chaosBtn.disabled = true;
 
   const info = document.createElement('pre');
   info.className = 'readout';
@@ -148,7 +150,7 @@ export function mountAhmed(root: HTMLElement): void {
 
   const setRunning = (running: boolean): void => {
     startBtn.disabled = resumeBtn.disabled = running;
-    stopBtn.disabled = ckptBtn.disabled = chaosBtn.disabled = !running;
+    stopBtn.disabled = ckptBtn.disabled = diagBtn.disabled = chaosBtn.disabled = !running;
     shouldHoldLock = running;
     if (running) void acquireLock();
     else void wakeLock?.release().catch(() => undefined);
@@ -173,6 +175,7 @@ export function mountAhmed(root: HTMLElement): void {
   resumeBtn.onclick = () => start(true);
   stopBtn.onclick = () => send({ type: 'stop' });
   ckptBtn.onclick = () => send({ type: 'checkpoint' });
+  diagBtn.onclick = () => send({ type: 'diagnostics' });
   chaosBtn.onclick = () => {
     logLine('CHAOS: forcing device loss (acceptance 4)');
     send({ type: 'simulate-device-loss' });
@@ -229,6 +232,33 @@ export function mountAhmed(root: HTMLElement): void {
             );
           }
         }
+        break;
+      }
+      case 'diagnostics': {
+        const d = m.diagnostics;
+        const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+        // Cd_commanded is the acceptance number and is labelled as such; the other two are
+        // shown to expose the normalization question (this scene uses the plain equilibrium
+        // Inlet that M10 measured settling at 0.660·u_in), never to restate the verdict.
+        info.textContent = [
+          `approach flow at ${d.convectiveTimes.toFixed(1)} T_conv — u_commanded ${d.uCommanded}`,
+          ...d.stations.map(
+            (s) =>
+              `  x=${String(s.x).padStart(4)} (−${s.cellsToNose} to nose)  ` +
+              `bulk ${s.bulkUx.toFixed(5)} (${pct(s.bulkUx / d.uCommanded)})  ` +
+              `core ${s.coreMeanUx.toFixed(5)} (${pct(s.coreMeanUx / d.uCommanded)})  ` +
+              `ρ̄ ${s.meanRho.toFixed(5)}  nonunif ${s.nonUniformity.toFixed(3)}  ` +
+              `δ99 y=${s.yCore} (${s.blThicknessCells} cells)`,
+          ),
+          `  Cd_commanded ${d.cdCommanded.toFixed(4)} [ACCEPTANCE]   ` +
+            `Cd_bulk ${d.cdBulk.toFixed(4)}   Cd_core ${d.cdCore.toFixed(4)} — diagnostic only`,
+          `  Re_nominal ${d.reNominal.toExponential(2)}   Re_bulk ${d.reBulk.toExponential(2)}   ` +
+            `Re_core ${d.reCore.toExponential(2)}`,
+        ].join('\n');
+        logLine(
+          `diagnostics @ ${d.convectiveTimes.toFixed(1)} T_conv: ` +
+            `bulk/cmd ${pct(d.cdBulk > 0 ? Math.sqrt(d.cdCommanded / d.cdBulk) : NaN)}`,
+        );
         break;
       }
       case 'checkpoint-saved':

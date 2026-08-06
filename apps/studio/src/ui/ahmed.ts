@@ -12,6 +12,7 @@ import {
 import { AHMED_EXPERIMENTAL_RE } from '@aeroflow/core';
 import {
   applyCellsOverride,
+  fieldEveryOverride,
   hooks,
   lesCsOverride,
   precisionOverride,
@@ -205,6 +206,7 @@ export function mountAhmed(root: HTMLElement): void {
       opts: {
         scene: { maxCells: BUDGETS[budgetSel.value], Re: chosenRe() },
         lesCs: chosenCs(),
+        fieldEveryTConv: fieldEveryOverride() ?? undefined,
         precision: fp16Box.checked ? 'fp16' : 'fp32',
         checkpointEveryMs: 5 * 60 * 1000,
         resume,
@@ -364,7 +366,7 @@ export function mountAhmed(root: HTMLElement): void {
           `stability @ ${m.convectiveTimes.toFixed(1)} T_conv: ` +
             `mass drift ${f.massDriftRel.toExponential(3)}  ` +
             `ρ [${f.rhoMin.toFixed(5)}, ${f.rhoMax.toFixed(5)}]  ` +
-            `Ma_max ${f.machMax.toFixed(4)}  non-finite ${f.nonFiniteCells}`,
+            `Ma_max ${f.machMax.toFixed(4)}  non-finite ${f.nonFiniteCells}  (${m.ms.toFixed(0)} ms)`,
         );
         break;
       }

@@ -73,6 +73,24 @@ export function isSolid(flag: number): boolean {
 }
 
 /**
+ * Does the macro pass populate this cell?
+ *
+ * **Only `Fluid` does.** `write_macro` (stream_collide_3d.wgsl §Pass 3) reconstructs
+ * populations under `if (getFlag(idx) == FLUID)` and otherwise stores ρ = 0, u = 0 — so
+ * `Inlet`, `Outlet`, `FreeSlip` and `VelocityInlet` cells all read back as **exactly zero
+ * density**, not as their physical state.
+ *
+ * This is NOT the same question as `isSolid`, and using that one to filter a macro readback
+ * silently averages the whole boundary shell in as zero-density fluid. Measured on the M9
+ * Ahmed smoke grid (120×37×67, shell = sides + top + inlet + outlet): a perfectly healthy run
+ * reported **−7.3% mass drift and ρ_min = 0** purely from counting those cells. Any reduction
+ * over `readMacro()` output wants this predicate.
+ */
+export function hasMacroscopics(flag: number): boolean {
+  return flag === CellType.Fluid;
+}
+
+/**
  * BGK equilibrium distribution for direction i:
  *   f_i^eq = w_i · ρ · (1 + 3(e_i·u) + 4.5(e_i·u)² − 1.5|u|²)
  */

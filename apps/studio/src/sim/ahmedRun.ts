@@ -17,6 +17,16 @@ export interface AhmedRunOptions {
    * 0 is a meaningful value (LES fully off) and must be passed through, not treated as unset.
    */
   lesCs?: number;
+  /**
+   * Convective times between whole-field stability snapshots. Defaults to
+   * `FIELD_SNAPSHOT_TCONV_DEFAULT`.
+   *
+   * Reduced-Cs rungs should set this LOWER. The snapshot's whole value is being the last
+   * record before a divergence, and a rung run below the dissipation its τ₀ needs can go from
+   * healthy to NaN quickly — at a 20-T_conv cadence the "last healthy" record could sit almost
+   * 20 T_conv before the failure and show nothing of the approach to it.
+   */
+  fieldEveryTConv?: number;
   /** Auto-checkpoint cadence, wall-clock. Spec default: 5 minutes. */
   checkpointEveryMs: number;
   /** Try to resume from the latest checkpoint before starting fresh. */
@@ -173,7 +183,15 @@ export type AhmedWorkerEvent =
    * and for a Cs sweep that deliberately removes stabilizing dissipation, that evidence is
    * the difference between "diverged" and "diverged, and here is how it got there".
    */
-  | { type: 'stability'; totalSteps: number; convectiveTimes: number; field: FieldStats }
+  | {
+      type: 'stability';
+      totalSteps: number;
+      convectiveTimes: number;
+      field: FieldStats;
+      /** Wall-clock cost of this snapshot (readback + reduction), so its overhead is visible
+       *  and the cadence can be justified from measurement rather than assumed cheap. */
+      ms: number;
+    }
   | { type: 'checkpoint-saved'; bytes: number; ms: number; totalSteps: number; savedAt: number }
   | { type: 'resumed'; totalSteps: number }
   | { type: 'device-lost'; reason: string; recoveries: number }
@@ -250,6 +268,13 @@ export const DEVICE_LOST_GRACE_MS = 250;
  * rather than assume it.
  */
 export const AHMED_LES_CS = 0.1;
+
+/**
+ * Default convective times between stability snapshots. Each is a whole-field `readMacro()`
+ * (~128 MB at the 8M tier), so this is coarse on purpose; reduced-Cs rungs override it down
+ * (see `AhmedRunOptions.fieldEveryTConv`).
+ */
+export const FIELD_SNAPSHOT_TCONV_DEFAULT = 20;
 
 /**
  * The DDF storage precision criterion 1′ specifies ("with LES + FP16 storage"). A run at any

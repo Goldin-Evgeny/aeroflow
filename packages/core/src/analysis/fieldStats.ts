@@ -1,4 +1,4 @@
-import { isSolid } from '../lattice.js';
+import { hasMacroscopics } from '../lattice.js';
 
 /**
  * Whole-field stability statistics (M9 step 7 — the Cs sensitivity test).
@@ -15,11 +15,14 @@ import { isSolid } from '../lattice.js';
  * that finishes is not thereby a valid measurement, and these numbers are what distinguishes
  * the two.
  *
- * Reduces the same `readMacro()` image `sectionStats` consumes, over the same `isSolid`
- * predicate, so the two agree by construction about which cells are fluid.
+ * Reduces the same `readMacro()` image `sectionStats` consumes, over the same
+ * `hasMacroscopics` predicate, so the two agree by construction about which cells count.
  */
 export interface FieldStats {
-  /** Non-solid cells (the population every other figure here is taken over). */
+  /**
+   * Cells the macro pass actually populates (`CellType.Fluid`) — the population every other
+   * figure here is taken over. NOT "non-solid": see `hasMacroscopics`.
+   */
   fluidCells: number;
   /** Σρ over fluid cells. */
   totalMass: number;
@@ -74,7 +77,10 @@ export function fieldStats(
   let nonFiniteCells = 0;
 
   for (let i = 0; i < n; i++) {
-    if (isSolid(flags[i])) continue;
+    // `hasMacroscopics`, NOT `isSolid`: the boundary shell (Inlet/Outlet/FreeSlip) is non-solid
+    // but the macro pass leaves it at ρ = 0, so counting it fabricates mass loss and a ρ_min
+    // of zero on a healthy field. See the predicate's docstring for the measured symptom.
+    if (!hasMacroscopics(flags[i])) continue;
     const rho = macro[4 * i];
     const ux = macro[4 * i + 1];
     const uy = macro[4 * i + 2];

@@ -38,6 +38,28 @@ describe('fieldStats', () => {
     expect(s.nonFiniteCells).toBe(0);
   });
 
+  it('excludes the boundary shell, which the macro pass leaves at ρ=0', () => {
+    // REGRESSION (2026-08-06, caught by the M9 smoke ladder). `write_macro` populates only
+    // FLUID cells and stores ρ=0 elsewhere, so filtering with `isSolid` — which passes
+    // Inlet/Outlet/FreeSlip through — counted the entire boundary shell as zero-density
+    // fluid. On the 120×37×67 Ahmed smoke grid that shell is ~6.5% of the domain and a
+    // perfectly healthy run reported −7.3% mass drift with ρ_min = 0.
+    const { macro, flags } = uniformField();
+    flags[0] = CellType.Inlet;
+    flags[1] = CellType.Outlet;
+    flags[2] = CellType.FreeSlip;
+    macro[4 * 0] = 0; // what write_macro actually leaves behind
+    macro[4 * 1] = 0;
+    macro[4 * 2] = 0;
+
+    const s = fieldStats(macro, flags, NX, NY, NZ);
+
+    expect(s.fluidCells).toBe(N - 3);
+    expect(s.massDriftRel).toBe(0);
+    expect(s.rhoMin).toBe(1);
+    expect(s.rhoMean).toBe(1);
+  });
+
   it('excludes Solid and BodySolid cells from every statistic', () => {
     const { macro, flags } = uniformField();
     // Garbage in the solids: LBM never writes meaningful macros there, so counting them would

@@ -1,4 +1,4 @@
-export { D2Q9, CellType, equilibrium, isSolid } from './lattice.js';
+export { D2Q9, CellType, equilibrium, isSolid, hasMacroscopics } from './lattice.js';
 export { D3Q19 } from './lattice3d.js';
 export { latticeUnits, forceToNewtons, AIR_KINEMATIC_VISCOSITY, AIR_DENSITY } from './units.js';
 export type { UnitMapping, UnitMappingInput } from './units.js';

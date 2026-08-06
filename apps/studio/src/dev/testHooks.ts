@@ -290,6 +290,16 @@ export function lesCsOverride(): number | null {
  * fp32 is a diagnostic configuration — it exists to test whether FP16 quantization is behind
  * the subgrid activation measured in the undisturbed approach freestream.
  */
+/**
+ * Stability-snapshot cadence override (`?fieldEvery=N`, convective times). The ladder tightens
+ * this on reduced-Cs rungs, where the run can go from healthy to NaN fast enough that a coarse
+ * cadence would leave the last healthy record uselessly far before the failure.
+ */
+export function fieldEveryOverride(): number | null {
+  const v = Number(new URLSearchParams(location.search).get('fieldEvery'));
+  return Number.isFinite(v) && v > 0 ? v : null;
+}
+
 export function precisionOverride(): 'fp16' | 'fp32' | null {
   const p = new URLSearchParams(location.search).get('precision');
   return p === 'fp16' || p === 'fp32' ? p : null;

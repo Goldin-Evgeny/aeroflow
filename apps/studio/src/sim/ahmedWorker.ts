@@ -25,6 +25,7 @@ import {
 } from './checkpoint';
 import {
   AHMED_LES_CS,
+  FIELD_SNAPSHOT_TCONV_DEFAULT,
   DEVICE_LOST_GRACE_MS,
   lostWithin,
   makeLostSignal,
@@ -78,16 +79,9 @@ interface RunState {
   dt: number;
   /** Convective time of the last stability snapshot; drives the coarse cadence. */
   lastFieldTConv: number;
+  /** Set when the run ended in divergence or an unrecoverable error — triggers `quarantine`. */
+  fatal: boolean;
 }
-
-/**
- * Convective times between whole-field stability snapshots. Coarse on purpose: each snapshot
- * is a full `readMacro()` (~128 MB at the 8M tier), so a per-sample cadence would dominate the
- * run. At 20 T_conv a 140-T_conv rung pays ~7 readbacks — negligible against the run, and
- * enough resolution to show mass drift or ρ excursions developing rather than only their
- * endpoint.
- */
-const FIELD_SNAPSHOT_TCONV = 20;
 
 let run: RunState | null = null;
 
@@ -350,6 +344,7 @@ async function start(opts: AhmedRunOptions): Promise<void> {
     recoveries: 0,
     lastCheckpointAt: performance.now(),
     checkpointRequested: false,
+    fatal: false,
     dx: scene.dx,
     dt: (scene.uLattice * scene.dx) / physU,
     lastFieldTConv: Number.NEGATIVE_INFINITY,
@@ -413,7 +408,10 @@ async function handleLoss(): Promise<'continue' | 'stop'> {
     return 'continue';
   } catch (e) {
     post({ type: 'error', message: `recovery failed: ${String(e)}` });
-    if (run) run.running = false;
+    if (run) {
+      run.fatal = true;
+      run.running = false;
+    }
     return 'stop';
   }
 }
@@ -453,6 +451,7 @@ async function loop(): Promise<void> {
             `Cd went non-finite at step ${r.sim.totalSteps} (${convectiveTimes.toFixed(1)} ` +
             `T_conv) — solver diverged (check τ_eff/LES)`,
         });
+        r.fatal = true;
         r.running = false;
         break;
       }
@@ -479,16 +478,20 @@ async function loop(): Promise<void> {
         meanNewtons: forceToNewtons(stats.mean, { dx: r.dx, dt: r.dt }),
         mlups,
       });
-      // Coarse stability snapshot. Placed BEFORE the checkpoint so that if a run is about to
-      // diverge, the last snapshot is as close to the failure as the cadence allows.
-      if (convectiveTimes - r.lastFieldTConv >= FIELD_SNAPSHOT_TCONV) {
+      // Stability snapshot. Placed BEFORE the checkpoint so that if a run is about to diverge,
+      // the last snapshot is as close to the failure as the cadence allows.
+      const fieldEvery = r.opts.fieldEveryTConv ?? FIELD_SNAPSHOT_TCONV_DEFAULT;
+      if (convectiveTimes - r.lastFieldTConv >= fieldEvery) {
         r.lastFieldTConv = convectiveTimes;
+        const t0 = performance.now();
         const macro = await r.sim.readMacro();
+        const field = fieldStats(macro, r.sim.flags, r.scene.nx, r.scene.ny, r.scene.nz);
         post({
           type: 'stability',
           totalSteps: r.sim.totalSteps,
           convectiveTimes,
-          field: fieldStats(macro, r.sim.flags, r.scene.nx, r.scene.ny, r.scene.nz),
+          field,
+          ms: performance.now() - t0,
         });
       }
       if (r.checkpointRequested || now - r.lastCheckpointAt > r.opts.checkpointEveryMs) {
@@ -509,11 +512,52 @@ async function loop(): Promise<void> {
         windowStart = performance.now();
       } else {
         post({ type: 'error', message: String(e) });
+        run.fatal = true;
         run.running = false;
       }
     }
   }
-  if (run) post({ type: 'stopped', totalSteps: run.sim.totalSteps });
+  if (run) {
+    const totalSteps = run.sim.totalSteps;
+    if (run.fatal) await quarantine(run);
+    post({ type: 'stopped', totalSteps });
+  }
+}
+
+/**
+ * Tear down everything a DIVERGED run could otherwise leave behind for the next rung.
+ *
+ * A ladder rung is only a controlled comparison if it starts from the same fresh state as
+ * every other rung, and a run that ends in NaN has two ways to leak into its successor:
+ *
+ *  - **A poisoned checkpoint.** The 5-minute auto-save is unconditional, so a diverging run can
+ *    persist NaN DDFs to IndexedDB, which survives navigation. `start(resume: false)` does
+ *    clear checkpoints before running, so this is already covered — but it is covered by the
+ *    NEXT rung remembering to, which is the wrong place for the guarantee. Clearing here makes
+ *    the diverged run responsible for its own mess.
+ *  - **GPU memory.** ~0.5 GB of DDF buffers at the 8M FP16 tier. Navigation does collect it
+ *    with the worker, but not necessarily before the next rung requests its allocation, and an
+ *    OOM there would look like a physics result.
+ *
+ * Failures here are swallowed: this runs on an already-failed path and must not replace a
+ * physics error message with a teardown one.
+ */
+async function quarantine(r: RunState): Promise<void> {
+  try {
+    await clearCheckpoints(r.db);
+  } catch {
+    /* the next rung clears again on a fresh start */
+  }
+  try {
+    r.sim.destroy();
+  } catch {
+    /* already gone */
+  }
+  try {
+    r.gpu.device.destroy();
+  } catch {
+    /* already gone */
+  }
 }
 
 self.onmessage = (ev: MessageEvent<AhmedWorkerCommand>) => {

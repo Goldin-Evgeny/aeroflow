@@ -107,6 +107,14 @@ const WANT_TAU = process.env.AHMED_TAU !== '0';
  * own trigger + EXTRA_TCONV.
  */
 const MIN_TCONV = Number(process.env.AHMED_MIN_TCONV ?? 0);
+/** Stability-snapshot cadence, in convective times, at the acceptance Cs. */
+const FIELD_TCONV = Number(process.env.AHMED_FIELD_TCONV ?? 20);
+/**
+ * Cadence for rungs below the acceptance Cs. Tighter because those runs carry less than the
+ * dissipation this τ₀ is documented to need, so the interval between "healthy" and "NaN" can be
+ * short — and the snapshot's entire purpose is to be the last record before that.
+ */
+const REDUCED_CS_FIELD_TCONV = Number(process.env.AHMED_FIELD_TCONV_REDUCED ?? 5);
 
 type Sample = Extract<AhmedWorkerEvent, { type: 'sample' }>;
 type Ready = Extract<AhmedWorkerEvent, { type: 'ready' }>;
@@ -264,6 +272,9 @@ function comparisonTable(
     lastTConv: number;
     blocks: number[];
     spread: number;
+    allBlocks: number[];
+    allSpread: number;
+    triggerTConv?: number;
     diagnostics?: AhmedDiagnostics;
     tau?: AhmedTauReport;
     lastField?: FieldStats;
@@ -278,7 +289,7 @@ function comparisonTable(
 
   const header =
     `${'Cs'.padStart(5)} ${'prec'.padStart(5)} ${'T_conv'.padStart(7)}  ` +
-    `${'Cd blocks (independent 20 T_conv)'.padEnd(38)} ${'spread'.padStart(7)} ${'gate'.padStart(5)}  ` +
+    `${`ALL complete ${BLOCK_TCONV}-T_conv Cd block means`.padEnd(46)} ${'spread'.padStart(7)} ${'blocks?'.padStart(8)}  ` +
     `${'δ99'.padStart(5)} ${'ν appr'.padStart(7)} ${'ν whole'.padStart(8)} ${'ν body'.padStart(7)} ` +
     `${'dom%'.padStart(6)} ${'τ p50'.padStart(9)}  ` +
     `${'massdrift'.padStart(10)} ${'ρ min'.padStart(9)} ${'ρ max'.padStart(9)} ${'Ma'.padStart(6)} ${'NaN'.padStart(5)}`;
@@ -289,13 +300,21 @@ function comparisonTable(
     // Settled-field stats when the rung finished; the last periodic snapshot when it did not
     // (a diverged rung has no settled field to reduce).
     const f = r.diagnostics?.field ?? r.lastField;
-    const blocks = r.blocks.length > 0 ? r.blocks.map((b) => b.toFixed(4)).join(' ') : '—';
+    const blocks = r.allBlocks.length > 0 ? r.allBlocks.map((b) => b.toFixed(4)).join(' ') : '—';
+    // "blocks?" is deliberately NOT a convergence verdict. It reports only whether the
+    // post-trigger independent blocks agree within the 3% gate — the one piece of evidence
+    // that could support calling a rung converged. Everything else reads "no".
+    const blocksVerdict = !Number.isFinite(r.spread)
+      ? 'no data'
+      : r.spread > 0.03
+        ? 'DISAGREE'
+        : 'agree';
     return (
       `${String(r.rung.lesCs).padStart(5)} ${r.rung.precision.padStart(5)} ` +
       `${num(r.lastTConv, 1).padStart(7)}  ` +
-      `${blocks.padEnd(38)} ` +
-      `${(Number.isFinite(r.spread) ? `${(r.spread * 100).toFixed(2)}%` : '—').padStart(7)} ` +
-      `${(Number.isFinite(r.spread) ? (r.spread > 0.03 ? 'ABOVE' : 'ok') : '—').padStart(5)}  ` +
+      `${blocks.padEnd(46)} ` +
+      `${(Number.isFinite(r.allSpread) ? `${(r.allSpread * 100).toFixed(2)}%` : '—').padStart(7)} ` +
+      `${blocksVerdict.padStart(8)}  ` +
       `${(ref ? String(ref.blThicknessCells) : '—').padStart(5)} ` +
       `${region(r.tau, 'approach freestream').padStart(7)} ` +
       `${region(r.tau, 'whole domain').padStart(8)} ` +
@@ -315,8 +334,20 @@ function comparisonTable(
     '## Cross-rung comparison (M9 step 7 — Cs sensitivity)',
     '',
     'ν columns are ν_LES/ν_mol p50 by region; δ99 is at the reference station (cells);',
-    'dom% is the LES-dominant cell fraction over the whole domain; stability from the last',
-    'in-run snapshot. "gate" flags block spread against the 3% convergence criterion.',
+    'dom% is the LES-dominant cell fraction over the whole domain; stability from the settled',
+    'final field, or from the last in-run snapshot for a rung that diverged.',
+    '',
+    'The Cd column lists EVERY complete block mean over the whole run, and "spread" is that',
+    'series\' range. "blocks?" reports ONLY whether the post-trigger independent blocks agree',
+    'within the 3% gate. It is not a convergence verdict, and nothing here is:',
+    '',
+    '  NO RUNG IS CONVERGED UNLESS ITS OWN INDEPENDENT BLOCKS SAY SO. The common T_conv floor',
+    '  every rung is held to exists to make the snapshots COMPARABLE — same point in each',
+    "  flow's development, same masks — and is not evidence about any rung's convergence. A",
+    '  rung that reaches the horizon has reached the horizon; that is all. `isConverged`',
+    '  reads a running-mean drift that decays as 1/N whether or not the mean is moving, so',
+    '  its trigger firing is not evidence either. Independent block agreement is the only',
+    '  evidence that counts, and it is reported per rung above.',
     '',
     header,
     '-'.repeat(header.length),
@@ -345,191 +376,248 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
     lastTConv: number;
     blocks: number[];
     spread: number;
+    /** Every complete block over the whole run — the cross-rung comparison basis. */
+    allBlocks: number[];
+    allSpread: number;
+    triggerTConv?: number;
     diagnostics?: AhmedDiagnostics;
     tau?: AhmedTauReport;
     lastField?: FieldStats;
   }[] = [];
 
-  for (const rung of RUNGS) {
-    await page.goto(
-      `${BASE_URL}/?ahmed&cells=${rung.cells}&Re=${rung.Re}` +
-        `&lesCs=${rung.lesCs}&precision=${rung.precision}`,
-    );
-    const startedAt = Date.now();
-    await page.getByTestId('ahmed-start').click();
+  // The rung loop runs inside try/finally so the summary is emitted even when the sweep fails
+  // partway. A multi-hour run that produced three good rungs and then timed out must not
+  // discard those three: the data is expensive and the failure is usually in the harness.
+  try {
+    for (const rung of RUNGS) {
+      // Tighter stability cadence wherever the run is below the acceptance dissipation: those
+      // rungs are the ones that can go from healthy to NaN quickly, and a coarse cadence would
+      // leave the "last healthy" record too far before the failure to show the approach to it.
+      const fieldEvery = rung.lesCs < AHMED_LES_CS ? REDUCED_CS_FIELD_TCONV : FIELD_TCONV;
+      await page.goto(
+        `${BASE_URL}/?ahmed&cells=${rung.cells}&Re=${rung.Re}` +
+          `&lesCs=${rung.lesCs}&precision=${rung.precision}&fieldEvery=${fieldEvery}`,
+      );
+      const startedAt = Date.now();
+      await page.getByTestId('ahmed-start').click();
 
-    await expect
-      .poll(async () => events(await readHooks(page)).map((e) => e.type), { timeout: 300_000 })
-      .toContain('ready');
-    const scene = (events(await readHooks(page)).find((e) => e.type === 'ready') as Ready).scene;
+      await expect
+        .poll(async () => events(await readHooks(page)).map((e) => e.type), { timeout: 300_000 })
+        .toContain('ready');
+      const scene = (events(await readHooks(page)).find((e) => e.type === 'ready') as Ready).scene;
 
-    // Phase 1 — run to the first isConverged(20, 3%) trigger.
-    await expect
-      .poll(
-        async () => {
-          const h = await readHooks(page);
-          if (events(h).some((e) => e.type === 'error')) return 'error';
-          return samples(h).some((s) => s.converged) ? 'triggered' : 'running';
-        },
-        { timeout: RUNG_BUDGET_MS, intervals: [5_000] },
-      )
-      .not.toBe('running');
+      // Every rung must begin from the SAME fresh state, or the comparison is not controlled.
+      // `ahmed-start` posts resume:false, which clears IndexedDB checkpoints before stepping, and
+      // the previous rung's `page.goto` tore down its worker and GPU device. Assert it rather
+      // than trust it: a rung that silently resumed another rung's (possibly diverged) field
+      // would produce numbers that look like physics.
+      expect(
+        events(await readHooks(page)).some((e) => e.type === 'resumed'),
+        `rung Cs ${rung.lesCs} resumed from a checkpoint instead of starting fresh`,
+      ).toBe(false);
+      expect(
+        scene.lesCs,
+        `rung asked for Cs ${rung.lesCs} but the solver built ${scene.lesCs}`,
+      ).toBeCloseTo(rung.lesCs, 12);
 
-    let h = await readHooks(page);
-    const errored = () =>
-      events(h).find((e) => e.type === 'error') as
-        Extract<AhmedWorkerEvent, { type: 'error' }> | undefined;
-    const trigger = samples(h).find((s) => s.converged);
-
-    // Phase 2 — keep going EXTRA_TCONV past the trigger, so independent blocks exist.
-    //
-    // MIN_TCONV additionally holds every rung to a common floor. Without it each rung stops
-    // at its own trigger + EXTRA, and the triggers differ by Re (42.3 vs 55.9 T_conv at 1e4
-    // vs 1e5), so the τ_eff snapshots would be taken at 123 and 137 T_conv — different points
-    // in each flow's development. Comparing eddy viscosity between two Reynolds numbers
-    // requires the same convective time as much as it requires the same masks.
-    if (trigger && !errored()) {
-      const target = Math.max(trigger.convectiveTimes + EXTRA_TCONV, MIN_TCONV);
+      // Phase 1 — run to the first isConverged(20, 3%) trigger.
       await expect
         .poll(
           async () => {
-            const hh = await readHooks(page);
-            if (events(hh).some((e) => e.type === 'error')) return Number.POSITIVE_INFINITY;
-            return samples(hh).at(-1)?.convectiveTimes ?? 0;
+            const h = await readHooks(page);
+            if (events(h).some((e) => e.type === 'error')) return 'error';
+            return samples(h).some((s) => s.converged) ? 'triggered' : 'running';
           },
           { timeout: RUNG_BUDGET_MS, intervals: [5_000] },
         )
-        .toBeGreaterThanOrEqual(target);
-      h = await readHooks(page);
+        .not.toBe('running');
+
+      let h = await readHooks(page);
+      const errored = () =>
+        events(h).find((e) => e.type === 'error') as
+          Extract<AhmedWorkerEvent, { type: 'error' }> | undefined;
+      const trigger = samples(h).find((s) => s.converged);
+
+      // Phase 2 — keep going EXTRA_TCONV past the trigger, so independent blocks exist.
+      //
+      // MIN_TCONV additionally holds every rung to a common floor. Without it each rung stops
+      // at its own trigger + EXTRA, and the triggers differ by Re (42.3 vs 55.9 T_conv at 1e4
+      // vs 1e5), so the τ_eff snapshots would be taken at 123 and 137 T_conv — different points
+      // in each flow's development. Comparing eddy viscosity between two Reynolds numbers
+      // requires the same convective time as much as it requires the same masks.
+      if (trigger && !errored()) {
+        const target = Math.max(trigger.convectiveTimes + EXTRA_TCONV, MIN_TCONV);
+        await expect
+          .poll(
+            async () => {
+              const hh = await readHooks(page);
+              if (events(hh).some((e) => e.type === 'error')) return Number.POSITIVE_INFINITY;
+              return samples(hh).at(-1)?.convectiveTimes ?? 0;
+            },
+            { timeout: RUNG_BUDGET_MS, intervals: [5_000] },
+          )
+          .toBeGreaterThanOrEqual(target);
+        h = await readHooks(page);
+      }
+
+      // Diagnostics last, so the approach flow is measured on the settled field.
+      let diagnostics: AhmedDiagnostics | undefined;
+      if (!errored()) {
+        await page.getByTestId('ahmed-diag').click();
+        await expect
+          .poll(
+            async () => {
+              const hh = await readHooks(page);
+              return events(hh).some((e) => e.type === 'diagnostics');
+            },
+            { timeout: 300_000, intervals: [2_000] },
+          )
+          .toBe(true);
+        h = await readHooks(page);
+        diagnostics = (
+          [...events(h)].reverse().find((e) => e.type === 'diagnostics') as
+            Extract<AhmedWorkerEvent, { type: 'diagnostics' }> | undefined
+        )?.diagnostics;
+      }
+
+      // τ_eff on the same settled field, immediately after the approach-flow diagnostics —
+      // so every rung's snapshot is taken at the same point in its run and the two Reynolds
+      // numbers are compared at equivalent convective times over identical masks.
+      let tau: AhmedTauReport | undefined;
+      if (!errored() && WANT_TAU) {
+        await page.getByTestId('ahmed-tau').click();
+        await expect
+          .poll(
+            async () => {
+              const hh = await readHooks(page);
+              return events(hh).some((e) => e.type === 'tau');
+            },
+            // The oracle streams the whole DDF image to the host and gathers 19 directions per
+            // cell in scalar JS; at the 8M tier that is minutes, not seconds.
+            { timeout: 900_000, intervals: [5_000] },
+          )
+          .toBe(true);
+        h = await readHooks(page);
+        tau = (
+          [...events(h)].reverse().find((e) => e.type === 'tau') as
+            Extract<AhmedWorkerEvent, { type: 'tau' }> | undefined
+        )?.tau;
+      }
+
+      const all = samples(h);
+      const final = all.at(-1);
+      const post = trigger ? all.filter((s) => s.convectiveTimes > trigger.convectiveTimes) : [];
+
+      const relSpread = (vals: number[]): number =>
+        vals.length > 1
+          ? (Math.max(...vals) - Math.min(...vals)) /
+            Math.abs(vals.reduce((a, b) => a + b, 0) / vals.length)
+          : NaN;
+
+      // Post-trigger blocks: the convergence verdict, unchanged. Comparing blocks from before the
+      // trigger against ones after would mix the startup transient into the spread.
+      const { blocks, droppedSamples } = blockMeans(post, BLOCK_TCONV);
+      const blockVals = blocks.map((b) => b.mean);
+      const spread = relSpread(blockVals);
+
+      // EVERY complete block over the whole run, trigger or no trigger. Two reasons this exists
+      // beside the post-trigger set:
+      //   - A rung that never fires the 3% trigger has NO post-trigger blocks at all, so without
+      //     this it would contribute nothing to the cross-rung comparison — and at reduced Cs,
+      //     failing to trigger is a plausible outcome.
+      //   - The whole series shows whether a rung's Cd was wandering across the run, which the
+      //     post-trigger tail alone can hide.
+      const { blocks: allBlocks } = blockMeans(all, BLOCK_TCONV);
+      const allBlockVals = allBlocks.map((b) => b.mean);
+      const allSpread = relSpread(allBlockVals);
+      const wallMin = (Date.now() - startedAt) / 60_000;
+
+      const err = errored();
+      // The most recent stability snapshot. For a rung that ran clean this is redundant with the
+      // diagnostics block; for a rung that DIVERGED it is the only surviving evidence, because
+      // the post-mortem readback sees a field that is already poison.
+      const lastField = (
+        [...events(h)].reverse().find((e) => e.type === 'stability') as
+          Extract<AhmedWorkerEvent, { type: 'stability' }> | undefined
+      )?.field;
+
+      table.push({
+        rung,
+        errored: err !== undefined,
+        lastTConv: final?.convectiveTimes ?? Number.NaN,
+        blocks: blockVals,
+        spread,
+        allBlocks: allBlockVals,
+        allSpread,
+        triggerTConv: trigger?.convectiveTimes,
+        diagnostics,
+        tau,
+        lastField,
+      });
+
+      rows.push(
+        `### ${(rung.cells / 1e6).toFixed(1)}M cells @ Re ${rung.Re.toExponential(2)} ` +
+          `Cs ${rung.lesCs} ${rung.precision}\n` +
+          `${sceneLine(scene)}\n` +
+          (err
+            ? `DIVERGED / ERROR: ${err.message}\n` +
+              (lastField
+                ? `${fieldLine(lastField, 'last healthy snapshot')}\n`
+                : '  (no stability snapshot was taken before the failure)\n')
+            : `steps ${final?.totalSteps.toLocaleString()}   ${final?.convectiveTimes.toFixed(1)} T_conv   ` +
+              `${final?.mlups.toFixed(0)} MLUPs   wall ${wallMin.toFixed(1)} min\n` +
+              `mean Cd ${final?.meanCd.toFixed(4)} ± ${final?.stdCd.toFixed(4)}   ` +
+              `drift ${((final?.drift ?? NaN) * 100).toFixed(2)}%   drag ${final?.meanNewtons.toFixed(1)} N\n` +
+              `  first 3% trigger at ${trigger?.convectiveTimes.toFixed(1)} T_conv, ` +
+              `Cd ${trigger?.meanCd.toFixed(4)}; ran ${EXTRA_TCONV} T_conv further\n` +
+              `  independent ${BLOCK_TCONV}-T_conv block means (${blocks.length} complete` +
+              `${droppedSamples > 0 ? `, ${droppedSamples} trailing samples dropped as a partial block` : ''}): ` +
+              `${blocks.map((b) => `${b.mean.toFixed(4)} [${b.t0.toFixed(0)}–${b.t1.toFixed(0)}, n=${b.n}]`).join('  ')}\n` +
+              `  post-trigger block spread ${(spread * 100).toFixed(2)}% — ` +
+              (Number.isFinite(spread)
+                ? spread > 0.03
+                  ? 'ABOVE the 3% gate: independent blocks disagree by more than the ' +
+                    'convergence criterion claims, so the trigger was noise, NOT convergence'
+                  : 'within the 3% gate: independent blocks agree, so the trigger holds up'
+                : 'not enough post-trigger blocks to judge — NOT converged, undetermined') +
+              `\n` +
+              // The full series, so the cross-rung comparison rests on every complete block and
+              // not on a single end-of-run figure.
+              `  ALL complete ${BLOCK_TCONV}-T_conv blocks over the whole run (${allBlocks.length}): ` +
+              `${allBlocks.map((b) => `${b.mean.toFixed(4)} [${b.t0.toFixed(0)}–${b.t1.toFixed(0)}]`).join('  ')}\n` +
+              `  whole-run block spread ${(allSpread * 100).toFixed(2)}%\n` +
+              (diagnostics ? `${diagnosticsLines(diagnostics)}\n` : '') +
+              // Prefer the diagnostics' own reduction: it is taken on the SAME readback as the
+              // approach-flow stations, i.e. the settled final field. The periodic snapshot is
+              // up to FIELD_SNAPSHOT_TCONV older.
+              (diagnostics?.field
+                ? `${fieldLine(diagnostics.field, 'stability (final field)')}\n`
+                : lastField
+                  ? `${fieldLine(lastField, 'stability (last in-run snapshot)')}\n`
+                  : '') +
+              (tau ? `${tauLines(tau)}\n` : '')),
+      );
+
+      await testInfo.attach(
+        `ahmed-${(rung.cells / 1e6).toFixed(1)}M-Re${rung.Re}-Cs${rung.lesCs}-${rung.precision}.png`,
+        { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' },
+      );
+      // Stop only if the run is still running. A rung that self-terminated — which is exactly
+      // what a diverged rung does — has already posted 'stopped', and the page disables the
+      // button on that event. Clicking it unconditionally waits for an element that will never
+      // become enabled, i.e. the sweep hangs on precisely the outcome it exists to capture.
+      // (Measured: this burned an entire 18-minute smoke run on the first diverging rung.)
+      const stop = page.getByTestId('ahmed-stop');
+      if (await stop.isEnabled()) await stop.click();
+
+      // NO per-rung assertion here — see the end-of-test assertion. A rung that diverges must not
+      // prevent the remaining rungs from running, because in a Cs sweep divergence is a RESULT.
     }
-
-    // Diagnostics last, so the approach flow is measured on the settled field.
-    let diagnostics: AhmedDiagnostics | undefined;
-    if (!errored()) {
-      await page.getByTestId('ahmed-diag').click();
-      await expect
-        .poll(
-          async () => {
-            const hh = await readHooks(page);
-            return events(hh).some((e) => e.type === 'diagnostics');
-          },
-          { timeout: 300_000, intervals: [2_000] },
-        )
-        .toBe(true);
-      h = await readHooks(page);
-      diagnostics = (
-        [...events(h)].reverse().find((e) => e.type === 'diagnostics') as
-          Extract<AhmedWorkerEvent, { type: 'diagnostics' }> | undefined
-      )?.diagnostics;
-    }
-
-    // τ_eff on the same settled field, immediately after the approach-flow diagnostics —
-    // so every rung's snapshot is taken at the same point in its run and the two Reynolds
-    // numbers are compared at equivalent convective times over identical masks.
-    let tau: AhmedTauReport | undefined;
-    if (!errored() && WANT_TAU) {
-      await page.getByTestId('ahmed-tau').click();
-      await expect
-        .poll(
-          async () => {
-            const hh = await readHooks(page);
-            return events(hh).some((e) => e.type === 'tau');
-          },
-          // The oracle streams the whole DDF image to the host and gathers 19 directions per
-          // cell in scalar JS; at the 8M tier that is minutes, not seconds.
-          { timeout: 900_000, intervals: [5_000] },
-        )
-        .toBe(true);
-      h = await readHooks(page);
-      tau = (
-        [...events(h)].reverse().find((e) => e.type === 'tau') as
-          Extract<AhmedWorkerEvent, { type: 'tau' }> | undefined
-      )?.tau;
-    }
-
-    const all = samples(h);
-    const final = all.at(-1);
-    const post = trigger ? all.filter((s) => s.convectiveTimes > trigger.convectiveTimes) : [];
-    const { blocks, droppedSamples } = blockMeans(post, BLOCK_TCONV);
-    const blockVals = blocks.map((b) => b.mean);
-    const spread =
-      blockVals.length > 1
-        ? (Math.max(...blockVals) - Math.min(...blockVals)) /
-          Math.abs(blockVals.reduce((a, b) => a + b, 0) / blockVals.length)
-        : NaN;
-    const wallMin = (Date.now() - startedAt) / 60_000;
-
-    const err = errored();
-    // The most recent stability snapshot. For a rung that ran clean this is redundant with the
-    // diagnostics block; for a rung that DIVERGED it is the only surviving evidence, because
-    // the post-mortem readback sees a field that is already poison.
-    const lastField = (
-      [...events(h)].reverse().find((e) => e.type === 'stability') as
-        Extract<AhmedWorkerEvent, { type: 'stability' }> | undefined
-    )?.field;
-
-    table.push({
-      rung,
-      errored: err !== undefined,
-      lastTConv: final?.convectiveTimes ?? Number.NaN,
-      blocks: blockVals,
-      spread,
-      diagnostics,
-      tau,
-      lastField,
-    });
-
-    rows.push(
-      `### ${(rung.cells / 1e6).toFixed(1)}M cells @ Re ${rung.Re.toExponential(2)} ` +
-        `Cs ${rung.lesCs} ${rung.precision}\n` +
-        `${sceneLine(scene)}\n` +
-        (err
-          ? `DIVERGED / ERROR: ${err.message}\n` +
-            (lastField
-              ? `${fieldLine(lastField, 'last healthy snapshot')}\n`
-              : '  (no stability snapshot was taken before the failure)\n')
-          : `steps ${final?.totalSteps.toLocaleString()}   ${final?.convectiveTimes.toFixed(1)} T_conv   ` +
-            `${final?.mlups.toFixed(0)} MLUPs   wall ${wallMin.toFixed(1)} min\n` +
-            `mean Cd ${final?.meanCd.toFixed(4)} ± ${final?.stdCd.toFixed(4)}   ` +
-            `drift ${((final?.drift ?? NaN) * 100).toFixed(2)}%   drag ${final?.meanNewtons.toFixed(1)} N\n` +
-            `  first 3% trigger at ${trigger?.convectiveTimes.toFixed(1)} T_conv, ` +
-            `Cd ${trigger?.meanCd.toFixed(4)}; ran ${EXTRA_TCONV} T_conv further\n` +
-            `  independent ${BLOCK_TCONV}-T_conv block means (${blocks.length} complete` +
-            `${droppedSamples > 0 ? `, ${droppedSamples} trailing samples dropped as a partial block` : ''}): ` +
-            `${blocks.map((b) => `${b.mean.toFixed(4)} [${b.t0.toFixed(0)}–${b.t1.toFixed(0)}, n=${b.n}]`).join('  ')}\n` +
-            `  block spread ${(spread * 100).toFixed(2)}% — ` +
-            (Number.isFinite(spread)
-              ? spread > 0.03
-                ? 'ABOVE the 3% gate: independent blocks disagree by more than the ' +
-                  'convergence criterion claims, so the trigger was noise, not convergence'
-                : 'within the 3% gate: independent blocks agree, so the trigger holds up'
-              : 'not enough post-trigger blocks to judge') +
-            `\n` +
-            (diagnostics ? `${diagnosticsLines(diagnostics)}\n` : '') +
-            // Prefer the diagnostics' own reduction: it is taken on the SAME readback as the
-            // approach-flow stations, i.e. the settled final field. The periodic snapshot is
-            // up to FIELD_SNAPSHOT_TCONV older.
-            (diagnostics?.field
-              ? `${fieldLine(diagnostics.field, 'stability (final field)')}\n`
-              : lastField
-                ? `${fieldLine(lastField, 'stability (last in-run snapshot)')}\n`
-                : '') +
-            (tau ? `${tauLines(tau)}\n` : '')),
-    );
-
-    await testInfo.attach(
-      `ahmed-${(rung.cells / 1e6).toFixed(1)}M-Re${rung.Re}-Cs${rung.lesCs}-${rung.precision}.png`,
-      { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' },
-    );
-    await page.getByTestId('ahmed-stop').click();
-
-    // NO per-rung assertion here — see the end-of-test assertion. A rung that diverges must not
-    // prevent the remaining rungs from running, because in a Cs sweep divergence is a RESULT.
+  } finally {
+    const summary = `${rows.join('\n')}\n\n${comparisonTable(table)}`;
+    await testInfo.attach('ahmed-ladder', { body: summary, contentType: 'text/plain' });
+    console.log(`\n${summary}\n`);
   }
-
-  const summary = `${rows.join('\n')}\n\n${comparisonTable(table)}`;
-  await testInfo.attach('ahmed-ladder', { body: summary, contentType: 'text/plain' });
-  console.log(`\n${summary}\n`);
 
   // Only the acceptance-configuration rungs are required to survive. A rung at a reduced Cs is
   // deliberately being run with less than the stabilizing dissipation this τ₀ is documented to

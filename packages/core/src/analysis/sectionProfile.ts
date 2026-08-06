@@ -1,4 +1,4 @@
-import { isSolid } from '../lattice.js';
+import { hasMacroscopics } from '../lattice.js';
 
 /**
  * Cross-section flow statistics on a y–z plane (M9 acceptance-1 diagnostics).
@@ -56,7 +56,7 @@ export interface SectionStats {
  * Statistics of one y–z cross-section at station `x`.
  *
  * `macro` is the interleaved [rho, ux, uy, uz] readback (`Lbm3D.readMacro()`), length 4·N.
- * Solid cells — including `BodySolid` — are excluded via `isSolid`, so a station that clips
+ * Only cells the macro pass populates are counted (`hasMacroscopics`), so a station that clips
  * geometry still reports over fluid only.
  */
 export function sectionStats(
@@ -81,7 +81,19 @@ export function sectionStats(
   for (let z = 0; z < nz; z++) {
     for (let y = 0; y < ny; y++) {
       const idx = x + nx * (y + ny * z);
-      if (isSolid(flags[idx])) continue;
+      // `hasMacroscopics`, NOT `isSolid` (corrected 2026-08-06). A y–z plane of this domain
+      // cuts the lateral `Inlet` columns at z=0/z=nz−1 and the `Inlet` lid at y=ny−1, none of
+      // which the macro pass writes — they read back as exactly ρ=0, u=0.
+      //
+      // What this changed, stated precisely because numbers were already published from it:
+      //   - `bulkUx` was ALWAYS immune. It is Σρu/Σρ, and a ρ=0 cell contributes nothing to
+      //     either sum. The recorded 99.0% / 98.8%-of-commanded approach velocities stand.
+      //   - `blThicknessCells` (δ99) is essentially unchanged: the dilution was the same two
+      //     zero cells in every layer, so it cancelled in the 99%-of-peak ratio.
+      //   - `meanRho`, `areaMeanUx`, `stdUx` and `nonUniformity` WERE wrong — averaged toward
+      //     zero by the shell (ρ̄ read 0.944 on a field whose fluid mean was ~1.00). Those are
+      //     labelled diagnostic and no verdict rested on them, but they now mean what they say.
+      if (!hasMacroscopics(flags[idx])) continue;
       const rho = macro[4 * idx];
       const ux = macro[4 * idx + 1];
       fluidCells++;

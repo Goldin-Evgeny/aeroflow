@@ -147,6 +147,11 @@ const ROUTES: Record<string, Route> = {
     const { mountCheckpointParity } = await import('./sim/checkpointParity');
     await mountCheckpointParity(gpu.device, app);
   },
+  // M9 dev route: validate the τ_eff oracle before any τ_eff number is believed.
+  tauoracle: async (app, gpu) => {
+    const { mountTauOracleCheck } = await import('./sim/tauOracleCheck');
+    await mountTauOracleCheck(gpu.device, app);
+  },
   // M8 dev route: CPU↔GPU voxelization parity (bit-identical mask gate, H8 §4).
   voxparity: async (app, gpu) => {
     const { mountVoxParity } = await import('./dev/voxParity');

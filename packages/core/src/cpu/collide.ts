@@ -67,6 +67,71 @@ export function equilibrium3(
 export type Collision = 'bgk' | 'trt';
 export type Forcing = 'guo' | 'shift' | 'none';
 
+/**
+ * Π^neq_αβ = Σ_i e_iα e_iβ (f_i − f_i^eq) — the six independent components of the symmetric
+ * non-equilibrium momentum-flux tensor, written into `out` as [xx, yy, zz, xy, xz, yz].
+ *
+ * Extracted from `collideCell` (2026-08-06, M9) so the τ_eff **diagnostic** and the solver
+ * share one implementation. A τ_eff oracle that re-derives this from the handoff spec would
+ * be a second implementation of a formula whose whole purpose is to describe what the solver
+ * did — any drift between them would be reported as physics. The operation order is
+ * unchanged from the inlined version, so results stay bit-identical.
+ */
+export function piNeq(
+  f: Float64Array,
+  feq: Float64Array,
+  lat: LatticeSpec,
+  out: Float64Array,
+): void {
+  const { q, ex, ey, ez } = lat;
+  let pxx = 0;
+  let pyy = 0;
+  let pzz = 0;
+  let pxy = 0;
+  let pxz = 0;
+  let pyz = 0;
+  for (let i = 0; i < q; i++) {
+    const fneq = f[i] - feq[i];
+    pxx += ex[i] * ex[i] * fneq;
+    pyy += ey[i] * ey[i] * fneq;
+    pzz += ez[i] * ez[i] * fneq;
+    pxy += ex[i] * ey[i] * fneq;
+    pxz += ex[i] * ez[i] * fneq;
+    pyz += ey[i] * ez[i] * fneq;
+  }
+  out[0] = pxx;
+  out[1] = pyy;
+  out[2] = pzz;
+  out[3] = pxy;
+  out[4] = pxz;
+  out[5] = pyz;
+}
+
+/** ‖Π^neq‖ = √(2 Π:Π). Off-diagonals count twice — the tensor is symmetric. */
+export function piNeqNorm(p: Float64Array): number {
+  return Math.sqrt(
+    2 * (p[0] * p[0] + p[1] * p[1] + p[2] * p[2] + 2 * (p[3] * p[3] + p[4] * p[4] + p[5] * p[5])),
+  );
+}
+
+/**
+ * Smagorinsky τ_eff (Hou et al. 1996): τ_eff = τ₀ + τ_t, τ_t = ½(√(τ₀² + K‖Π‖/ρ) − τ₀).
+ *
+ * **There is no clamp and no floor here, and that is the point.** τ_t ≥ 0 always, so τ₀ is
+ * itself the lower bound on τ_eff — "a cell at the floor" means the LES is contributing
+ * nothing there, not that a limiter fired. Since ν = (τ − ½)/3, a τ₀ driven toward ½ by a
+ * high nominal Re leaves the *entire* effective viscosity to the subgrid model.
+ */
+export function smagorinskyTauEff(tau0: number, lesK: number, qNorm: number, rho: number): number {
+  const tauT = 0.5 * (Math.sqrt(tau0 * tau0 + (lesK * qNorm) / rho) - tau0);
+  return tau0 + tauT;
+}
+
+/** Lattice kinematic viscosity from a relaxation time: ν = (τ − ½)/3. */
+export function viscosityFromTau(tau: number): number {
+  return (tau - 0.5) / 3;
+}
+
 export interface CollideContext {
   lat: LatticeSpec;
   tau0: number;
@@ -85,6 +150,8 @@ export interface CollideContext {
   gz: number;
   /** Scratch, length q — allocated once per solver. */
   feq: Float64Array;
+  /** Scratch, length 6 — Π^neq as [xx, yy, zz, xy, xz, yz]. Allocated once per solver. */
+  piNeq: Float64Array;
   /** Output: [rho, ux, uy, uz, tauEff]. ux/uy/uz are the PHYSICAL velocity
    * (Guo: moment/ρ + g/2; shift: legacy raw moment/ρ). */
   macro: Float64Array;
@@ -136,6 +203,7 @@ export function makeCollideContext(
     gy,
     gz,
     feq: new Float64Array(lat.q),
+    piNeq: new Float64Array(6),
     macro: new Float64Array(5),
   };
 }
@@ -187,32 +255,20 @@ export function collideCell(f: Float64Array, ctx: CollideContext): void {
   // regularization (its projection rebuilds f^neq). Computed once when either is on.
   let tauEff = ctx.tau0;
   if (ctx.lesK !== 0 || ctx.regularize) {
-    let pxx = 0;
-    let pyy = 0;
-    let pzz = 0;
-    let pxy = 0;
-    let pxz = 0;
-    let pyz = 0;
-    for (let i = 0; i < q; i++) {
-      const fneq = f[i] - feq[i];
-      pxx += ex[i] * ex[i] * fneq;
-      pyy += ey[i] * ey[i] * fneq;
-      pzz += ez[i] * ez[i] * fneq;
-      pxy += ex[i] * ey[i] * fneq;
-      pxz += ex[i] * ez[i] * fneq;
-      pyz += ey[i] * ez[i] * fneq;
-    }
+    const p = ctx.piNeq;
+    piNeq(f, feq, lat, p);
+    const pxx = p[0];
+    const pyy = p[1];
+    const pzz = p[2];
+    const pxy = p[3];
+    const pxz = p[4];
+    const pyz = p[5];
 
     // Smagorinsky LES (Hou et al. 1996): τ_eff from ‖Π^neq‖ = √(2 Π:Π); off-diagonals
     // count twice (symmetric tensor). The projection below preserves Π^neq, so τ_eff is
     // identical whether computed before or after regularization (H10 "Ordering vs LES").
     if (ctx.lesK !== 0) {
-      const qNorm = Math.sqrt(
-        2 * (pxx * pxx + pyy * pyy + pzz * pzz + 2 * (pxy * pxy + pxz * pxz + pyz * pyz)),
-      );
-      const tau0 = ctx.tau0;
-      const tauT = 0.5 * (Math.sqrt(tau0 * tau0 + (ctx.lesK * qNorm) / rho) - tau0);
-      tauEff = tau0 + tauT;
+      tauEff = smagorinskyTauEff(ctx.tau0, ctx.lesK, piNeqNorm(p), rho);
     }
 
     // Projected regularization (Latt & Chopard 2005, Eq. 10; H10): overwrite the gathered

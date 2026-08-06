@@ -675,6 +675,29 @@ export class Lbm3D {
   }
 
   /**
+   * Direction planes per DDF split buffer — plane i lives in buffer ⌊i/perBuffer⌋ at local
+   * plane i mod perBuffer. Exposed for the τ_eff oracle (M9 step 6), which reconstructs
+   * `ld(plane, cell)` on the CPU from the raw buffers and must route planes identically to
+   * the shader or it silently reads the wrong direction.
+   */
+  get planesPerDdfBuffer(): number {
+    return this.perBuffer;
+  }
+
+  /**
+   * Smagorinsky 18√2·Cs², or 0 when LES is off — the same `lesK` written into the params
+   * buffer. The τ_eff oracle needs it to reproduce the kernel's per-cell relaxation time.
+   */
+  get lesK(): number {
+    return this.les ? 18 * Math.SQRT2 * this.les.cs * this.les.cs : 0;
+  }
+
+  /** Base relaxation time τ₀ = 1/ω. ν_mol = (τ₀ − ½)/3. */
+  get tau0(): number {
+    return 1 / this.opts.omega;
+  }
+
+  /**
    * Read one raw chunk of a DDF split buffer (M9 step 4). Bytes come back EXACTLY as
    * stored — for fp16 that is the −w_i-shifted half-precision image; any f16→f32 round
    * trip through JS numbers risks flushing subnormals and breaks the bit-exact restore

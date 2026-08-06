@@ -64,6 +64,14 @@ export class EsotericPull3D {
   readonly flags: Uint8Array;
   inletVelocity: number;
   readonly ctx: CollideContext;
+  /**
+   * Opt-in per-cell τ_eff capture (M9 step 6). Assign a `Float64Array(n)` and every
+   * subsequent `step()` writes the effective relaxation time each Fluid cell collided with;
+   * leave undefined and the solver is unchanged. This is the *solver's own* τ_eff, not a
+   * re-derivation, which is what makes it usable as an oracle for the GPU reconstruction.
+   * Non-Fluid cells are never written — mask with the flags before reducing.
+   */
+  tauEffRecord: Float64Array | undefined;
   private readonly inletProfile: { axis: 'y' | 'z'; ux: Float64Array } | undefined;
   private readonly freeSlip: FreeSlipFaces;
   private readonly forceMask: Uint8Array | undefined;
@@ -209,6 +217,9 @@ export class EsotericPull3D {
     this.snapshotOutlets(even);
     this.snapshotVelocityInlets(even);
     const { nx, ny, nz, n, flags, A, ctx, scratch: f } = this;
+    // Hoisted out of the cell loop: when nobody asked for τ_eff this is a single undefined
+    // that the loop's branch predictor never misses.
+    const tauRec = this.tauEffRecord;
     let fx = 0;
     let fy = 0;
     let fz = 0;
@@ -309,6 +320,11 @@ export class EsotericPull3D {
           }
 
           collideCell(f, ctx);
+          // M9 step 6: capture the τ_eff this cell actually collided with. `collideCell`
+          // already computes it (macro[4]) and the solver otherwise drops it, so recording
+          // it costs one store and — crucially — cannot disagree with the solver, which a
+          // separate diagnostic gather over the same slots eventually would.
+          if (tauRec !== undefined) tauRec[idx] = ctx.macro[4];
           this.scatter(idx, x, y, z, even, f);
         }
       }

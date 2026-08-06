@@ -8,6 +8,10 @@ export {
   equilibrium3,
   D2Q9_SPEC,
   D3Q19_SPEC,
+  piNeq,
+  piNeqNorm,
+  smagorinskyTauEff,
+  viscosityFromTau,
 } from './cpu/collide.js';
 export type { CollideContext, LatticeSpec, Collision, Forcing } from './cpu/collide.js';
 export { Solver2D } from './cpu/solver2d.js';
@@ -176,6 +180,13 @@ export type {
 export { sphereDragCoefficient, sphereDragStats } from './analysis/sphereDrag.js';
 export { sectionStats, upstreamStations } from './analysis/sectionProfile.js';
 export type { SectionStats } from './analysis/sectionProfile.js';
+export {
+  tauStats,
+  tauLayersAt,
+  ahmedTauRegions,
+  TAU_PERCENTILES,
+} from './analysis/tauStats.js';
+export type { TauStats, TauRegion, TauLayer } from './analysis/tauStats.js';
 export type { SphereDragStats, SphereDragStatsOptions } from './analysis/sphereDrag.js';
 export {
   triBoxOverlap,

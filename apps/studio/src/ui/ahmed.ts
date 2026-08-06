@@ -7,7 +7,8 @@ import {
   type AhmedWorkerCommand,
   type AhmedWorkerEvent,
 } from '../sim/ahmedRun';
-import { applyCellsOverride, hooks } from '../dev/testHooks';
+import { AHMED_EXPERIMENTAL_RE } from '@aeroflow/core';
+import { applyCellsOverride, hooks, reOverride } from '../dev/testHooks';
 
 /**
  * Ahmed 25° long-run page (route ?ahmed; M9 steps 2–6 + acceptance 1/4 harness). The sim
@@ -30,7 +31,9 @@ export function mountAhmed(root: HTMLElement): void {
 
   const h = document.createElement('h2');
   h.className = 'page-title';
-  h.textContent = 'M9 — Ahmed body 25° (Re 4.29×10⁶) long run';
+  // Re is a control now, so it is not in the title — the readout prints the Re the scene
+  // was actually built with, which is the only number that should be quoted anywhere.
+  h.textContent = 'M9 — Ahmed body 25° long run';
   const sub = document.createElement('p');
   sub.className = 'subtitle';
   sub.textContent =
@@ -50,6 +53,25 @@ export function mountAhmed(root: HTMLElement): void {
   for (const k of Object.keys(BUDGETS)) budgetSel.append(new Option(k, k));
   applyCellsOverride(BUDGETS, budgetSel);
   controls.append(budgetSel);
+  // Re override (`?Re=N`, M9 acceptance-1 ladder). At the experimental 4.29e6 every
+  // affordable grid pins τ₀ to ~0.500002, so the ladder needs to ask for an effective Re
+  // the grid resolves — and the low-Re sanity anchor needs it too. Off the experimental
+  // value the Cd verdict is suppressed below: 0.285 is only defined at 4.29e6.
+  const reInput = document.createElement('input');
+  reInput.type = 'number';
+  reInput.step = 'any';
+  reInput.min = '1';
+  reInput.size = 10;
+  reInput.value = String(reOverride() ?? AHMED_EXPERIMENTAL_RE);
+  reInput.dataset.testid = 'ahmed-re';
+  const reLabel = document.createElement('label');
+  reLabel.className = 'muted';
+  reLabel.append('Re ', reInput);
+  controls.append(reLabel);
+  const chosenRe = (): number => {
+    const v = Number(reInput.value);
+    return Number.isFinite(v) && v > 0 ? v : AHMED_EXPERIMENTAL_RE;
+  };
   const fp16Box = document.createElement('input');
   fp16Box.type = 'checkbox';
   fp16Box.checked = true;
@@ -140,7 +162,7 @@ export function mountAhmed(root: HTMLElement): void {
     send({
       type: 'start',
       opts: {
-        scene: { maxCells: BUDGETS[budgetSel.value] },
+        scene: { maxCells: BUDGETS[budgetSel.value], Re: chosenRe() },
         precision: fp16Box.checked ? 'fp16' : 'fp32',
         checkpointEveryMs: 5 * 60 * 1000,
         resume,
@@ -186,13 +208,26 @@ export function mountAhmed(root: HTMLElement): void {
           `converged: ${m.converged ? 'YES' : 'not yet'}   checkpoints: last ${lastCheckpoint}   recoveries: ${recoveries}`,
         ].join('\n');
         if (m.converged) {
-          const inBand = m.meanCd >= AHMED_CD_BAND[0] && m.meanCd <= AHMED_CD_BAND[1];
-          const inStretch = m.meanCd >= AHMED_CD_STRETCH[0] && m.meanCd <= AHMED_CD_STRETCH[1];
-          setVerdict(
-            `${inBand ? (inStretch ? 'PASS (stretch ±10%)' : 'PASS (±15%)') : 'OUT OF BAND'}  ` +
-              `mean Cd ${m.meanCd.toFixed(4)} vs ${AHMED_CD_TARGET} [${AHMED_CD_BAND[0]}, ${AHMED_CD_BAND[1]}]`,
-            inBand ? 'ok' : 'bad',
-          );
+          // Cd 0.285 was measured at Re 4.29e6. A run at any other Re is a diagnostic, so
+          // it reports its number without a verdict rather than a misleading pass/fail —
+          // the same suppression discipline the urban runner applies to under-resolved
+          // grids. `scene.Re` is what the solver actually built, not what was typed.
+          if (scene && scene.Re !== AHMED_EXPERIMENTAL_RE) {
+            setVerdict(
+              `NOT AN ACCEPTANCE RUN — Re ${scene.Re.toExponential(2)} ≠ experimental ` +
+                `${AHMED_EXPERIMENTAL_RE.toExponential(2)}; mean Cd ${m.meanCd.toFixed(4)} ` +
+                `is a diagnostic, not a verdict against ${AHMED_CD_TARGET}`,
+              'warn',
+            );
+          } else {
+            const inBand = m.meanCd >= AHMED_CD_BAND[0] && m.meanCd <= AHMED_CD_BAND[1];
+            const inStretch = m.meanCd >= AHMED_CD_STRETCH[0] && m.meanCd <= AHMED_CD_STRETCH[1];
+            setVerdict(
+              `${inBand ? (inStretch ? 'PASS (stretch ±10%)' : 'PASS (±15%)') : 'OUT OF BAND'}  ` +
+                `mean Cd ${m.meanCd.toFixed(4)} vs ${AHMED_CD_TARGET} [${AHMED_CD_BAND[0]}, ${AHMED_CD_BAND[1]}]`,
+              inBand ? 'ok' : 'bad',
+            );
+          }
         }
         break;
       }

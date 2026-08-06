@@ -253,3 +253,15 @@ export function applyCellsOverride(
   budgetSel.value = key;
   return key;
 }
+
+/**
+ * Reynolds-number override (`?Re=N`), for the M9 acceptance-1 resolution/effective-Re
+ * ladder. The experimental Re = 4.29e6 leaves τ₀ at 0.500002 on every affordable grid, so
+ * a screening run needs to be able to ask for an effective Re the grid actually resolves —
+ * and the low-Re sanity anchor needs it too. Returns null when the param is absent or not
+ * a positive finite number, i.e. "keep the scene default".
+ */
+export function reOverride(): number | null {
+  const Re = Number(new URLSearchParams(location.search).get('Re'));
+  return Number.isFinite(Re) && Re > 0 ? Re : null;
+}

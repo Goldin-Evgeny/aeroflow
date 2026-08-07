@@ -42,9 +42,9 @@ test('Ahmed CPU↔GPU matched-config reconciliation', async ({ gpuPage: page }, 
         `gpu f1=${t.gpuRaw[0].toExponential(4)} f2=${t.gpuRaw[1].toExponential(4)} pair=${t.gpuPairFx.toExponential(4)}  rel=${t.relPairFx.toExponential(2)}`,
     ),
     '',
-    `windowed Cd over ${r.windowed.samples} samples: ` +
-      `cpu=${r.windowed.cpuCd.toFixed(4)} (sd ${r.windowed.cpuStd.toFixed(4)}, sem ${r.windowed.cpuSem.toFixed(4)})  ` +
-      `gpu=${r.windowed.gpuCd.toFixed(4)} (sd ${r.windowed.gpuStd.toFixed(4)}, sem ${r.windowed.gpuSem.toFixed(4)})  ` +
+    `Cd_windowed over ${r.windowed.samples} samples [SCREENING, NOT CONVERGED]: ` +
+      `cpu=${r.windowed.cpuCdWindowed.toFixed(4)} (sd ${r.windowed.cpuStd.toFixed(4)}, sem ${r.windowed.cpuSem.toFixed(4)})  ` +
+      `gpu=${r.windowed.gpuCdWindowed.toFixed(4)} (sd ${r.windowed.gpuStd.toFixed(4)}, sem ${r.windowed.gpuSem.toFixed(4)})  ` +
       `rel=${(r.windowed.relCd * 100).toFixed(1)}%`,
     `wall time ${(r.ms / 1000).toFixed(1)} s`,
   ].join('\n');
@@ -54,4 +54,7 @@ test('Ahmed CPU↔GPU matched-config reconciliation', async ({ gpuPage: page }, 
 
   expect(r.gpuErrors).toEqual([]);
   expect(r.trajectoryPass).toBe(true);
+  // Phase 1's reconciliation is defined on the historical far field. If this ever defaults to
+  // something else, the number stops being comparable to the one `be9ef1e` recorded.
+  expect(r.lateralBC).toBe('freestream');
 });

@@ -1,4 +1,22 @@
-import { ahmedScene, CellType, D3Q19, EsotericPull3D, type AhmedScene } from '@aeroflow/core';
+import {
+  AHMED,
+  AHMED_FREESLIP_FACES,
+  ahmedScene,
+  CellType,
+  D3Q19,
+  EsotericPull3D,
+  fieldStats,
+  lateralFlux,
+  sectionStats,
+  upstreamStations,
+  validateFreeSlip,
+  wakeProbe,
+  type AhmedLateralBC,
+  type AhmedScene,
+  type FieldStats,
+  type LateralFlux,
+  type WakeProbe,
+} from '@aeroflow/core';
 import { Lbm3D } from '../sim/lbm3d';
 import { hooks } from './testHooks';
 
@@ -46,6 +64,39 @@ import { hooks } from './testHooks';
  * sample, which shifts its entire trajectory relative to the GPU's. This harness drives the
  * CPU as `step(k−1)` → read f₁ → `step(1)` → read f₂, which reproduces `forceAveraged(k)`'s
  * grid exactly: same pair, same steps consumed.
+ *
+ * ## Phase 3 reuse: the cheap arm of the lateral-BC A/B
+ *
+ * Phase 1's answer was that the CPU and GPU agree, which makes this harness the cheapest place
+ * to put a body in a free-slip tunnel and look at it: ~27 s per arm at 30k cells, both solvers,
+ * on one page load. `runAhmedLateralAB` runs it twice — `lateralBC: 'freestream'` against
+ * `'freeslip'` — with everything else held.
+ *
+ * Two things it can do that the GPU ladder structurally cannot:
+ *
+ *   - **Ground force.** The kernel weighs `BodySolid` links only; there is no GPU equivalent of
+ *     the CPU's per-cell `forceMask`. `EsotericPull3D` carries both accumulators, so
+ *     `force − maskedForce` is the floor's contribution — and "did the free-slip lid shift load
+ *     onto the ground?" is one of the more plausible ways this A/B could mislead.
+ *   - **Approach flow on the real geometry, early.** The core velocity decides whether the two
+ *     arms are even the same flow (see below).
+ *
+ * ### What this harness must NOT be read as
+ *
+ * **The Cd here is WINDOWED SCREENING, never converged.** It is a fixed 20-sample window whose
+ * standard error was measured at ±0.016 — a block-convergence stop is what produces a converged
+ * Cd, and that lives in the ladder. Every Cd this file emits is labelled `Cd_windowed`
+ * accordingly. Reading a screening delta as a result is the same error that put M7's struck
+ * Cd 0.509 on record.
+ *
+ * ### The stop condition this harness exists to check
+ *
+ * Free-slip removes the hard-Dirichlet lateral cells that currently clamp the flow to u_in. If
+ * the core velocity moves, the EFFECTIVE Reynolds number moved with it — ν and τ₀ are fixed by
+ * the scene, so Re_eff ∝ u_core — and the two arms are no longer the same flow. That is a stop
+ * for the phase, not a result to re-normalize away: `cdCore` recovers a coefficient but not a
+ * Reynolds number, so no choice of denominator repairs it. `coreRatio` below is the number that
+ * says whether it happened.
  */
 
 /** Both sides run this; every field is reported so the match is auditable, not asserted. */
@@ -60,6 +111,8 @@ export interface AhmedMatchConfig {
   samples: number;
   /** Short horizons for the trajectory comparison (phase A). */
   horizons: number[];
+  /** Far field under test (phase 3). Default `'freestream'` — the historical configuration. */
+  lateralBC: AhmedLateralBC;
 }
 
 export interface TrajectoryPoint {
@@ -79,16 +132,66 @@ export interface TrajectoryPoint {
   gpuCd: number;
 }
 
+/**
+ * The windowed Cd. **Screening, not converged** — see the module docstring. The field names
+ * carry the `Windowed` suffix so a number lifted out of this report cannot lose that label on
+ * the way into a table.
+ */
 export interface WindowedCd {
   samples: number;
-  cpuCd: number;
-  gpuCd: number;
+  cpuCdWindowed: number;
+  gpuCdWindowed: number;
   cpuStd: number;
   gpuStd: number;
   relCd: number;
   /** Standard error of each mean — the scale agreement can be expected at. */
   cpuSem: number;
   gpuSem: number;
+  /**
+   * Mean |f₁ − f₂| / |½(f₁+f₂)| over the window's CPU pairs — the raw consecutive-step force
+   * spread that phase 0 was about. At τ₀ → ½ the staggered momentum mode is weakly damped and
+   * this runs to tens of percent (63% was measured on this scene at step 50), which is exactly
+   * why a single-parity sample was corrupting the mean. Reported so a change in the far field
+   * that also changed the staggering would be visible rather than hidden inside the average.
+   */
+  cpuRawPairSpread: number;
+  /**
+   * Body-only streamwise force (the Cd numerator) and the GROUND's contribution, both from the
+   * CPU accumulators: `maskedForce.x` and `force.x − maskedForce.x`. The GPU has no equivalent
+   * of the per-cell mask, so this split is CPU-only by construction.
+   */
+  cpuBodyFx: number;
+  cpuGroundFx: number;
+}
+
+/**
+ * One post-window readback of the settled field. All of it comes from a SINGLE `readMacro()`,
+ * so it describes one instant and costs one round trip.
+ */
+export interface MatchDiagnostics {
+  /** Commanded lattice velocity — the acceptance Cd's denominator, unconditionally. */
+  uCommanded: number;
+  /** Boundary-layer-excluded core velocity at the station nearest the nose. */
+  coreUx: number;
+  /** Mass-flux-weighted bulk velocity at the same station. */
+  bulkUx: number;
+  /**
+   * coreUx / uCommanded. **The gate-2 number.** If this moves between arms, the effective
+   * Reynolds number moved with it and the arms are not the same flow.
+   */
+  coreRatio: number;
+  /** Re × coreRatio — the Reynolds number the flow is actually running at. */
+  reEffective: number;
+  /** Cd on the measured core velocity. A DIAGNOSTIC. Never the acceptance number. */
+  cdCoreWindowed: number;
+  field: FieldStats;
+  lateral: LateralFlux;
+  /** lateral.net / |inlet-station mass flux|. */
+  lateralNetOverInflow: number;
+  inFlux: number;
+  outFlux: number;
+  fluxMismatch: number;
+  wake: WakeProbe;
 }
 
 export interface AhmedMatchReport {
@@ -112,10 +215,12 @@ export interface AhmedMatchReport {
     nu: number;
     convectiveTimeSteps: number;
   };
+  lateralBC: AhmedLateralBC;
   /** Every solver knob, both sides, so "matched" is checkable rather than claimed. */
   solver: Record<string, string>;
   trajectory: TrajectoryPoint[];
   windowed: WindowedCd;
+  diagnostics: MatchDiagnostics;
   /** Phase A verdict: no structural discrepancy at the shortest horizon. */
   trajectoryPass: boolean;
   gpuErrors: string[];
@@ -161,14 +266,32 @@ function cpuMacro(cpu: EsotericPull3D): Float64Array {
 /**
  * One pair-averaged sample on the CPU, on `forceAveraged(k)`'s exact grid: k−1 steps, read
  * f₁, one step, read f₂. Consumes exactly k steps, like the GPU call.
+ *
+ * Also returns the GROUND's share of the same pair. `force` is every Solid link in the domain
+ * and `maskedForce` is the BodySolid subset, so the difference is the floor — measured at 74.6%
+ * of the total in `groundForceContamination.test.ts`, which is why the Cd numerator is the
+ * masked one. Read on the same two steps as the body force so the two are directly comparable.
  */
-function cpuPairSample(cpu: EsotericPull3D, k: number): { pair: number; raw: [number, number] } {
+function cpuPairSample(
+  cpu: EsotericPull3D,
+  k: number,
+): { pair: number; raw: [number, number]; ground: number } {
+  const groundOf = (): number => cpu.force.x - cpu.maskedForce.x;
   if (k > 1) cpu.step(k - 1);
   const f1 = cpu.maskedForce.x;
+  const g1 = groundOf();
   cpu.step(1);
   const f2 = cpu.maskedForce.x;
-  return { pair: 0.5 * (f1 + f2), raw: [f1, f2] };
+  const g2 = groundOf();
+  return { pair: 0.5 * (f1 + f2), raw: [f1, f2], ground: 0.5 * (g1 + g2) };
 }
+
+/**
+ * The free-slip face set for a scene, read off the SCENE rather than off a caller's argument,
+ * so the flag array and the solver config can never describe different boundaries.
+ */
+const facesFor = (scene: AhmedScene) =>
+  scene.lateralBC === 'freeslip' ? AHMED_FREESLIP_FACES : undefined;
 
 function buildCpu(scene: AhmedScene): EsotericPull3D {
   const cpu = new EsotericPull3D({
@@ -182,6 +305,7 @@ function buildCpu(scene: AhmedScene): EsotericPull3D {
     les: { cs: AHMED_CS },
     regularize: true,
     conserveMass: true,
+    freeSlip: facesFor(scene), // the constructor runs validateFreeSlip on these
     // No `forceMask`: `isMeasured` already selects CellType.BodySolid, which is exactly the
     // mask the kernel applies. Passing one would be a second, redundant definition.
   });
@@ -190,6 +314,7 @@ function buildCpu(scene: AhmedScene): EsotericPull3D {
 }
 
 function buildGpu(device: GPUDevice, scene: AhmedScene): Lbm3D {
+  const freeSlip = facesFor(scene);
   const gpu = new Lbm3D(device, {
     nx: scene.nx,
     ny: scene.ny,
@@ -201,11 +326,13 @@ function buildGpu(device: GPUDevice, scene: AhmedScene): Lbm3D {
     regularize: true,
     conserveMass: true,
     forces: true,
+    freeSlip,
     // fp32, NOT the acceptance tier's fp16: this run is asking whether the two
     // implementations agree, and fp16 storage noise would answer a different question.
     precision: 'fp32',
   });
   gpu.flags.set(scene.flags);
+  if (freeSlip) validateFreeSlip(scene.flags, scene.nx, scene.ny, scene.nz, freeSlip);
   gpu.uploadFlags();
   gpu.reset(1, 0, 0, 0);
   return gpu;
@@ -222,12 +349,14 @@ export async function runAhmedMatch(
   const t0 = performance.now();
   const maxCells = cfg.maxCells ?? 30_000;
   const Re = cfg.Re ?? 4.29e6;
-  const scene = ahmedScene({ maxCells, Re });
+  const lateralBC = cfg.lateralBC ?? 'freestream';
+  const scene = ahmedScene({ maxCells, Re, lateralBC });
   const T = scene.convectiveTimeSteps;
 
   const config: AhmedMatchConfig = {
     maxCells,
     Re,
+    lateralBC,
     warmupSteps: cfg.warmupSteps ?? 8 * T,
     sampleInterval: cfg.sampleInterval ?? Math.max(2, 2 * Math.round(T / 20)),
     samples: cfg.samples ?? 20,
@@ -241,6 +370,7 @@ export async function runAhmedMatch(
   const norm = 0.5 * scene.uLattice * scene.uLattice * scene.frontalCells;
   const trajectory: TrajectoryPoint[] = [];
   let windowed: WindowedCd;
+  let diagnostics: MatchDiagnostics;
 
   try {
     // ---- Phase A: trajectory parity at increasing short horizons ----------------------
@@ -314,8 +444,15 @@ export async function runAhmedMatch(
       gpu.submitSteps(config.warmupSteps);
       const cpuCds: number[] = [];
       const gpuCds: number[] = [];
+      const rawSpreads: number[] = [];
+      const bodyFx: number[] = [];
+      const groundFx: number[] = [];
       for (let s = 0; s < config.samples; s++) {
-        cpuCds.push(cpuPairSample(cpu, config.sampleInterval).pair / norm);
+        const c = cpuPairSample(cpu, config.sampleInterval);
+        cpuCds.push(c.pair / norm);
+        bodyFx.push(c.pair);
+        groundFx.push(c.ground);
+        rawSpreads.push(Math.abs(c.raw[0] - c.raw[1]) / Math.max(Math.abs(c.pair), 1e-30));
         const g = await gpu.forceAveraged(config.sampleInterval);
         gpuCds.push(g.fx / norm);
       }
@@ -330,13 +467,59 @@ export async function runAhmedMatch(
       const g = stat(gpuCds);
       windowed = {
         samples: config.samples,
-        cpuCd: c.mean,
-        gpuCd: g.mean,
+        cpuCdWindowed: c.mean,
+        gpuCdWindowed: g.mean,
         cpuStd: c.std,
         gpuStd: g.std,
         cpuSem: c.std / Math.sqrt(Math.max(1, config.samples)),
         gpuSem: g.std / Math.sqrt(Math.max(1, config.samples)),
         relCd: Math.abs(g.mean - c.mean) / Math.max(Math.abs(c.mean), 1e-30),
+        cpuRawPairSpread: stat(rawSpreads).mean,
+        cpuBodyFx: stat(bodyFx).mean,
+        cpuGroundFx: stat(groundFx).mean,
+      };
+
+      // ---- Settled-field diagnostics, from ONE readback -------------------------------
+      // Taken after the window so it describes the flow the Cd above was measured in. The
+      // core velocity here is the gate-2 number: it decides whether the two arms are the
+      // same flow at all, which no amount of re-normalizing can repair after the fact.
+      const macro = await gpu.readMacro();
+      const { nx, ny, nz } = scene;
+      const stations = upstreamStations(scene.noseX).map((x) =>
+        sectionStats(macro, gpu.flags, nx, ny, nz, x),
+      );
+      const ref = stations[stations.length - 1];
+      const inSec = sectionStats(macro, gpu.flags, nx, ny, nz, 1);
+      const outSec = sectionStats(macro, gpu.flags, nx, ny, nz, nx - 2);
+      const lateral = lateralFlux(macro, gpu.flags, nx, ny, nz);
+      const inScale = Math.max(Math.abs(inSec.massFlux), 1e-30);
+      const mmPerCell = scene.dx * 1e3;
+      const slantDx = AHMED.slantChord * Math.cos((25 * Math.PI) / 180);
+      diagnostics = {
+        uCommanded: scene.uLattice,
+        coreUx: ref.coreMeanUx,
+        bulkUx: ref.bulkUx,
+        coreRatio: ref.coreMeanUx / scene.uLattice,
+        reEffective: (scene.Re * ref.coreMeanUx) / scene.uLattice,
+        cdCoreWindowed:
+          ref.coreMeanUx > 0
+            ? windowed.cpuBodyFx / (0.5 * ref.coreMeanUx * ref.coreMeanUx * scene.frontalCells)
+            : Number.NaN,
+        field: fieldStats(macro, gpu.flags, nx, ny, nz),
+        lateral,
+        lateralNetOverInflow: lateral.net / inScale,
+        inFlux: inSec.massFlux,
+        outFlux: outSec.massFlux,
+        fluxMismatch: Math.abs(outSec.massFlux - inSec.massFlux) / inScale,
+        wake: wakeProbe(macro, gpu.flags, {
+          nx,
+          ny,
+          nz,
+          noseX: scene.noseX,
+          bodyLength: Math.round(scene.lengthCells),
+          bodyHeight: Math.round((AHMED.groundClearance + AHMED.height) / mmPerCell),
+          slantStartX: Math.round(scene.noseX + (AHMED.length - slantDx) / mmPerCell),
+        }),
       };
     } finally {
       gpu.destroy();
@@ -365,7 +548,12 @@ export async function runAhmedMatch(
     'collision': 'TRT (both), default Λ',
     'regularize / conserveMass': 'true / true (both)',
     'precision': 'CPU Float64 / GPU fp32 storage',
-    'BCs': 'Inlet x=0 + top/sides (hard Dirichlet), Outlet x=nx−1, Solid ground y=0 — identical flags array',
+    'BCs':
+      scene.lateralBC === 'freeslip'
+        ? 'Inlet x=0, H11 FREE-SLIP top/sides, Outlet x=nx−1 (strictly interior, H11 §3.2), ' +
+          'Solid ground y=0 — identical flags array both sides'
+        : 'Inlet x=0 + top/sides (hard Dirichlet), Outlet x=nx−1, Solid ground y=0 — identical flags array',
+    'lateralBC': scene.lateralBC,
     'force mask': 'CellType.BodySolid both sides (CPU isMeasured, GPU cellForce mask)',
     'init': 'reset(1, 0, 0, 0) — rest, both sides',
     'T_conv': `${T} steps`,
@@ -383,12 +571,40 @@ export async function runAhmedMatch(
         `u=${t.maxRelU.toExponential(2)} pairFx rel=${t.relPairFx.toExponential(2)} ` +
         `Cd cpu=${t.cpuCd.toFixed(4)} gpu=${t.gpuCd.toFixed(4)}`,
     ),
-    `  windowed Cd (${windowed!.samples} samples): cpu=${windowed!.cpuCd.toFixed(4)}±${windowed!.cpuSem.toFixed(4)} ` +
-      `gpu=${windowed!.gpuCd.toFixed(4)}±${windowed!.gpuSem.toFixed(4)} rel=${(windowed!.relCd * 100).toFixed(1)}%`,
+    `  Cd_windowed [SCREENING, NOT CONVERGED] (${windowed!.samples} samples, ${scene.lateralBC}): ` +
+      `cpu=${windowed!.cpuCdWindowed.toFixed(4)}±${windowed!.cpuSem.toFixed(4)} ` +
+      `gpu=${windowed!.gpuCdWindowed.toFixed(4)}±${windowed!.gpuSem.toFixed(4)} ` +
+      `rel=${(windowed!.relCd * 100).toFixed(1)}%`,
+    `  forces (CPU): body Fx=${windowed!.cpuBodyFx.toExponential(4)}  ` +
+      `ground Fx=${windowed!.cpuGroundFx.toExponential(4)}  ` +
+      `ground/body=${(windowed!.cpuGroundFx / windowed!.cpuBodyFx).toFixed(3)}  |  ` +
+      `raw consecutive-pair spread=${(windowed!.cpuRawPairSpread * 100).toFixed(1)}%`,
+    `  approach: u_cmd=${diagnostics!.uCommanded} core=${diagnostics!.coreUx.toFixed(5)} ` +
+      `(coreU/u_cmd=${diagnostics!.coreRatio.toFixed(4)})  Re_eff=${diagnostics!.reEffective.toExponential(3)}` +
+      `  [GATE 2 — if this moves between arms they are not the same flow]`,
+    `  Cd_core=${diagnostics!.cdCoreWindowed.toFixed(4)} (DIAGNOSTIC ONLY — never the acceptance number)`,
+    `  flux: in=${diagnostics!.inFlux.toExponential(3)} out=${diagnostics!.outFlux.toExponential(3)} ` +
+      `mismatch=${diagnostics!.fluxMismatch.toExponential(2)}  |  lateral net=${diagnostics!.lateral.net.toExponential(3)} ` +
+      `(top=${diagnostics!.lateral.top.toExponential(2)} zMin=${diagnostics!.lateral.zMin.toExponential(2)} ` +
+      `zMax=${diagnostics!.lateral.zMax.toExponential(2)}; ground layer u_y term ` +
+      `${diagnostics!.lateral.groundLayerUy.toExponential(2)} excluded) ` +
+      `net/in=${diagnostics!.lateralNetOverInflow.toExponential(2)}`,
+    `  field: massDrift=${diagnostics!.field.massDriftRel.toExponential(2)} ` +
+      `rho[${diagnostics!.field.rhoMin.toFixed(6)}, ${diagnostics!.field.rhoMax.toFixed(6)}] ` +
+      `Ma=${diagnostics!.field.machMax.toFixed(4)} nonFinite=${diagnostics!.field.nonFiniteCells}`,
+    `  wake: baseReverse=${diagnostics!.wake.baseReverseFraction.toFixed(3)} ` +
+      `slantReverse=${diagnostics!.wake.slantReverseFraction.toFixed(3)} ` +
+      `recirc=${diagnostics!.wake.recircLengthCells} cells (${diagnostics!.wake.recircLengthBodyLengths.toFixed(3)} L) ` +
+      `| omega_x: GammaL=${diagnostics!.wake.gammaLeft.toExponential(3)} ` +
+      `GammaR=${diagnostics!.wake.gammaRight.toExponential(3)} ` +
+      `asym=${diagnostics!.wake.cPillarAsymmetry.toFixed(3)} ` +
+      `peak=${diagnostics!.wake.peakAbsOmegaX.toExponential(2)}`,
   ];
 
   return {
     config,
+    lateralBC: scene.lateralBC,
+    diagnostics: diagnostics!,
     scene: {
       nx: scene.nx,
       ny: scene.ny,
@@ -416,6 +632,128 @@ export async function runAhmedMatch(
     lines,
     ms: performance.now() - t0,
   };
+}
+
+/** Both arms of the phase-3 far-field A/B, plus the comparison that is the actual deliverable. */
+export interface AhmedLateralAbReport {
+  freestream: AhmedMatchReport;
+  freeslip: AhmedMatchReport;
+  lines: string[];
+  /**
+   * Did the effective Reynolds number move? **Gate 2.** True means the free-slip arm is not
+   * running the same flow as the freestream arm, the A/B has stopped isolating the boundary
+   * condition, and the phase stops here rather than proceeding to a converged ladder.
+   */
+  reConfound: boolean;
+  ms: number;
+}
+
+/**
+ * Threshold for "the effective Reynolds number materially moved".
+ *
+ * 2% on coreU/u_cmd, chosen against what phase 2 already measured rather than picked round:
+ * the hard-Dirichlet empty tunnel sits 2.2–3.8% ABOVE commanded, so the arms already differ
+ * from unity by that much and the question is whether they differ from EACH OTHER by more.
+ * This is not an acceptance tolerance — nothing in docs/VALIDATION.md is being restated — it
+ * is the trip wire on a stop condition, and it is deliberately tight: proceeding to an
+ * expensive converged ladder on two flows at different Reynolds numbers is the expensive
+ * mistake, and stopping to look is the cheap one.
+ */
+const RE_CONFOUND_GATE = 0.02;
+
+export async function runAhmedLateralAB(
+  device: GPUDevice,
+  cfg: Partial<AhmedMatchConfig> = {},
+): Promise<AhmedLateralAbReport> {
+  const t0 = performance.now();
+  const freestream = await runAhmedMatch(device, { ...cfg, lateralBC: 'freestream' });
+  const freeslip = await runAhmedMatch(device, { ...cfg, lateralBC: 'freeslip' });
+
+  const a = freestream.diagnostics;
+  const b = freeslip.diagnostics;
+  const coreShift = Math.abs(b.coreRatio - a.coreRatio) / Math.max(Math.abs(a.coreRatio), 1e-30);
+  const reConfound = coreShift > RE_CONFOUND_GATE;
+
+  const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
+  const row = (label: string, x: number, y: number, digits = 4): string =>
+    `    ${label.padEnd(24)} freestream ${x.toFixed(digits).padStart(12)}   ` +
+    `freeslip ${y.toFixed(digits).padStart(12)}   ` +
+    `${(Math.abs(x) > 0 ? `${(y / x).toFixed(3)}x` : '—').padStart(9)}`;
+
+  const lines = [
+    '## Phase 3 Stage B1 — Ahmed body, hard-Dirichlet vs free-slip far field',
+    '',
+    `grid ${freestream.scene.nx}x${freestream.scene.ny}x${freestream.scene.nz} = ` +
+      `${freestream.scene.cells} cells   body ${freestream.scene.bodyVoxels} voxels / ` +
+      `frontal ${freestream.scene.frontalCells} cells^2   blockage ` +
+      `${(freestream.scene.blockage * 100).toFixed(2)}%   tau0 ${freestream.scene.tau0.toFixed(9)}`,
+    '',
+    'EVERY Cd BELOW IS Cd_windowed — a fixed-window screening number, NOT converged. A',
+    'converged Cd comes from the ladder\'s block-agreement stop and from nowhere else. Do not',
+    'quote these as results; they exist to decide whether the ladder is worth running.',
+    '',
+    row('Cd_windowed (CPU)', freestream.windowed.cpuCdWindowed, freeslip.windowed.cpuCdWindowed),
+    row('Cd_windowed (GPU)', freestream.windowed.gpuCdWindowed, freeslip.windowed.gpuCdWindowed),
+    row('  +/- sem (CPU)', freestream.windowed.cpuSem, freeslip.windowed.cpuSem),
+    row('body Fx (CPU)', freestream.windowed.cpuBodyFx, freeslip.windowed.cpuBodyFx, 8),
+    row('ground Fx (CPU)', freestream.windowed.cpuGroundFx, freeslip.windowed.cpuGroundFx, 8),
+    row('raw pair spread', freestream.windowed.cpuRawPairSpread, freeslip.windowed.cpuRawPairSpread),
+    '',
+    row('coreU / u_cmd', a.coreRatio, b.coreRatio),
+    `    ${'Re_effective'.padEnd(24)} freestream ${a.reEffective.toExponential(3).padStart(12)}   ` +
+      `freeslip ${b.reEffective.toExponential(3).padStart(12)}`,
+    row('Cd_core (diagnostic)', a.cdCoreWindowed, b.cdCoreWindowed),
+    '',
+    row('flux mismatch', a.fluxMismatch, b.fluxMismatch, 6),
+    row('lateral net / inFlux', a.lateralNetOverInflow, b.lateralNetOverInflow, 6),
+    row('mass drift', a.field.massDriftRel, b.field.massDriftRel, 8),
+    row('Ma max', a.field.machMax, b.field.machMax),
+    `    ${'non-finite'.padEnd(24)} freestream ${String(a.field.nonFiniteCells).padStart(12)}   ` +
+      `freeslip ${String(b.field.nonFiniteCells).padStart(12)}`,
+    '',
+    row('wake baseReverse', a.wake.baseReverseFraction, b.wake.baseReverseFraction),
+    row('wake slantReverse', a.wake.slantReverseFraction, b.wake.slantReverseFraction),
+    row('recirc length (L)', a.wake.recircLengthBodyLengths, b.wake.recircLengthBodyLengths),
+    row('omega_x Gamma_L', a.wake.gammaLeft, b.wake.gammaLeft, 6),
+    row('omega_x Gamma_R', a.wake.gammaRight, b.wake.gammaRight, 6),
+    row('C-pillar asymmetry', a.wake.cPillarAsymmetry, b.wake.cPillarAsymmetry),
+    row('peak |omega_x|', a.wake.peakAbsOmegaX, b.wake.peakAbsOmegaX, 6),
+    '',
+    reConfound
+      ? `*** GATE 2 TRIPPED: coreU/u_cmd moved ${pct(coreShift)} (> ${pct(RE_CONFOUND_GATE)}). ` +
+        `The free-slip arm is running at Re_eff ${b.reEffective.toExponential(3)} against the ` +
+        `freestream arm's ${a.reEffective.toExponential(3)} — these are NOT the same flow, so ` +
+        `the Cd delta above is not attributable to the boundary condition. STOP: do not run ` +
+        `the converged ladder. Cd_core does NOT repair this (it recovers a coefficient, not a ` +
+        `Reynolds number); the remedy is the H12 VelocityInlet, as a separate variable. ***`
+      : `GATE 2 CLEAR: coreU/u_cmd moved ${pct(coreShift)} (<= ${pct(RE_CONFOUND_GATE)}), so both ` +
+        `arms are running at effectively the same Reynolds number and the Cd delta is ` +
+        `attributable to the far field.`,
+  ];
+
+  return { freestream, freeslip, lines, reConfound, ms: performance.now() - t0 };
+}
+
+export async function mountAhmedLateralAB(device: GPUDevice, root: HTMLElement): Promise<void> {
+  root.innerHTML = '<p>Running the Ahmed lateral-BC A/B (M9 phase 3, stage B1)…</p>';
+  try {
+    const r = await runAhmedLateralAB(device);
+    hooks().ahmedLateralAB = r;
+    root.innerHTML = `
+      <h2>Ahmed lateral-BC A/B <small>(M9 phase 3, stage B1 — screening)</small></h2>
+      <p style="font-size:1.2em;font-weight:bold;color:${r.reConfound ? '#c22' : '#2a2'}">
+        ${r.reConfound ? 'GATE 2 TRIPPED — effective Re moved; stop here' : 'gate 2 clear'}
+        — ${(r.ms / 1000).toFixed(1)} s
+      </p>
+      <pre style="white-space:pre-wrap">${r.lines.join('\n')}</pre>
+      <h3>freestream arm</h3>
+      <pre style="white-space:pre-wrap">${r.freestream.lines.join('\n')}</pre>
+      <h3>free-slip arm</h3>
+      <pre style="white-space:pre-wrap">${r.freeslip.lines.join('\n')}</pre>`;
+  } catch (e) {
+    hooks().ahmedLateralAbError = String(e);
+    root.innerHTML = `<pre style="color:#c22">ahmed-lateral error:\n${String(e)}</pre>`;
+  }
 }
 
 export async function mountAhmedMatch(device: GPUDevice, root: HTMLElement): Promise<void> {

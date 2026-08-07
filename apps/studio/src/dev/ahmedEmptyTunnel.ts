@@ -1,4 +1,14 @@
-import { ahmedScene, fieldStats, sectionStats, type FieldStats } from '@aeroflow/core';
+import {
+  AHMED_FREESLIP_FACES,
+  ahmedScene,
+  fieldStats,
+  lateralFlux,
+  sectionStats,
+  validateFreeSlip,
+  type AhmedLateralBC,
+  type FieldStats,
+  type LateralFlux,
+} from '@aeroflow/core';
 import { Lbm3D } from '../sim/lbm3d';
 import { hooks } from './testHooks';
 
@@ -48,6 +58,38 @@ import { hooks } from './testHooks';
  *   It must DECAY. A fine-cadence watch over the first convective times shows whether the
  *   boundaries absorb it or reflect it back.
  * - **non-finite count** — cheap, and the difference between "clean" and "clean so far".
+ *
+ * ## Phase 3: the same tunnel, twice, with one variable changed
+ *
+ * Phase 2's answer was "numerically clean, but not physically neutral". Two of its findings
+ * point at the far field rather than at the solver:
+ *
+ *   1. a grid-independent ~1.3% inlet→outlet flux mismatch that global mass conservation
+ *      nevertheless absorbed — only possible if the hard-Dirichlet `Inlet` top/side cells are
+ *      supplying and absorbing the difference, i.e. acting as an infinite reservoir;
+ *   2. a core velocity 2–4% ABOVE the commanded u_in, because those same cells clamp the flow
+ *      to u_in throughout and hold the freestream up.
+ *
+ * The M9 specification calls for FREE-SLIP top and sides. So this harness now runs both arms —
+ * `lateralBC: 'freestream'` and `lateralBC: 'freeslip'` — on the same grid, at the same τ₀,
+ * with the same ground, the same body-derived domain and the same everything else, and reports
+ * them side by side. `lateralFlux` is added for the occasion: `fluxMismatch` establishes that
+ * something is unaccounted for, and the lateral budget establishes WHERE.
+ *
+ * Two disciplines this A/B is built around:
+ *
+ * - **`BOUNDS` is not touched, and no arm gets its own thresholds.** The free-slip arm is
+ *   judged clean or not clean by the identical numbers the freestream arm was (hard rule 3).
+ * - **`lateralFlux` carries no gate.** It is a proxy measured at the first fluid layer, not at
+ *   the halfway wall (see its docstring), so it is read as a RELATIVE reduction between arms.
+ *   The pass/fail authority stays with mass drift, density, Mach and the transient decay.
+ *
+ * And one thing this harness is watching FOR rather than hoping not to see: if free-slip
+ * removes the cells that were holding the core at u_in, the core may sag toward the 0.660·u_in
+ * M10 measured for a plain equilibrium `Inlet` in a frictionless duct. That would move the
+ * EFFECTIVE Reynolds number (ν and τ₀ are fixed by the scene, so Re_eff ∝ u_core) and the two
+ * arms would no longer be the same flow — which is a stop condition for the phase, not a
+ * result to normalize away. `coreVelocityRatio` is the number that says so.
  */
 
 export interface TunnelSample {
@@ -60,6 +102,14 @@ export interface TunnelSample {
   outFlux: number;
   /** |out − in| / |in| — a closed tunnel passes what it takes. */
   fluxMismatch: number;
+  /** Outward wall-normal flux at the top and both sides (phase 3). */
+  lateral: LateralFlux;
+  /**
+   * `lateral.net / |inFlux|` — the lateral leak as a fraction of what the tunnel takes in, so
+   * it is directly comparable against `fluxMismatch`. The reservoir hypothesis predicts these
+   * two track each other in the freestream arm and both collapse in the free-slip arm.
+   */
+  lateralNetOverInflow: number;
 }
 
 export interface StreamwiseStation {
@@ -113,9 +163,30 @@ export interface TransientDecay {
   fluxMismatchDecay: number;
   /** T_conv at which the transient window ends. */
   windowTConv: number;
+  /**
+   * Signed mass drift at the first and last POST-transient sample, and the per-T_conv slope
+   * between them.
+   *
+   * This is what separates the two ways `massDriftDecay` can fail, which the ratio alone
+   * cannot (measured 2026-08-07, phase-3 Stage A):
+   *
+   *  - **a reflecting far field** re-excites the domain, so the drift stays large but
+   *     OSCILLATES around a level — slope ≈ 0 with a big magnitude;
+   *  - **an incompatible inlet/outlet pair** fills the box, so the drift climbs
+   *     MONOTONICALLY and never reaches a steady state at all — slope > 0, sustained.
+   *
+   * The free-slip empty tunnel hit the second and was reported as the first, which pointed
+   * the diagnosis at the boundary that was working correctly.
+   */
+  steadyMassDriftFirst: number;
+  steadyMassDriftLast: number;
+  /** (last − first) / ΔT_conv over the post-transient window. */
+  massDriftSlopePerTConv: number;
 }
 
 export interface EmptyTunnelRun {
+  /** Which far field this arm ran (phase 3). */
+  lateralBC: AhmedLateralBC;
   cells: number;
   nx: number;
   ny: number;
@@ -151,6 +222,8 @@ export interface EmptyTunnelRun {
     rhoGradient: number;
     /** max coreMeanUx / u_in − 1: overshoot (>0) or deficit (<0) of the commanded velocity. */
     coreVelocityRatio: number;
+    /** Worst |lateral.net| / |inFlux| over the post-transient samples (phase 3, ungated). */
+    lateralNetOverInflow: number;
   };
   ms: number;
 }
@@ -215,9 +288,10 @@ async function runOne(
   Re: number,
   tConvTotal: number,
   gpuErrors: string[],
+  lateralBC: AhmedLateralBC,
 ): Promise<EmptyTunnelRun> {
   const t0 = performance.now();
-  const scene = ahmedScene({ maxCells, Re, omitBody: true });
+  const scene = ahmedScene({ maxCells, Re, omitBody: true, lateralBC });
   if (scene.bodyVoxels !== 0 || scene.frontalCells !== 0) {
     throw new Error(
       `empty tunnel still has a body: ${scene.bodyVoxels} voxels, ${scene.frontalCells} frontal`,
@@ -226,6 +300,10 @@ async function runOne(
   const { nx, ny, nz, flags } = scene;
   const T = scene.convectiveTimeSteps;
 
+  // Read the face set off the SCENE, never off the caller's argument: the flag array and the
+  // kernel's freeSlipMask must describe the same boundary or the run is silently wrong, and
+  // `Lbm3D.uploadFlags` only catches the direction where flags are ahead of the config.
+  const freeSlip = scene.lateralBC === 'freeslip' ? AHMED_FREESLIP_FACES : undefined;
   const sim = new Lbm3D(device, {
     nx,
     ny,
@@ -237,11 +315,13 @@ async function runOne(
     regularize: true,
     conserveMass: true,
     precision: 'fp32',
+    freeSlip,
     // NO `forces`. There is no BodySolid to weigh, and Lbm3D's invariant that a force run
     // must have one is deliberately left intact — the control just does not ask.
   });
   try {
     sim.flags.set(flags);
+    if (freeSlip) validateFreeSlip(flags, nx, ny, nz, freeSlip);
     sim.uploadFlags();
     sim.reset(1, 0, 0, 0);
 
@@ -253,13 +333,19 @@ async function runOne(
       const field = fieldStats(macro, flags, nx, ny, nz);
       const a = sectionStats(macro, flags, nx, ny, nz, xIn);
       const b = sectionStats(macro, flags, nx, ny, nz, xOut);
+      // Same readback as the section stats — the lateral budget must describe the same instant
+      // as the streamwise one it is meant to close, or the two cannot be added.
+      const lateral = lateralFlux(macro, flags, nx, ny, nz);
+      const inScale = Math.max(Math.abs(a.massFlux), 1e-30);
       samples.push({
         steps: sim.totalSteps,
         tConv: sim.totalSteps / T,
         field,
         inFlux: a.massFlux,
         outFlux: b.massFlux,
-        fluxMismatch: Math.abs(b.massFlux - a.massFlux) / Math.max(Math.abs(a.massFlux), 1e-30),
+        fluxMismatch: Math.abs(b.massFlux - a.massFlux) / inScale,
+        lateral,
+        lateralNetOverInflow: lateral.net / inScale,
       });
     };
 
@@ -325,7 +411,15 @@ async function runOne(
       massDriftDecay: 0,
       fluxMismatchDecay: 0,
       windowTConv: TRANSIENT_TCONV,
+      steadyMassDriftFirst: steady[0].field.massDriftRel,
+      steadyMassDriftLast: steady[steady.length - 1].field.massDriftRel,
+      massDriftSlopePerTConv: 0,
     };
+    {
+      const dt = steady[steady.length - 1].tConv - steady[0].tConv;
+      transient.massDriftSlopePerTConv =
+        dt > 0 ? (transient.steadyMassDriftLast - transient.steadyMassDriftFirst) / dt : 0;
+    }
     transient.massDriftDecay =
       transient.peakMassDrift / Math.max(transient.steadyMassDrift, 1e-30);
     transient.fluxMismatchDecay =
@@ -345,10 +439,12 @@ async function runOne(
         Math.max(...streamwise.map((s) => s.meanRho)) - Math.min(...streamwise.map((s) => s.meanRho)),
       coreVelocityRatio:
         Math.max(...streamwise.map((s) => s.coreMeanUx)) / scene.uLattice - 1,
+      lateralNetOverInflow: Math.max(...steady.map((s) => Math.abs(s.lateralNetOverInflow))),
     };
     worst.rhoSpan = worst.rhoMax - worst.rhoMin;
 
     return {
+      lateralBC: scene.lateralBC,
       cells: nx * ny * nz,
       nx,
       ny,
@@ -391,14 +487,20 @@ export async function runEmptyTunnel(
   device: GPUDevice,
   tiers: number[] = [250_000, 2_000_000],
   tConvTotal = 40,
+  arms: AhmedLateralBC[] = ['freestream', 'freeslip'],
 ): Promise<EmptyTunnelReport> {
   const gpuErrors: string[] = [];
   const onErr = (e: Event) => gpuErrors.push(String((e as GPUUncapturedErrorEvent).error.message));
   device.addEventListener('uncapturederror', onErr);
   const runs: EmptyTunnelRun[] = [];
   try {
+    // Tier-major, so the two arms of a tier sit next to each other in the output and in time.
+    // The comparison is between arms at a FIXED tier; interleaving tiers would put the pair
+    // that has to be read together at opposite ends of the log.
     for (const cells of tiers) {
-      runs.push(await runOne(device, cells, 4.29e6, tConvTotal, gpuErrors));
+      for (const arm of arms) {
+        runs.push(await runOne(device, cells, 4.29e6, tConvTotal, gpuErrors, arm));
+      }
     }
   } finally {
     device.removeEventListener('uncapturederror', onErr);
@@ -419,12 +521,34 @@ export async function runEmptyTunnel(
       why.push(`Ma ${r.worst.machMax.toFixed(3)} > ${BOUNDS.machMax}`);
     if (Math.abs(r.worst.coreVelocityRatio) > BOUNDS.coreVelocity)
       why.push(`core u/u_in−1 = ${r.worst.coreVelocityRatio.toFixed(3)}`);
-    // Boundary reflection: the startup wave must have decayed, not plateaued.
-    if (r.transient.massDriftDecay < BOUNDS.transientDecay)
+    // The startup wave must have decayed. WHY it did not is two different diagnoses, and
+    // naming the wrong one sends the investigation at the wrong boundary — which is exactly
+    // what happened on 2026-08-07, when a free-slip run that was filling monotonically was
+    // reported as "boundary may be reflecting" and the free-slip BC was the prime suspect for
+    // a defect that turned out to be the inlet's. The slope tells them apart.
+    if (r.transient.massDriftDecay < BOUNDS.transientDecay) {
+      const t = r.transient;
+      // Monotonic growth across the whole post-transient window, still going at the end.
+      const accumulating =
+        Math.abs(t.steadyMassDriftLast) > Math.abs(t.steadyMassDriftFirst) &&
+        Math.sign(t.massDriftSlopePerTConv) === Math.sign(t.steadyMassDriftLast) &&
+        t.massDriftSlopePerTConv !== 0;
       why.push(
-        `mass-drift transient decayed only ${r.transient.massDriftDecay.toFixed(1)}× ` +
-          `(< ${BOUNDS.transientDecay}) — boundary may be reflecting`,
+        `mass-drift transient decayed only ${t.massDriftDecay.toFixed(2)}× ` +
+          `(< ${BOUNDS.transientDecay}) — ` +
+          (accumulating
+            ? `mass is ACCUMULATING MONOTONICALLY (${t.steadyMassDriftFirst.toExponential(2)} → ` +
+              `${t.steadyMassDriftLast.toExponential(2)}, slope ` +
+              `${t.massDriftSlopePerTConv.toExponential(2)}/T_conv): the run never reaches a ` +
+              `steady state. This is an inlet/outlet incompatibility — the inlet is delivering ` +
+              `mass the outlet does not remove and no boundary relieves — NOT a reflecting far ` +
+              `field. Check the inlet formulation before suspecting the lateral BC`
+            : `the drift is not decaying but is not growing either (${t.steadyMassDriftFirst.toExponential(2)} → ` +
+              `${t.steadyMassDriftLast.toExponential(2)}, slope ` +
+              `${t.massDriftSlopePerTConv.toExponential(2)}/T_conv): consistent with a far field ` +
+              `that keeps re-exciting the domain`),
       );
+    }
     if (r.transient.fluxMismatchDecay < BOUNDS.transientDecay)
       why.push(
         `flux-mismatch transient decayed only ${r.transient.fluxMismatchDecay.toFixed(1)}× ` +
@@ -439,7 +563,8 @@ export async function runEmptyTunnel(
     const v = verdict(r);
     pass = pass && v.ok;
     lines.push(
-      `${v.ok ? 'PASS' : 'FAIL'} empty tunnel ${r.nx}x${r.ny}x${r.nz} (${r.cells} cells) ` +
+      `${v.ok ? 'PASS' : 'FAIL'} empty tunnel [${r.lateralBC}] ${r.nx}x${r.ny}x${r.nz} ` +
+        `(${r.cells} cells) ` +
         `tau0=${r.tau0.toFixed(9)} T_conv=${r.convectiveTimeSteps} steps=${r.totalSteps} ` +
         `(${(r.ms / 1000).toFixed(1)} s)` +
         (v.ok ? '' : `\n     ${v.why.join('; ')}`),
@@ -464,15 +589,121 @@ export async function runEmptyTunnel(
         `uMax=${r.stagger.staggerUMax.toExponential(2)} | cv: mass=${r.stagger.cvTotalMass.toExponential(2)} ` +
         `rhoMean=${r.stagger.cvRhoMean.toExponential(2)} uMax=${r.stagger.cvUMax.toExponential(2)}`,
     );
+    const last = r.samples.at(-1);
+    lines.push(
+      `     lateral flux (outward, last sample): top=${fmtE(last?.lateral.top)} ` +
+        `zMin=${fmtE(last?.lateral.zMin)} zMax=${fmtE(last?.lateral.zMax)} ` +
+        `net=${fmtE(last?.lateral.net)} (ground EXCLUDED — not a through-wall flux; ` +
+        `its near-wall layer u_y term=${fmtE(last?.lateral.groundLayerUy)}) | ` +
+        `worst |net|/inFlux=${r.worst.lateralNetOverInflow.toExponential(2)} (UNGATED proxy)`,
+    );
+    lines.push(
+      `     budget: in=${fmtE(last?.inFlux)} out=${fmtE(last?.outFlux)} ` +
+        `in-out=${fmtE((last?.inFlux ?? 0) - (last?.outFlux ?? 0))} vs lateral net=${fmtE(last?.lateral.net)} ` +
+        `| steady massDrift ${r.transient.steadyMassDriftFirst.toExponential(2)}→` +
+        `${r.transient.steadyMassDriftLast.toExponential(2)} ` +
+        `(slope ${r.transient.massDriftSlopePerTConv.toExponential(2)}/T_conv)`,
+    );
     lines.push(`     nonFinite=${r.worst.nonFiniteCells}`);
   }
+  lines.push(...abLines(runs));
   return { runs, pass, lines, gpuErrors };
 }
 
+const fmtE = (x: number | undefined): string =>
+  x === undefined || !Number.isFinite(x) ? '—' : x.toExponential(3);
+
+/**
+ * The phase-3 comparison: the two arms of each tier, side by side.
+ *
+ * Deliberately prints the two arms' values rather than a single "improvement" figure. The
+ * hypothesis under test is that free-slip removes the top/side mass reservoir, and that is
+ * supported only if the lateral budget and the flux mismatch fall TOGETHER — one of them
+ * moving alone is a different story (a lateral budget that collapses while the mismatch does
+ * not means the leak went somewhere else, not that it stopped).
+ *
+ * The core-velocity column is here for a different reason and must not be read as a success
+ * metric: if free-slip moves it, the effective Reynolds number moved with it and the arms are
+ * no longer the same flow. See the module docstring.
+ */
+function abLines(runs: EmptyTunnelRun[]): string[] {
+  const tiers = [...new Set(runs.map((r) => r.cells))];
+  const pairs = tiers
+    .map((cells) => ({
+      cells,
+      a: runs.find((r) => r.cells === cells && r.lateralBC === 'freestream'),
+      b: runs.find((r) => r.cells === cells && r.lateralBC === 'freeslip'),
+    }))
+    .filter((p): p is { cells: number; a: EmptyTunnelRun; b: EmptyTunnelRun } =>
+      Boolean(p.a && p.b),
+    );
+  if (pairs.length === 0) return [];
+
+  const ratio = (x: number, y: number): string =>
+    Math.abs(y) > 0 ? `${(x / y).toFixed(2)}x` : '—';
+  const out: string[] = [
+    '',
+    '## Phase 3 A/B — hard-Dirichlet vs free-slip top/sides (empty tunnel)',
+    '',
+    'Everything but the top/side boundary is identical: same grid, dx, tau0, nu, ground,',
+    'inlet/outlet, u_in, Cs, precision and initial condition. The one structural difference the',
+    'BC forces is the outlet-face ring (H11 3.2 keeps the outlet one row in under free-slip).',
+    '',
+    '  |net|/inFlux is the UNGATED lateral proxy (see lateralFlux docs) — read the RATIO between',
+    '  arms, never the absolute value. Health is decided by the BOUNDS columns, unchanged.',
+    '',
+    '  coreU/u_in-1 IS NOT A SUCCESS METRIC. A free-slip arm that moves it has moved the',
+    '  effective Reynolds number (nu and tau0 are fixed, so Re_eff ~ u_core) and the two arms',
+    '  are no longer the same flow — that is a STOP for the phase, not a result.',
+    '',
+  ];
+  for (const p of pairs) {
+    const row = (label: string, get: (r: EmptyTunnelRun) => number, exp = true): string => {
+      const fa = get(p.a);
+      const fb = get(p.b);
+      const f = (x: number) => (exp ? x.toExponential(2) : x.toFixed(4));
+      return (
+        `    ${label.padEnd(22)} freestream ${f(fa).padStart(11)}   ` +
+        `freeslip ${f(fb).padStart(11)}   ${ratio(fb, fa).padStart(8)}`
+      );
+    };
+    out.push(
+      `  ${p.a.nx}x${p.a.ny}x${p.a.nz} (${p.cells} cells)  tau0=${p.a.tau0.toFixed(9)}  ` +
+        `verdicts: freestream=${p.a.worst.nonFiniteCells === 0 ? 'ran' : 'NaN'} ` +
+        `freeslip=${p.b.worst.nonFiniteCells === 0 ? 'ran' : 'NaN'}`,
+      row('fluxMismatch', (r) => r.worst.fluxMismatch),
+      row('|lat net|/inFlux', (r) => r.worst.lateralNetOverInflow),
+      row('massDrift', (r) => r.worst.absMassDrift),
+      row('rho span', (r) => r.worst.rhoSpan),
+      row('streamwise rho span', (r) => r.worst.rhoGradient),
+      row('Ma max', (r) => r.worst.machMax, false),
+      row('coreU/u_in-1', (r) => r.worst.coreVelocityRatio, false),
+      row('massDrift decay', (r) => r.transient.massDriftDecay, false),
+      row('fluxMism decay', (r) => r.transient.fluxMismatchDecay, false),
+      row('period-2 mass', (r) => r.stagger.staggerTotalMass),
+      row('period-2 uMax', (r) => r.stagger.staggerUMax),
+      row('nonFinite', (r) => r.worst.nonFiniteCells, false),
+      '',
+    );
+  }
+  return out;
+}
+
+/**
+ * `?lateralBC=` — which arms to run. Default `both`, because the deliverable of phase 3 is a
+ * COMPARISON: a single arm produces numbers with nothing to read them against, and the two
+ * together cost ~60 s.
+ */
+function armsFromUrl(): AhmedLateralBC[] {
+  const raw = new URLSearchParams(location.search).get('lateralBC');
+  if (raw === 'freestream' || raw === 'freeslip') return [raw];
+  return ['freestream', 'freeslip'];
+}
+
 export async function mountEmptyTunnel(device: GPUDevice, root: HTMLElement): Promise<void> {
-  root.innerHTML = '<p>Running the Ahmed empty-tunnel control (M9 phase 2)…</p>';
+  root.innerHTML = '<p>Running the Ahmed empty-tunnel control (M9 phase 2/3)…</p>';
   try {
-    const r = await runEmptyTunnel(device);
+    const r = await runEmptyTunnel(device, undefined, undefined, armsFromUrl());
     hooks().emptyTunnel = r;
     const tbl = (rows: string) => `<table style="border-collapse:collapse">${rows}</table>`;
     root.innerHTML = `
@@ -484,7 +715,7 @@ export async function mountEmptyTunnel(device: GPUDevice, root: HTMLElement): Pr
       ${r.runs
         .map(
           (run) => `
-        <h3>${run.nx}×${run.ny}×${run.nz} — streamwise profile</h3>
+        <h3>${run.nx}×${run.ny}×${run.nz} [${run.lateralBC}] — streamwise profile</h3>
         ${tbl(
           `<tr><th>x</th><th>meanRho</th><th>bulkUx</th><th>coreUx</th><th>massFlux</th><th>nonUnif</th><th>δ99 cells</th></tr>` +
             run.streamwise
@@ -496,16 +727,18 @@ export async function mountEmptyTunnel(device: GPUDevice, root: HTMLElement): Pr
               )
               .join(''),
         )}
-        <h3>${run.nx}×${run.ny}×${run.nz} — time series</h3>
+        <h3>${run.nx}×${run.ny}×${run.nz} [${run.lateralBC}] — time series</h3>
         ${tbl(
-          `<tr><th>T_conv</th><th>massDrift</th><th>rhoMin</th><th>rhoMax</th><th>uMax</th><th>Ma</th><th>fluxMismatch</th><th>NaN</th></tr>` +
+          `<tr><th>T_conv</th><th>massDrift</th><th>rhoMin</th><th>rhoMax</th><th>uMax</th><th>Ma</th><th>fluxMismatch</th><th>lat net/in</th><th>NaN</th></tr>` +
             run.samples
               .map(
                 (s) =>
                   `<tr><td>${s.tConv.toFixed(2)}</td><td>${s.field.massDriftRel.toExponential(2)}</td>` +
                   `<td>${s.field.rhoMin.toFixed(6)}</td><td>${s.field.rhoMax.toFixed(6)}</td>` +
                   `<td>${s.field.uMax.toFixed(6)}</td><td>${s.field.machMax.toFixed(4)}</td>` +
-                  `<td>${s.fluxMismatch.toExponential(2)}</td><td>${s.field.nonFiniteCells}</td></tr>`,
+                  `<td>${s.fluxMismatch.toExponential(2)}</td>` +
+                  `<td>${s.lateralNetOverInflow.toExponential(2)}</td>` +
+                  `<td>${s.field.nonFiniteCells}</td></tr>`,
               )
               .join(''),
         )}`,

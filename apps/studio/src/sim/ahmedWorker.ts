@@ -1,15 +1,19 @@
 import {
   AIR_KINEMATIC_VISCOSITY,
   AHMED,
+  AHMED_FREESLIP_FACES,
   ForceHistory,
   ahmedScene,
   forceToNewtons,
+  lateralFlux,
   sectionStats,
   upstreamStations,
   ahmedTauRegions,
   fieldStats,
   tauLayersAt,
   tauStats,
+  validateFreeSlip,
+  wakeProbe,
   type AhmedScene,
 } from '@aeroflow/core';
 import { computeTauField, evaluatedSelector } from './tauOracle';
@@ -97,6 +101,9 @@ function summarize(
     // The precision the sim actually BUILT with (post-`hasF16` fallback), not what was asked
     // for — a run that silently fell back to fp32 must not report fp16.
     precision,
+    // Likewise the far field the SCENE built, not what was requested: an unrecognized override
+    // falls back to 'freestream', and the row must say which tunnel produced the number.
+    lateralBC: scene.lateralBC,
     nx: scene.nx,
     ny: scene.ny,
     nz: scene.nz,
@@ -136,6 +143,21 @@ async function collectDiagnostics(r: RunState): Promise<AhmedDiagnostics> {
   // The station nearest the nose is the reference: it is what the body actually sees,
   // while still upstream of the nose's own stagnation rise.
   const ref = stats[stats.length - 1];
+  // Phase-3 reductions, off the SAME `macro` — no extra GPU round trip, and they describe the
+  // same instant as the approach-flow stations they sit beside.
+  const lateral = lateralFlux(macro, sim.flags, scene.nx, scene.ny, scene.nz);
+  const inSection = sectionStats(macro, sim.flags, scene.nx, scene.ny, scene.nz, 1);
+  const mmPerCell = scene.dx * 1e3;
+  const slantDxMm = AHMED.slantChord * Math.cos((25 * Math.PI) / 180);
+  const wake = wakeProbe(macro, sim.flags, {
+    nx: scene.nx,
+    ny: scene.ny,
+    nz: scene.nz,
+    noseX: scene.noseX,
+    bodyLength: Math.round(scene.lengthCells),
+    bodyHeight: Math.round((AHMED.groundClearance + AHMED.height) / mmPerCell),
+    slantStartX: Math.round(scene.noseX + (AHMED.length - slantDxMm) / mmPerCell),
+  });
   // Same force and same 20-T_conv window the `sample` event reports, so cdCommanded here
   // is identical to the acceptance number rather than a parallel computation of it.
   const meanFx = r.history.stats(0, 20).mean;
@@ -158,6 +180,9 @@ async function collectDiagnostics(r: RunState): Promise<AhmedDiagnostics> {
     reCore: reFrom(ref.coreMeanUx),
     // Same `macro` readback the stations were reduced from — no extra GPU round trip.
     field: fieldStats(macro, sim.flags, scene.nx, scene.ny, scene.nz),
+    lateral,
+    lateralNetOverInflow: lateral.net / Math.max(Math.abs(inSection.massFlux), 1e-30),
+    wake,
     stations: stats.map((s) => ({
       ...s,
       cellsFromInlet: s.x,
@@ -245,6 +270,10 @@ async function collectTau(r: RunState): Promise<AhmedTauReport> {
 function buildSim(state: Pick<RunState, 'scene' | 'gpu' | 'opts'>): Lbm3D {
   const { scene, gpu, opts } = state;
   const precision = opts.precision === 'fp16' && gpu.caps.hasF16 ? 'fp16' : 'fp32';
+  // Read the face set off the SCENE, never off the options: the flag array and the kernel's
+  // freeSlipMask must describe the same boundary. `Lbm3D.uploadFlags` only catches the
+  // direction where the flags carry FreeSlip cells the config never declared.
+  const freeSlip = scene.lateralBC === 'freeslip' ? AHMED_FREESLIP_FACES : undefined;
   const sim = new Lbm3D(gpu.device, {
     nx: scene.nx,
     ny: scene.ny,
@@ -258,12 +287,14 @@ function buildSim(state: Pick<RunState, 'scene' | 'gpu' | 'opts'>): Lbm3D {
     // and not `||`: Cs = 0 means "LES off", a legitimate rung, and must not fall back to 0.1.
     les: { cs: opts.lesCs ?? AHMED_LES_CS },
     forces: true,
+    freeSlip,
     precision,
     hasF16: gpu.caps.hasF16,
     hasTimestamp: gpu.caps.hasTimestamp,
     maxBindingBytes: gpu.caps.maxStorageBufferBindingSize,
   });
   sim.flags.set(scene.flags);
+  if (freeSlip) validateFreeSlip(scene.flags, scene.nx, scene.ny, scene.nz, freeSlip);
   sim.uploadFlags();
   sim.reset(1, 0, 0, 0);
   return sim;

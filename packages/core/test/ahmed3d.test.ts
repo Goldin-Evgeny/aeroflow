@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CellType } from '../src/lattice.js';
-import { ahmedScene } from '../src/scenes/ahmed3d.js';
+import { AHMED_FREESLIP_FACES, ahmedScene } from '../src/scenes/ahmed3d.js';
+import { resolveFreeSlipPull, validateFreeSlip } from '../src/cpu/freeslip.js';
+import { D3Q19 } from '../src/lattice3d.js';
 import { EsotericPull3D } from '../src/cpu/esoteric.js';
 import { AHMED } from '../src/geometry/ahmedBody.js';
 
@@ -136,6 +138,246 @@ describe('ahmedScene', () => {
       expect(solver.maskedForce.x).toBe(0);
       expect(solver.maskedForce.y).toBe(0);
       expect(solver.maskedForce.z).toBe(0);
+    });
+  });
+
+  /**
+   * `lateralBC` — the M9 phase-3 far-field A/B (hard-Dirichlet vs H11 free-slip).
+   *
+   * The experiment being run is a controlled comparison, so what these tests pin is not
+   * "free-slip works" (H11 §6/§7 already gate the boundary condition itself, CPU and WGSL)
+   * but that the two ARMS differ in the far field and in nothing else — and that the existing
+   * arm did not move when the option was added.
+   */
+  describe('lateralBC (phase-3 far-field A/B)', () => {
+    const CELLS = 300_000;
+    const freestream = ahmedScene({ maxCells: CELLS });
+    const freeslip = ahmedScene({ maxCells: CELLS, lateralBC: 'freeslip' });
+
+    /**
+     * The regression lock. Rebuilds the PRE-OPTION shell literally — lateral Inlet faces,
+     * Solid ground, then full-face inlet/outlet columns for y ≥ 1 — and requires the default
+     * scene to reproduce it cell for cell.
+     *
+     * Written out rather than snapshotted against `ahmedScene` itself, because a builder
+     * compared to its own output cannot detect that the builder changed. Every Ahmed Cd on
+     * record was measured on this flag array; if it moves, those numbers stop being comparable
+     * and the phase-3 A/B loses its control arm.
+     */
+    it("'freestream' is the default and reproduces the pre-option flag array exactly", () => {
+      expect(freestream.lateralBC).toBe('freestream');
+      expect(ahmedScene({ maxCells: CELLS, lateralBC: 'freestream' }).flags).toEqual(
+        freestream.flags,
+      );
+
+      const { nx, ny, nz } = freestream;
+      const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+      const ref = new Uint8Array(nx * ny * nz).fill(CellType.Fluid);
+      for (let y = 0; y < ny; y++)
+        for (let x = 0; x < nx; x++) {
+          ref[at(x, y, 0)] = CellType.Inlet;
+          ref[at(x, y, nz - 1)] = CellType.Inlet;
+        }
+      for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) ref[at(x, ny - 1, z)] = CellType.Inlet;
+      for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) ref[at(x, 0, z)] = CellType.Solid;
+      for (let z = 0; z < nz; z++)
+        for (let y = 1; y < ny; y++) {
+          ref[at(0, y, z)] = CellType.Inlet;
+          ref[at(nx - 1, y, z)] = CellType.Outlet;
+        }
+      // Overlay the body from the scene itself: the voxelizer is not what this test locks.
+      for (let i = 0; i < ref.length; i++) {
+        if (freestream.flags[i] === CellType.BodySolid) ref[i] = CellType.BodySolid;
+      }
+      expect(freestream.flags).toEqual(ref);
+    });
+
+    it('changes the far field and NOTHING else — same grid, body and lattice parameters', () => {
+      expect([freeslip.nx, freeslip.ny, freeslip.nz]).toEqual([
+        freestream.nx,
+        freestream.ny,
+        freestream.nz,
+      ]);
+      expect(freeslip.dx).toBe(freestream.dx);
+      expect(freeslip.omega).toBe(freestream.omega);
+      expect(freeslip.tau).toBe(freestream.tau);
+      expect(freeslip.nu).toBe(freestream.nu);
+      expect(freeslip.uLattice).toBe(freestream.uLattice);
+      expect(freeslip.Re).toBe(freestream.Re);
+      expect(freeslip.lengthCells).toBe(freestream.lengthCells);
+      expect(freeslip.convectiveTimeSteps).toBe(freestream.convectiveTimeSteps);
+      expect(freeslip.noseX).toBe(freestream.noseX);
+      // The Cd normalization must be identical or the two arms' coefficients are not comparable.
+      expect(freeslip.bodyVoxels).toBe(freestream.bodyVoxels);
+      expect(freeslip.frontalCells).toBe(freestream.frontalCells);
+      expect(freeslip.blockage).toBe(freestream.blockage);
+      expect(freeslip.mesh.positions).toEqual(freestream.mesh.positions);
+
+      // Every differing cell is on a lateral face or in the outlet-face ring the H11 §3.2
+      // constraint forces one row in. Nothing in the interior, on the ground, or at the inlet.
+      const { nx, ny, nz } = freeslip;
+      let differing = 0;
+      for (let z = 0; z < nz; z++)
+        for (let y = 0; y < ny; y++)
+          for (let x = 0; x < nx; x++) {
+            const i = x + nx * (y + ny * z);
+            if (freeslip.flags[i] === freestream.flags[i]) continue;
+            differing++;
+            const onLateralFace = y === ny - 1 || z === 0 || z === nz - 1;
+            expect(
+              onLateralFace,
+              `(${x},${y},${z}) differs but is not on a lateral face`,
+            ).toBe(true);
+          }
+      expect(differing).toBeGreaterThan(0); // control: the option is doing work
+    });
+
+    it('builds the H11 shell: free-slip top/sides, no-slip ground, interior outlet', () => {
+      const { nx, ny, nz, flags } = freeslip;
+      const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+      expect(freeslip.lateralBC).toBe('freeslip');
+
+      for (let k = 1; k < 5; k++) {
+        const x = Math.floor((k * nx) / 5);
+        const z = Math.floor((k * nz) / 5);
+        const y = Math.max(1, Math.floor((k * ny) / 5));
+        expect(flags[at(x, ny - 1, z)]).toBe(CellType.FreeSlip); // top
+        expect(flags[at(x, y, 0)]).toBe(CellType.FreeSlip); // −z side
+        expect(flags[at(x, y, nz - 1)]).toBe(CellType.FreeSlip); // +z side
+        expect(flags[at(x, 0, z)]).toBe(CellType.Solid); // the ground is NOT free-slip
+        expect(flags[at(0, y, z)]).toBe(CellType.Inlet); // inlet spans the whole x=0 face
+      }
+      // The ground wins the shared shell edges, including on both x faces (H4 §10.9).
+      expect(flags[at(0, 0, Math.floor(nz / 2))]).toBe(CellType.Solid);
+      expect(flags[at(nx - 1, 0, Math.floor(nz / 2))]).toBe(CellType.Solid);
+      // The outlet-face ring stays FreeSlip so the outlet starts one row in (H11 §3.2).
+      expect(flags[at(nx - 1, ny - 1, Math.floor(nz / 2))]).toBe(CellType.FreeSlip);
+      expect(flags[at(nx - 1, Math.floor(ny / 2), 0)]).toBe(CellType.FreeSlip);
+      expect(flags[at(nx - 1, Math.floor(ny / 2), nz - 1)]).toBe(CellType.FreeSlip);
+      expect(flags[at(nx - 1, Math.floor(ny / 2), Math.floor(nz / 2))]).toBe(CellType.Outlet);
+
+      // No Outlet may read a FreeSlip (H11 §3.2) or a Solid (H4 §10.9) upstream neighbour.
+      for (let z = 0; z < nz; z++)
+        for (let y = 0; y < ny; y++) {
+          if (flags[at(nx - 1, y, z)] !== CellType.Outlet) continue;
+          const up = flags[at(nx - 2, y, z)];
+          expect(up, `outlet (${y},${z}) upstream neighbour`).not.toBe(CellType.FreeSlip);
+          expect(up, `outlet (${y},${z}) upstream neighbour`).not.toBe(CellType.Solid);
+          expect(up).not.toBe(CellType.BodySolid);
+        }
+
+      expect(() =>
+        validateFreeSlip(flags, nx, ny, nz, AHMED_FREESLIP_FACES),
+      ).not.toThrow();
+    });
+
+    /**
+     * Every free-slip pull in the scene resolves.
+     *
+     * `resolveFreeSlipPull` THROWS when it lands on a FreeSlip cell that is not on a face the
+     * config declares (freeslip.ts §3) — the exact failure a scene/config mismatch produces.
+     * A two-step smoke run only exercises whatever links its cells happen to touch; this walks
+     * the entire shell, every direction, so a bad corner cannot hide until a long GPU run.
+     */
+    it('resolves every free-slip pull in the domain (whole-shell, not just stepped paths)', () => {
+      const { nx, ny, nz, flags } = freeslip;
+      const { q, ex, ey, ez } = D3Q19;
+      const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+      let resolved = 0;
+      for (let z = 0; z < nz; z++)
+        for (let y = 0; y < ny; y++)
+          for (let x = 0; x < nx; x++) {
+            if (flags[at(x, y, z)] !== CellType.Fluid) continue;
+            for (let i = 1; i < q; i++) {
+              const sx = x - ex[i];
+              const sy = y - ey[i];
+              const sz = z - ez[i];
+              if (sx < 0 || sx >= nx || sy < 0 || sy >= ny || sz < 0 || sz >= nz) continue;
+              if (flags[at(sx, sy, sz)] !== CellType.FreeSlip) continue;
+              const r = resolveFreeSlipPull(flags, nx, ny, nz, AHMED_FREESLIP_FACES, sx, sy, sz, i);
+              resolved++;
+              if (r.fallback) continue; // slip∩solid edge → local bounce-back (H11 §3.1)
+              // A resolved source must be an ACTIVE cell: passive cells emit no output to read.
+              const dest = flags[at(r.sx, r.sy, r.sz)];
+              expect(dest, `(${x},${y},${z}) dir ${i} resolved onto a passive cell`).not.toBe(
+                CellType.FreeSlip,
+              );
+              expect(dest).not.toBe(CellType.Solid);
+              expect(dest).not.toBe(CellType.BodySolid);
+            }
+          }
+      expect(resolved).toBeGreaterThan(0); // control: the walk actually hit free-slip links
+    });
+
+    it('produces a flag field EsotericPull3D accepts and can step', () => {
+      const solver = new EsotericPull3D({
+        nx: freeslip.nx,
+        ny: freeslip.ny,
+        nz: freeslip.nz,
+        omega: freeslip.omega,
+        flags: freeslip.flags,
+        inletVelocity: freeslip.uLattice,
+        collision: 'trt',
+        regularize: true,
+        les: { cs: 0.1 },
+        freeSlip: AHMED_FREESLIP_FACES,
+      });
+      solver.step(2); // one even + one odd step through the full BC set, both free-slip parities
+      expect(Number.isFinite(solver.totalMass())).toBe(true);
+      expect(solver.force.x).not.toBe(0); // the body is in the flow and feels it
+    });
+
+    /**
+     * `lateralFlux` sums over the first FLUID layer inside each face, and the A/B compares that
+     * sum between arms. If the two arms expose different cells there — because one face's
+     * adjacent layer is Fluid in one arm and shell in the other — the two numbers are sums over
+     * different sets and the comparison is meaningless, in a way that would look like a
+     * physical difference rather than a bookkeeping one.
+     */
+    it('exposes the same measurement cells to lateralFlux in both arms', () => {
+      const { nx, ny, nz } = freeslip;
+      const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+      // Mirrors `hasMacroscopics`: only Fluid cells carry macroscopics after the macro pass.
+      const countPlane = (
+        flags: Uint8Array,
+        axis: 'y' | 'z',
+        index: number,
+      ): number => {
+        let n = 0;
+        const outerMax = axis === 'y' ? nz : ny;
+        for (let outer = 0; outer < outerMax; outer++)
+          for (let x = 0; x < nx; x++) {
+            const y = axis === 'y' ? index : outer;
+            const z = axis === 'y' ? outer : index;
+            if (flags[at(x, y, z)] === CellType.Fluid) n++;
+          }
+        return n;
+      };
+      for (const [axis, index] of [
+        ['y', ny - 2],
+        ['y', 1],
+        ['z', nz - 2],
+        ['z', 1],
+      ] as const) {
+        const a = countPlane(freestream.flags, axis, index);
+        const b = countPlane(freeslip.flags, axis, index);
+        expect(b, `${axis}=${index} measurement plane differs between arms`).toBe(a);
+        expect(a, `${axis}=${index} measurement plane is empty`).toBeGreaterThan(0);
+      }
+    });
+
+    it('composes with omitBody: the empty free-slip tunnel is the same tunnel, bodyless', () => {
+      const empty = ahmedScene({ maxCells: CELLS, lateralBC: 'freeslip', omitBody: true });
+      expect(empty.lateralBC).toBe('freeslip');
+      expect(empty.bodyVoxels).toBe(0);
+      expect(empty.frontalCells).toBe(0);
+      expect([empty.nx, empty.ny, empty.nz]).toEqual([freeslip.nx, freeslip.ny, freeslip.nz]);
+      let differing = 0;
+      for (let i = 0; i < empty.flags.length; i++) {
+        if (freeslip.flags[i] === CellType.BodySolid) continue;
+        if (empty.flags[i] !== freeslip.flags[i]) differing++;
+      }
+      expect(differing).toBe(0);
     });
   });
 });

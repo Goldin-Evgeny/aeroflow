@@ -1,5 +1,6 @@
 import { ForcePlot } from './forcePlot';
 import {
+  AHMED_ACCEPTANCE_LATERAL_BC,
   AHMED_ACCEPTANCE_PRECISION,
   AHMED_CD_BAND,
   AHMED_CD_STRETCH,
@@ -14,6 +15,7 @@ import {
   applyCellsOverride,
   fieldEveryOverride,
   hooks,
+  lateralBCOverride,
   lesCsOverride,
   precisionOverride,
   reOverride,
@@ -216,7 +218,13 @@ export function mountAhmed(root: HTMLElement): void {
     send({
       type: 'start',
       opts: {
-        scene: { maxCells: BUDGETS[budgetSel.value], Re: chosenRe() },
+        scene: {
+          maxCells: BUDGETS[budgetSel.value],
+          Re: chosenRe(),
+          // `?lateralBC=` — the M9 phase-3 far-field A/B. Absent means the scene default,
+          // 'freestream', which is what every Ahmed number on record was measured with.
+          lateralBC: lateralBCOverride() ?? undefined,
+        },
         lesCs: chosenCs(),
         fieldEveryTConv: fieldEveryOverride() ?? undefined,
         precision: fp16Box.checked ? 'fp16' : 'fp32',
@@ -251,6 +259,11 @@ export function mountAhmed(root: HTMLElement): void {
           `grid ${scene.nx}×${scene.ny}×${scene.nz} = ${(scene.totalCells / 1e6).toFixed(1)}M cells   dx ${scene.dxMm.toFixed(2)} mm   body ${scene.lengthCells.toFixed(0)} cells`,
           `Re ${scene.Re.toExponential(2)} (U≈${scene.physU.toFixed(1)} m/s)   τ ${scene.tau.toFixed(6)} (LES Cs=${scene.lesCs}+regularized+conservative)   u ${scene.uLattice}`,
           `blockage ${(scene.blockage * 100).toFixed(2)}%   frontal ${scene.frontalCells} cells²   body ${scene.bodyVoxels.toLocaleString()} voxels`,
+          `far field: ${scene.lateralBC} top/sides` +
+            (scene.lateralBC === AHMED_ACCEPTANCE_LATERAL_BC
+              ? ''
+              : `  ← phase-3 A/B arm, NOT the acceptance configuration`) +
+            `   no-slip ground`,
           `T_conv = ${scene.convectiveTimeSteps} steps   band Cd ${AHMED_CD_TARGET} ±15% [${AHMED_CD_BAND[0]}, ${AHMED_CD_BAND[1]}]`,
         ].join('\n');
         logLine('run ready');
@@ -277,6 +290,15 @@ export function mountAhmed(root: HTMLElement): void {
           // a lowered-Cs rung could plausibly land near 0.285 by coincidence. If the page could
           // print PASS for it, the sweep would have become a tuning exercise the moment it
           // succeeded. It cannot.
+          //
+          // `lateralBC` joined for exactly the same reason in M9 phase 3, and it is the case
+          // where the discipline matters most. Free-slip removes the hard-Dirichlet cells that
+          // hold the core at u_in, so it can lower Cd_commanded through a velocity deficit
+          // rather than through physics — the sphere Re=10⁴ case moved 0.55 → 0.263 on this
+          // one change. A free-slip rung landing in [0.242, 0.328] would look exactly like
+          // success and would be unearned until the A/B has shown WHY it moved. Free-slip
+          // becomes an acceptance configuration only by an explicit decision recorded in
+          // docs/VALIDATION.md, never by a page printing PASS for it first.
           const offSpec = scene
             ? [
                 scene.Re !== AHMED_EXPERIMENTAL_RE
@@ -285,6 +307,9 @@ export function mountAhmed(root: HTMLElement): void {
                 scene.lesCs !== AHMED_LES_CS ? `Cs ${scene.lesCs} ≠ ${AHMED_LES_CS}` : null,
                 scene.precision !== AHMED_ACCEPTANCE_PRECISION
                   ? `${scene.precision} storage ≠ ${AHMED_ACCEPTANCE_PRECISION}`
+                  : null,
+                scene.lateralBC !== AHMED_ACCEPTANCE_LATERAL_BC
+                  ? `${scene.lateralBC} far field ≠ ${AHMED_ACCEPTANCE_LATERAL_BC} (phase-3 A/B arm)`
                   : null,
               ].filter((s): s is string => s !== null)
             : [];
@@ -330,6 +355,16 @@ export function mountAhmed(root: HTMLElement): void {
             `ρ [${d.field.rhoMin.toFixed(5)}, ${d.field.rhoMax.toFixed(5)}]   ` +
             `Ma_max ${d.field.machMax.toFixed(4)}   ` +
             `non-finite ${d.field.nonFiniteCells}`,
+          `  lateral flux (outward): top ${d.lateral.top.toExponential(3)}  ` +
+            `zMin ${d.lateral.zMin.toExponential(3)}  zMax ${d.lateral.zMax.toExponential(3)}  ` +
+            `net ${d.lateral.net.toExponential(3)}  net/in ` +
+            `${d.lateralNetOverInflow.toExponential(2)} — proxy, ungated ` +
+            `(ground layer u_y ${d.lateral.groundLayerUy.toExponential(2)}, not a wall flux)`,
+          `  wake: baseReverse ${d.wake.baseReverseFraction.toFixed(3)}  ` +
+            `slantReverse ${d.wake.slantReverseFraction.toFixed(3)}  ` +
+            `recirc ${d.wake.recircLengthBodyLengths.toFixed(3)} L  ` +
+            `ω_x Γ_L ${d.wake.gammaLeft.toExponential(2)} Γ_R ${d.wake.gammaRight.toExponential(2)} ` +
+            `asym ${d.wake.cPillarAsymmetry.toFixed(3)}`,
         ].join('\n');
         logLine(
           `diagnostics @ ${d.convectiveTimes.toFixed(1)} T_conv: ` +

@@ -1,4 +1,12 @@
-import type { AhmedSceneOptions, FieldStats, TauLayer, TauStats } from '@aeroflow/core';
+import type {
+  AhmedLateralBC,
+  AhmedSceneOptions,
+  FieldStats,
+  LateralFlux,
+  TauLayer,
+  TauStats,
+  WakeProbe,
+} from '@aeroflow/core';
 import type { Precision } from '../gpu/ddfLayout';
 
 /**
@@ -58,6 +66,13 @@ export interface AhmedSceneSummary {
    */
   lesCs: number;
   precision: Precision;
+  /**
+   * The far field the scene was BUILT with (M9 phase 3). On the summary line for the same
+   * reason Cs and precision are: every number in the run is conditional on it, and the page's
+   * verdict suppression keys off this exact value — `'freeslip'` is not the configuration the
+   * Cd band was measured against, so a run under it reports its number without a verdict.
+   */
+  lateralBC: AhmedLateralBC;
 }
 
 /**
@@ -111,6 +126,23 @@ export interface AhmedDiagnostics {
    * a data point (M9 step 7).
    */
   field: FieldStats;
+  /**
+   * Outward wall-normal flux at the top and both sides (M9 phase 3), from the same readback.
+   *
+   * `cdCommanded` is only interpretable if the tunnel passes what it takes. Phase 2 measured a
+   * ~1.3% streamwise mismatch that global mass conservation nevertheless absorbed, which means
+   * the lateral boundary was sourcing it; this says whether that is still happening. A PROXY
+   * measured at the first fluid layer, carrying no gate — see `lateralFlux`'s docstring.
+   */
+  lateral: LateralFlux;
+  /** lateral.net / |mass flux at x=1|, so it is comparable against the streamwise mismatch. */
+  lateralNetOverInflow: number;
+  /**
+   * Wake topology (M9 phase 3), same readback again. A far field that reorganizes the slant
+   * separation or the C-pillar vortex pair WITHOUT moving Cd is a significant result that a
+   * Cd-only report would record as "no effect".
+   */
+  wake: WakeProbe;
 }
 
 /**
@@ -335,6 +367,25 @@ export const FIELD_SNAPSHOT_TCONV_DEFAULT = 20;
  * other precision is a diagnostic, exactly as a run at any other Re or Cs is.
  */
 export const AHMED_ACCEPTANCE_PRECISION: Precision = 'fp16';
+
+/**
+ * The far field the acceptance verdict is DEFINED against — the hard-Dirichlet `Inlet` top and
+ * sides that every Ahmed Cd on record was measured with.
+ *
+ * Deliberately NOT `'freeslip'`, even though the M9 specification asks for free-slip and phase 3
+ * is testing it. The band Cd = 0.285 ± 15% is a claim about numbers this project has produced in
+ * a specific configuration; changing which tunnel counts as "the" tunnel is a decision that
+ * belongs in docs/VALIDATION.md after the A/B has explained what the change did, not something
+ * a constant quietly reclassifies. Until then a free-slip rung reports its Cd without a verdict,
+ * exactly like an off-Re or reduced-Cs rung.
+ *
+ * This matters more here than for the other three suppressed knobs. Free-slip removes the cells
+ * that hold the core at u_in, so it can lower Cd through a velocity deficit rather than through
+ * physics — and the sphere Re=10⁴ case moved 0.55 → 0.263 on this single change. A free-slip
+ * rung landing inside the band would look precisely like success while possibly being an
+ * artifact of its own normalization.
+ */
+export const AHMED_ACCEPTANCE_LATERAL_BC: AhmedLateralBC = 'freestream';
 
 /** Ahmed 25° literature band (M9 acceptance 1): Cd = 0.285 ± 15% (stretch ± 10%). */
 export const AHMED_CD_TARGET = 0.285;

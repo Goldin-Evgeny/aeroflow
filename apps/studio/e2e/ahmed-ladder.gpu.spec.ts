@@ -67,21 +67,29 @@ import { blocksAgree, relSpread, type FieldStats } from '@aeroflow/core';
  */
 
 /**
- * `<cells>@<Re>[@<Cs>[@<precision>]]`. Cs and precision are positional and optional, so every
- * pre-existing rung string keeps its exact meaning and defaults to the acceptance configuration.
+ * `<cells>@<Re>[@<Cs>[@<precision>[@<lateralBC>]]]`. Every optional field is positional, so
+ * every pre-existing rung string keeps its exact meaning and defaults to the acceptance
+ * configuration.
  *
  * Cs is parsed with `>= 0` rather than `> 0`: Cs = 0 (LES fully off) is a legitimate rung.
+ *
+ * `lateralBC` (M9 phase 3) is validated STRICTLY rather than falling back like the page's URL
+ * override does. A sweep is scripted once and read hours later, and a typo that silently ran
+ * two identical `freestream` rungs would produce a perfectly plausible "no effect" table — the
+ * one failure mode an A/B cannot afford.
  */
 const RUNGS = (process.env.AHMED_RUNGS ?? '8000000@1000')
   .split(',')
   .map((spec) => spec.trim())
   .filter(Boolean)
   .map((spec) => {
-    const [cellsRaw, reRaw, csRaw, precRaw] = spec.split('@');
+    const [cellsRaw, reRaw, csRaw, precRaw, bcRaw] = spec.split('@');
     const cells = Number(cellsRaw);
     const Re = Number(reRaw);
     if (!Number.isFinite(cells) || !Number.isFinite(Re) || cells <= 0 || Re <= 0) {
-      throw new Error(`AHMED_RUNGS entry "${spec}" is not <cells>@<Re>[@<Cs>[@<precision>]]`);
+      throw new Error(
+        `AHMED_RUNGS entry "${spec}" is not <cells>@<Re>[@<Cs>[@<precision>[@<lateralBC>]]]`,
+      );
     }
     const lesCs = csRaw === undefined || csRaw === '' ? AHMED_LES_CS : Number(csRaw);
     if (!Number.isFinite(lesCs) || lesCs < 0) {
@@ -91,7 +99,13 @@ const RUNGS = (process.env.AHMED_RUNGS ?? '8000000@1000')
     if (precision !== 'fp16' && precision !== 'fp32') {
       throw new Error(`AHMED_RUNGS entry "${spec}" precision must be fp16 or fp32`);
     }
-    return { cells, Re, lesCs, precision };
+    const lateralBC = bcRaw === undefined || bcRaw === '' ? 'freestream' : bcRaw;
+    if (lateralBC !== 'freestream' && lateralBC !== 'freeslip') {
+      throw new Error(
+        `AHMED_RUNGS entry "${spec}" lateralBC must be freestream or freeslip (got "${bcRaw}")`,
+      );
+    }
+    return { cells, Re, lesCs, precision, lateralBC };
   });
 
 /**
@@ -221,10 +235,10 @@ function sceneLine(scene: AhmedSceneSummary): string {
     `dx ${scene.dxMm.toFixed(2)} mm   body ${scene.lengthCells.toFixed(0)} cells   ` +
     `blockage ${(scene.blockage * 100).toFixed(2)}%   frontal ${scene.frontalCells} cells²   ` +
     `Re ${scene.Re.toExponential(2)}   τ ${scene.tau.toFixed(6)}   ` +
-    // Cs and precision are on the SCENE line, not buried in the τ block, because they are
-    // configuration — every number below is conditional on them and a row without them is
-    // uninterpretable.
-    `Cs ${scene.lesCs}   ${scene.precision}   ` +
+    // Cs, precision and the far field are on the SCENE line, not buried in the τ block,
+    // because they are configuration — every number below is conditional on them and a row
+    // without them is uninterpretable.
+    `Cs ${scene.lesCs}   ${scene.precision}   ${scene.lateralBC}   ` +
     `T_conv ${scene.convectiveTimeSteps} steps   noseX ${scene.noseX}   U ${scene.physU.toFixed(1)} m/s`
   );
 }
@@ -291,6 +305,22 @@ function diagnosticsLines(d: AhmedDiagnostics): string {
       `Cd_bulk ${d.cdBulk.toFixed(4)}   Cd_core ${d.cdCore.toFixed(4)}   (diagnostic only)`,
     `  Re_nominal ${d.reNominal.toExponential(2)}   Re_bulk ${d.reBulk.toExponential(2)}   ` +
       `Re_core ${d.reCore.toExponential(2)}   ref station x=${d.referenceStationX}`,
+    // Phase 3. Re_core against Re_nominal is the gate-2 reading on the acceptance geometry:
+    // if the two arms disagree here, they are not the same flow and their Cd delta is not
+    // attributable to the far field. Cd_core does not repair that — it recovers a
+    // coefficient, not a Reynolds number.
+    `  lateral flux (outward): top ${d.lateral.top.toExponential(3)}  ` +
+      `zMin ${d.lateral.zMin.toExponential(3)}  zMax ${d.lateral.zMax.toExponential(3)}  ` +
+      `net ${d.lateral.net.toExponential(3)} (ground layer u_y ` +
+      `${d.lateral.groundLayerUy.toExponential(3)} excluded — not a wall flux)  ` +
+      `net/in ${d.lateralNetOverInflow.toExponential(2)}   (PROXY — ungated, read between arms)`,
+    `  wake: baseReverse ${d.wake.baseReverseFraction.toFixed(3)} (n=${d.wake.baseCells})  ` +
+      `slantReverse ${d.wake.slantReverseFraction.toFixed(3)} (n=${d.wake.slantCells})  ` +
+      `recirc ${d.wake.recircLengthCells} cells = ${d.wake.recircLengthBodyLengths.toFixed(3)} L`,
+    `  ω_x: Γ_L ${d.wake.gammaLeft.toExponential(3)}  Γ_R ${d.wake.gammaRight.toExponential(3)}  ` +
+      `asymmetry ${d.wake.cPillarAsymmetry.toFixed(3)}  ` +
+      `mean|ω_x| ${d.wake.meanAbsOmegaX.toExponential(3)}  ` +
+      `peak ${d.wake.peakAbsOmegaX.toExponential(3)}  (n=${d.wake.vorticityCells})`,
   ];
   return lines.join('\n');
 }
@@ -358,7 +388,7 @@ function tauLines(t: AhmedTauReport): string {
  */
 function comparisonTable(
   rows: {
-    rung: { cells: number; Re: number; lesCs: number; precision: string };
+    rung: { cells: number; Re: number; lesCs: number; precision: string; lateralBC: string };
     errored: boolean;
     lastTConv: number;
     blocks: number[];
@@ -383,10 +413,13 @@ function comparisonTable(
     x === undefined || Number.isNaN(x) ? '—' : x.toFixed(digits);
 
   const header =
-    `${'Cs'.padStart(5)} ${'prec'.padStart(5)} ${'T_conv'.padStart(7)} ${'trig'.padStart(6)} ` +
+    `${'Cs'.padStart(5)} ${'prec'.padStart(5)} ${'farfield'.padStart(10)} ` +
+    `${'T_conv'.padStart(7)} ${'trig'.padStart(6)} ` +
     `${'stop'.padStart(17)} ${'sim min'.padStart(7)}  ` +
     `${`ALL complete ${BLOCK_TCONV}-T_conv Cd block means`.padEnd(46)} ` +
     `${'range(all)'.padStart(10)} ${'blocks?'.padStart(8)}  ` +
+    `${'coreU/u'.padStart(8)} ${'Re_core'.padStart(9)} ${'lat/in'.padStart(8)} ` +
+    `${'recircL'.padStart(8)} ${'slantRev'.padStart(8)} ${'Casym'.padStart(6)}  ` +
     `${'δ99'.padStart(5)} ${'ν appr'.padStart(7)} ${'ν whole'.padStart(8)} ${'ν body'.padStart(7)} ` +
     `${'dom%'.padStart(6)} ${'τ p50'.padStart(9)}  ` +
     `${'massdrift'.padStart(10)} ${'ρ min'.padStart(9)} ${'ρ max'.padStart(9)} ${'Ma'.padStart(6)} ${'NaN'.padStart(5)}`;
@@ -402,13 +435,24 @@ function comparisonTable(
     // the "stop" column by construction on a converged rung — that is the point, not redundancy.
     const blocksVerdict =
       r.blocks.length < MIN_BLOCKS + 1 ? 'no data' : agrees(r.blocks) ? 'agree' : 'DISAGREE';
+    const d = r.diagnostics;
+    const w = d?.wake;
     return (
       `${String(r.rung.lesCs).padStart(5)} ${r.rung.precision.padStart(5)} ` +
+      `${r.rung.lateralBC.padStart(10)} ` +
       `${num(r.lastTConv, 1).padStart(7)} ${num(r.triggerTConv, 1).padStart(6)} ` +
       `${r.stopReason.padStart(17)} ${(r.simMs / 60_000).toFixed(1).padStart(7)}  ` +
       `${blocks.padEnd(46)} ` +
       `${(Number.isFinite(r.allSpread) ? `${(r.allSpread * 100).toFixed(2)}%` : '—').padStart(10)} ` +
       `${blocksVerdict.padStart(8)}  ` +
+      // Phase-3 columns. coreU/u and Re_core are the gate-2 pair: if they differ between two
+      // rungs that differ only in far field, those rungs are not the same flow.
+      `${(ref ? (ref.coreMeanUx / d!.uCommanded).toFixed(4) : '—').padStart(8)} ` +
+      `${(d ? d.reCore.toExponential(2) : '—').padStart(9)} ` +
+      `${(d ? d.lateralNetOverInflow.toExponential(1) : '—').padStart(8)} ` +
+      `${(w ? w.recircLengthBodyLengths.toFixed(3) : '—').padStart(8)} ` +
+      `${(w ? w.slantReverseFraction.toFixed(3) : '—').padStart(8)} ` +
+      `${(w ? w.cPillarAsymmetry.toFixed(3) : '—').padStart(6)}  ` +
       `${(ref ? String(ref.blThicknessCells) : '—').padStart(5)} ` +
       `${region(r.tau, 'approach freestream').padStart(7)} ` +
       `${region(r.tau, 'whole domain').padStart(8)} ` +
@@ -425,11 +469,30 @@ function comparisonTable(
   });
 
   return [
-    '## Cross-rung comparison (M9 step 7 — Cs sensitivity)',
+    '## Cross-rung comparison (M9 step 7 — Cs sensitivity; M9 phase 3 — far-field A/B)',
     '',
     'ν columns are ν_LES/ν_mol p50 by region; δ99 is at the reference station (cells);',
     'dom% is the LES-dominant cell fraction over the whole domain; stability from the settled',
     'final field, or from the last in-run snapshot for a rung that diverged.',
+    '',
+    'PHASE-3 COLUMNS. "farfield" is the top/side boundary the scene BUILT with. When two rungs',
+    'differ only in it, the block means beside them are the A/B — but read these first:',
+    '',
+    '  coreU/u and Re_core  THE GATE. The free-slip far field removes the hard-Dirichlet cells',
+    '                       that clamp the flow to u_in. If these move between the two arms,',
+    '                       the effective Reynolds number moved (nu and tau0 are fixed by the',
+    '                       scene, so Re_eff ~ u_core) and THE TWO ARMS ARE NOT THE SAME FLOW.',
+    '                       A Cd delta is then not attributable to the boundary condition, and',
+    '                       Cd_core does NOT repair it: re-normalizing recovers a coefficient,',
+    '                       not a Reynolds number. Stop and report; the remedy is the H12',
+    '                       VelocityInlet as a SEPARATE variable, not a second change here.',
+    '  lat/in               Net outward lateral flux over inlet flux. A PROXY measured at the',
+    '                       first fluid layer (see lateralFlux) — it carries NO threshold and',
+    '                       is read as a ratio between arms, never as an absolute. Health is',
+    '                       decided by massdrift / rho / Ma / NaN, exactly as before.',
+    '  recircL, slantRev,   Wake topology. A far field that reorganizes the slant separation or',
+    '  Casym                the C-pillar vortex pair WITHOUT moving Cd is a real result; a',
+    '                       Cd-only table would record it as "no effect".',
     '',
     '"trig" is the convective time of the rung\'s first isConverged(20, 3%) trigger, or "—" if',
     'it never fired. The Cd column lists EVERY complete block mean over the whole run.',
@@ -528,7 +591,8 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
       const fieldEvery = rung.lesCs < AHMED_LES_CS ? REDUCED_CS_FIELD_TCONV : FIELD_TCONV;
       await page.goto(
         `${BASE_URL}/?ahmed&cells=${rung.cells}&Re=${rung.Re}` +
-          `&lesCs=${rung.lesCs}&precision=${rung.precision}&fieldEvery=${fieldEvery}`,
+          `&lesCs=${rung.lesCs}&precision=${rung.precision}&fieldEvery=${fieldEvery}` +
+          `&lateralBC=${rung.lateralBC}`,
       );
       const startedAt = Date.now();
       await page.getByTestId('ahmed-start').click();
@@ -551,6 +615,13 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
         scene.lesCs,
         `rung asked for Cs ${rung.lesCs} but the solver built ${scene.lesCs}`,
       ).toBeCloseTo(rung.lesCs, 12);
+      // The far field is the variable under test in phase 3, and the page's URL override falls
+      // back silently on an unrecognized value. Asserting the scene BUILT what the rung asked
+      // for is what stops an A/B from quietly becoming two copies of the same arm.
+      expect(
+        scene.lateralBC,
+        `rung asked for lateralBC ${rung.lateralBC} but the scene built ${scene.lateralBC}`,
+      ).toBe(rung.lateralBC);
 
       // ── Run the physics under ONE absolute deadline ──────────────────────────────────
       //
@@ -732,7 +803,7 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
 
       rows.push(
         `### ${(rung.cells / 1e6).toFixed(1)}M cells @ Re ${rung.Re.toExponential(2)} ` +
-          `Cs ${rung.lesCs} ${rung.precision}\n` +
+          `Cs ${rung.lesCs} ${rung.precision} ${rung.lateralBC}\n` +
           `${sceneLine(scene)}\n` +
           (err
             ? `DIVERGED / ERROR: ${err.message}\n` +
@@ -804,10 +875,27 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
   // need, so its divergence is data about the scheme — not a broken harness — and failing the
   // test on it would discard the other rungs' results along with it.
   const brokenBaselines = table.filter(
-    (r) => r.errored && r.rung.lesCs === AHMED_LES_CS && r.rung.precision === 'fp16',
+    (r) =>
+      r.errored &&
+      r.rung.lesCs === AHMED_LES_CS &&
+      r.rung.precision === 'fp16' &&
+      r.rung.lateralBC === 'freestream',
   );
   expect(
     brokenBaselines.map((r) => `${r.rung.cells}@${r.rung.Re}`),
-    'baseline-configuration rungs (Cs = AHMED_LES_CS, fp16) must not error',
+    'baseline-configuration rungs (Cs = AHMED_LES_CS, fp16, freestream) must not error',
+  ).toEqual([]);
+
+  // A free-slip rung at full dissipation is held to the SAME survival requirement, and
+  // deliberately so: unlike a reduced-Cs rung it is not being starved of the viscosity its τ₀
+  // needs, so divergence there is a defect in the boundary condition or its wiring, not a
+  // result about the scheme. That is phase 3's "if free-slip makes the tunnel unhealthy, fix
+  // the BC before proceeding" — and it should fail loudly rather than appear as a blank row.
+  const brokenFreeSlip = table.filter(
+    (r) => r.errored && r.rung.lesCs === AHMED_LES_CS && r.rung.lateralBC === 'freeslip',
+  );
+  expect(
+    brokenFreeSlip.map((r) => `${r.rung.cells}@${r.rung.Re}@${r.rung.precision}`),
+    'free-slip rungs at the acceptance Cs must not error — investigate the BC, do not proceed',
   ).toEqual([]);
 });

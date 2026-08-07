@@ -2,17 +2,23 @@ import { test, expect, BASE_URL } from './fixtures/gpu';
 import { readHooks } from './helpers/hooks';
 
 /**
- * M9 force audit, phase 2 — the empty-tunnel control.
+ * M9 force audit, phases 2–3 — the empty-tunnel control, now run as a far-field A/B.
  *
  * Phase 1 showed the residual Cd ≈ 1.2 is shared by both solver implementations, so it is
- * not a kernel defect. This asks the next cheapest question: is the acceptance tunnel itself
- * clean at τ₀ ≈ 0.5000 with no body in it? A Cd is normalized by a commanded velocity and a
- * frontal area, so a tunnel that does not conserve mass, does not hold ρ ≈ 1, or does not
- * deliver u ≈ u_in invalidates every Cd on record regardless of resolution.
+ * not a kernel defect. Phase 2 asked the next cheapest question — is the acceptance tunnel
+ * itself clean at τ₀ ≈ 0.5000 with no body in it? — and answered "numerically yes, physically
+ * not neutral": a grid-independent ~1.3% inlet→outlet flux mismatch that global mass
+ * conservation nonetheless absorbed, which is only possible if the hard-Dirichlet `Inlet`
+ * top/side cells are sourcing it.
+ *
+ * Phase 3 runs the same tunnel twice, changing ONLY the top/side boundary condition:
+ * hard-Dirichlet (every Ahmed number on record) against the H11 free-slip the M9 spec actually
+ * calls for. Both arms are judged by the IDENTICAL bounds — no arm-specific thresholds, no
+ * weakened gate (hard rule 3).
  *
  * Diagnostic, not a convergence campaign — it fails only on O(1)-class pathology.
  */
-test('Ahmed empty-tunnel control is clean at the acceptance τ₀', async ({
+test('Ahmed empty-tunnel control is clean at the acceptance τ₀, both far fields', async ({
   gpuPage: page,
 }, testInfo) => {
   test.setTimeout(900_000);
@@ -34,7 +40,7 @@ test('Ahmed empty-tunnel control is clean at the acceptance τ₀', async ({
   const parts: string[] = [...r.lines, ''];
   for (const run of r.runs) {
     parts.push(
-      `--- ${run.nx}×${run.ny}×${run.nz} (${run.cells} cells), dx=${(run.dx * 1e3).toFixed(2)} mm, ` +
+      `--- [${run.lateralBC}] ${run.nx}×${run.ny}×${run.nz} (${run.cells} cells), dx=${(run.dx * 1e3).toFixed(2)} mm, ` +
         `Re=${run.Re.toExponential(3)}, u=${run.uLattice}, Ma=${run.mach.toFixed(4)}, ` +
         `τ₀=${run.tau0.toFixed(9)}, ν=${run.nu.toExponential(4)}, ` +
         `L=${run.lengthCells.toFixed(1)} cells, T_conv=${run.convectiveTimeSteps}, ` +
@@ -48,13 +54,28 @@ test('Ahmed empty-tunnel control is clean at the acceptance τ₀', async ({
           `${s.nonUniformity.toFixed(4)}  ${s.blThicknessCells}`,
       );
     }
-    parts.push('time:  T_conv  massDrift  rhoMin  rhoMax  uMax  Ma  fluxMismatch  NaN');
+    parts.push(
+      'time:  T_conv  massDrift  rhoMin  rhoMax  uMax  Ma  fluxMismatch  latNet/in  NaN',
+    );
     for (const s of run.samples) {
       parts.push(
         `  ${s.tConv.toFixed(2).padStart(7)}  ${s.field.massDriftRel.toExponential(2)}  ` +
           `${s.field.rhoMin.toFixed(6)}  ${s.field.rhoMax.toFixed(6)}  ` +
           `${s.field.uMax.toFixed(6)}  ${s.field.machMax.toFixed(4)}  ` +
-          `${s.fluxMismatch.toExponential(2)}  ${s.field.nonFiniteCells}`,
+          `${s.fluxMismatch.toExponential(2)}  ${s.lateralNetOverInflow.toExponential(2)}  ` +
+          `${s.field.nonFiniteCells}`,
+      );
+    }
+    const last = run.samples.at(-1);
+    if (last) {
+      parts.push(
+        `lateral flux (outward, last sample): top=${last.lateral.top.toExponential(3)} ` +
+          `zMin=${last.lateral.zMin.toExponential(3)} zMax=${last.lateral.zMax.toExponential(3)} ` +
+          `net=${last.lateral.net.toExponential(3)}  ` +
+          `[ground layer u_y=${last.lateral.groundLayerUy.toExponential(3)}, EXCLUDED — a ` +
+          `bounce-back wall passes no mass] ` +
+          `(cells: top=${last.lateral.cells.top} zMin=${last.lateral.cells.zMin} ` +
+          `zMax=${last.lateral.cells.zMax} groundLayer=${last.lateral.cells.groundLayer})`,
       );
     }
     parts.push(
@@ -71,5 +92,21 @@ test('Ahmed empty-tunnel control is clean at the acceptance τ₀', async ({
 
   expect(r.gpuErrors).toEqual([]);
   for (const run of r.runs) expect(run.worst.nonFiniteCells).toBe(0);
+
+  // Both arms must actually have run. Without this, a harness that silently fell back to one
+  // far field would still print a PASS and an "A/B" section with nothing in it — and the
+  // deliverable of phase 3 is the comparison, not either arm on its own.
+  const arms = new Set(r.runs.map((run) => run.lateralBC));
+  expect([...arms].sort(), 'both far fields must be exercised').toEqual([
+    'freeslip',
+    'freestream',
+  ]);
+  for (const cells of new Set(r.runs.map((run) => run.cells))) {
+    expect(
+      r.runs.filter((run) => run.cells === cells).length,
+      `tier ${cells} must contribute a matched pair`,
+    ).toBe(2);
+  }
+
   expect(r.pass).toBe(true);
 });

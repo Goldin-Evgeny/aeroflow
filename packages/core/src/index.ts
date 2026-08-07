@@ -65,8 +65,8 @@ export {
   windFramePointToEnu,
 } from './geometry/windFrame.js';
 export type { EnuVector, WindFrameVector, WindFrameBasis } from './geometry/windFrame.js';
-export { ahmedScene, AHMED_EXPERIMENTAL_RE } from './scenes/ahmed3d.js';
-export type { AhmedScene, AhmedSceneOptions } from './scenes/ahmed3d.js';
+export { ahmedScene, AHMED_EXPERIMENTAL_RE, AHMED_FREESLIP_FACES } from './scenes/ahmed3d.js';
+export type { AhmedScene, AhmedSceneOptions, AhmedLateralBC } from './scenes/ahmed3d.js';
 export { powerLawProfile, logLawProfile, ablProfileLattice, LATTICE_MACH_LIMIT } from './abl.js';
 export type { AblSpec, AblLatticeProfile } from './abl.js';
 export { hitRate, pearson } from './validation/score.js';
@@ -182,6 +182,10 @@ export { sectionStats, upstreamStations } from './analysis/sectionProfile.js';
 export type { SectionStats } from './analysis/sectionProfile.js';
 export { fieldStats } from './analysis/fieldStats.js';
 export type { FieldStats } from './analysis/fieldStats.js';
+export { lateralFlux } from './analysis/lateralFlux.js';
+export type { LateralFlux } from './analysis/lateralFlux.js';
+export { wakeProbe } from './analysis/wakeProbe.js';
+export type { WakeProbe, AhmedWakeGeometry } from './analysis/wakeProbe.js';
 export { relSpread, blocksAgree } from './analysis/blockConvergence.js';
 export type { BlockAgreementOptions } from './analysis/blockConvergence.js';
 export { tauStats, tauLayersAt, ahmedTauRegions, TAU_PERCENTILES } from './analysis/tauStats.js';

@@ -4,7 +4,7 @@ import type { AhmedWorkerEvent } from '../sim/ahmedRun';
 import type { SphereCaseName, LateralBC } from '@aeroflow/core';
 import type { CheckpointParityResult } from '../sim/checkpointParity';
 import type { TauOracleCheckResult } from '../sim/tauOracleCheck';
-import type { AhmedMatchReport } from './ahmedCpuGpuMatch';
+import type { AhmedLateralAbReport, AhmedMatchReport } from './ahmedCpuGpuMatch';
 import type { EmptyTunnelReport } from './ahmedEmptyTunnel';
 
 /**
@@ -71,9 +71,12 @@ export interface AeroflowHooks {
   /** ?ahmedmatch: M9 phase-1 matched-config Ahmed CPU↔GPU reconciliation. */
   ahmedMatch?: AhmedMatchReport;
   ahmedMatchError?: string;
-  /** ?emptytunnel: M9 phase-2 empty-tunnel control (no body, no force requested). */
+  /** ?emptytunnel: M9 phase-2 empty-tunnel control, and the phase-3 far-field A/B. */
   emptyTunnel?: EmptyTunnelReport;
   emptyTunnelError?: string;
+  /** ?ahmedlateral: M9 phase-3 stage B1 — lateral-BC A/B with the body in (SCREENING Cd). */
+  ahmedLateralAB?: AhmedLateralAbReport;
+  ahmedLateralAbError?: string;
   /** ?bench3d ladder results. */
   benchRows?: BenchRow[];
   benchMarkdown?: string;
@@ -311,4 +314,18 @@ export function fieldEveryOverride(): number | null {
 export function precisionOverride(): 'fp16' | 'fp32' | null {
   const p = new URLSearchParams(location.search).get('precision');
   return p === 'fp16' || p === 'fp32' ? p : null;
+}
+
+/**
+ * Far-field override (`?lateralBC=freestream|freeslip`), for the M9 phase-3 A/B. Returns null
+ * when absent or unrecognized, i.e. "keep the scene default" — which is `'freestream'`, the
+ * configuration every Ahmed number on record was measured with.
+ *
+ * An unrecognized value falls back rather than throwing, matching the other overrides, and the
+ * page prints what the scene actually BUILT with — so a typo shows up as a run labelled
+ * `freestream`, not as a free-slip run silently mislabelled.
+ */
+export function lateralBCOverride(): 'freestream' | 'freeslip' | null {
+  const v = new URLSearchParams(location.search).get('lateralBC');
+  return v === 'freestream' || v === 'freeslip' ? v : null;
 }

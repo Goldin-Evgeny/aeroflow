@@ -1,5 +1,6 @@
 import { CellType } from '../lattice.js';
 import { AHMED, ahmedBody, type AhmedBodyOptions } from '../geometry/ahmedBody.js';
+import { validateFreeSlip } from '../cpu/freeslip.js';
 import { voxelizeSolid } from '../voxel/voxelize.js';
 import type { TriangleMesh } from '../geometry/icosphere.js';
 
@@ -25,10 +26,41 @@ import type { TriangleMesh } from '../geometry/icosphere.js';
  *
  * Boundaries: inlet x=0, zero-gradient outlet x=nx−1, NO-SLIP ground y=0 (the experiment's
  * fixed floor — the ground row stays Solid across the inlet/outlet faces so the Outlet
- * never has a Solid upstream neighbor, H4 §10.9), freestream (slip-like) top and sides as
- * in the M7 sphere scenes. The body floats at the scaled 50 mm ground clearance; stilts
- * omitted (see geometry/ahmedBody.ts).
+ * never has a Solid upstream neighbor, H4 §10.9). The TOP AND SIDES are selectable, see
+ * `lateralBC`. The body floats at the scaled 50 mm ground clearance; stilts omitted (see
+ * geometry/ahmedBody.ts).
  */
+
+/**
+ * Top/side far-field closure (M9 force audit, phase 3).
+ *
+ * `'freestream'` — hard-Dirichlet `Inlet` cells on the top and both z faces, prescribing
+ * equilibrium at u=(u_lattice, 0, 0). The component NORMAL to each of those faces is zero, so
+ * it reads as a slip-like far field; this is what every Ahmed number on record was measured
+ * with, and it stays the default so those runs remain reproducible.
+ *
+ * `'freeslip'` — H11 specular reflection, which is what the M9 specification actually calls
+ * for. The distinction is not cosmetic. A hard-Dirichlet cell CLAMPS the flow to u_in and
+ * supplies or absorbs whatever mass that takes, so it is an infinite reservoir: phase 2
+ * measured a grid-independent ~1.3% inlet→outlet flux mismatch that global mass conservation
+ * nevertheless absorbed, which is only possible because the lateral cells are sourcing it.
+ * Specular reflection has zero normal flux by construction and exerts no tangential force, so
+ * it confines the flow without either feeding it or dragging on it.
+ *
+ * No `'wall'` variant, unlike the sphere scenes (`sphere3d.ts` LateralBC): this domain already
+ * has a no-slip surface — the ground — and a no-slip lid is not a far field anyone would run.
+ */
+export type AhmedLateralBC = 'freestream' | 'freeslip';
+
+/**
+ * The faces the `'freeslip'` scene reflects specularly — top and both sides, NEVER yMin.
+ *
+ * y=0 is the experiment's fixed no-slip floor and stays `Solid`. That asymmetry is the whole
+ * physical point of the Ahmed case (the ground boundary layer and the underbody flow are
+ * first-order contributors to its wake), and it is why this constant exists separately from
+ * `SPHERE_FREESLIP_FACES`, which slips all four lateral faces because that scene has no ground.
+ */
+export const AHMED_FREESLIP_FACES = { yMax: true, zMin: true, zMax: true } as const;
 
 export interface AhmedSceneOptions extends AhmedBodyOptions {
   /** Cell budget the grid is fitted to. Default 15.7M (the M9 target tier). */
@@ -56,6 +88,14 @@ export interface AhmedSceneOptions extends AhmedBodyOptions {
    * does not request a force it has no body to measure.
    */
   omitBody?: boolean;
+  /**
+   * Top/side far-field closure. Default `'freestream'` — see `AhmedLateralBC`.
+   *
+   * The default is deliberate and load-bearing: every Ahmed Cd on record was measured with the
+   * hard-Dirichlet far field, and a silent switch would invalidate all of them at once. The
+   * phase-3 A/B opts IN.
+   */
+  lateralBC?: AhmedLateralBC;
 }
 
 export interface AhmedScene {
@@ -83,6 +123,12 @@ export interface AhmedScene {
   blockage: number;
   /** Nose x in cells (fetch diagnostic). */
   noseX: number;
+  /**
+   * The far field this scene was BUILT with. Consumers read the free-slip face set off this
+   * (`AHMED_FREESLIP_FACES` when `'freeslip'`) rather than re-deriving it, so the solver's
+   * `freeSlip` config and the flag array can never disagree — mirrors `Sphere3DScene.lateralBC`.
+   */
+  lateralBC: AhmedLateralBC;
   /** The body mesh in lattice coordinates (preview / GPU-voxelizer parity). */
   mesh: TriangleMesh;
 }
@@ -151,21 +197,41 @@ export function ahmedScene(opts: AhmedSceneOptions = {}): AhmedScene {
 
   const flags = new Uint8Array(nx * ny * nz).fill(CellType.Fluid);
   const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
-  // Freestream sides and top, then the solid ground (ground wins every shared edge), then
-  // inlet/outlet columns for y ≥ 1 so the ground row stays Solid on both x faces.
+  const lateralBC = opts.lateralBC ?? 'freestream';
+  // Both branches share the same precedence, which is what keeps the two arms comparable:
+  // lateral faces first, then the no-slip ground (it wins every shared edge — the experiment's
+  // floor is not negotiable), then the inlet/outlet x faces for y ≥ 1 so the ground row stays
+  // Solid on both of them and no Outlet ever reads a Solid upstream neighbor (H4 §10.9).
+  const lateral = lateralBC === 'freeslip' ? CellType.FreeSlip : CellType.Inlet;
   for (let y = 0; y < ny; y++)
     for (let x = 0; x < nx; x++) {
-      flags[at(x, y, 0)] = CellType.Inlet;
-      flags[at(x, y, nz - 1)] = CellType.Inlet;
+      flags[at(x, y, 0)] = lateral;
+      flags[at(x, y, nz - 1)] = lateral;
     }
-  for (let z = 0; z < nz; z++)
-    for (let x = 0; x < nx; x++) flags[at(x, ny - 1, z)] = CellType.Inlet;
+  for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) flags[at(x, ny - 1, z)] = lateral;
   for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) flags[at(x, 0, z)] = CellType.Solid;
   for (let z = 0; z < nz; z++)
-    for (let y = 1; y < ny; y++) {
-      flags[at(0, y, z)] = CellType.Inlet;
-      flags[at(nx - 1, y, z)] = CellType.Outlet;
-    }
+    for (let y = 1; y < ny; y++) flags[at(0, y, z)] = CellType.Inlet;
+  if (lateralBC === 'freeslip') {
+    // The outlet must be STRICTLY INTERIOR here. `validateFreeSlip` (H11 §3.2) rejects an
+    // Outlet with a FreeSlip upstream neighbor — its zero-gradient copy would read a passive
+    // cell's scratch — so the outlet face's slip-adjacent ring stays FreeSlip and the outlet
+    // starts one row in, exactly as sphereScene and caseAScene do. This ring is the ONLY cell
+    // set that differs between the arms beyond the three lateral faces themselves, and it is
+    // a consequence of the boundary condition rather than a second variable.
+    for (let z = 1; z < nz - 1; z++)
+      for (let y = 1; y < ny - 1; y++) flags[at(nx - 1, y, z)] = CellType.Outlet;
+  } else {
+    for (let z = 0; z < nz; z++)
+      for (let y = 1; y < ny; y++) flags[at(nx - 1, y, z)] = CellType.Outlet;
+  }
+  if (lateralBC === 'freeslip') {
+    // Throw at construction, like the body-touches-shell guard below: a scene whose FreeSlip
+    // cells sit off a configured face, or whose outlet reads one, is ill-posed and must not
+    // reach a solver. The solvers validate again on their own flags — this is the earlier,
+    // cheaper failure, raised while the caller still knows which scene it asked for.
+    validateFreeSlip(flags, nx, ny, nz, AHMED_FREESLIP_FACES);
+  }
 
   // Paste the body: nose at upstreamL body lengths, clearance above the ground plane.
   const noseX = Math.round((upstreamL * L) / dx);
@@ -231,6 +297,7 @@ export function ahmedScene(opts: AhmedSceneOptions = {}): AhmedScene {
     frontalCells,
     blockage: frontalCells / ((ny - 2) * (nz - 2)),
     noseX,
+    lateralBC,
     mesh: { positions: domainMesh, indices: bodyMm.indices },
   };
 }

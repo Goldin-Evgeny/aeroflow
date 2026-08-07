@@ -162,10 +162,16 @@ const ROUTES: Record<string, Route> = {
     const { mountAhmedMatch } = await import('./dev/ahmedCpuGpuMatch');
     await mountAhmedMatch(gpu.device, app);
   },
-  // M9 dev route: empty-tunnel control — is the tunnel clean at the acceptance τ₀ (phase 2).
+  // M9 dev route: empty-tunnel control — is the tunnel clean at the acceptance τ₀ (phase 2),
+  // and the phase-3 far-field A/B on the same page (`?lateralBC=` selects the arms).
   emptytunnel: async (app, gpu) => {
     const { mountEmptyTunnel } = await import('./dev/ahmedEmptyTunnel');
     await mountEmptyTunnel(gpu.device, app);
+  },
+  // M9 dev route: the phase-3 lateral-BC A/B with the body in — stage B1, screening only.
+  ahmedlateral: async (app, gpu) => {
+    const { mountAhmedLateralAB } = await import('./dev/ahmedCpuGpuMatch');
+    await mountAhmedLateralAB(gpu.device, app);
   },
 };
 

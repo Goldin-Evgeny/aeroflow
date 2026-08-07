@@ -288,7 +288,10 @@ async function start(opts: AhmedRunOptions): Promise<void> {
 
   const physU = (scene.Re * AIR_KINEMATIC_VISCOSITY) / (AHMED.length * 1e-3);
   const sim = buildSim({ scene, gpu, opts });
-  // Even sample interval ~T_conv/10 (aliases the staggered momentum mode, H2 §4a).
+  // Sample interval ~T_conv/10. Each sample is a two-consecutive-step average
+  // (`forceAveraged`, H2 §4a), so the interval no longer has to be even: aliasing the
+  // staggered momentum mode to a fixed parity is exactly what produced the bogus Cd
+  // ladder. Kept even anyway so `ForceHistory`'s step bookkeeping is unchanged.
   const sampleInterval = Math.max(2, 2 * Math.round(scene.convectiveTimeSteps / 20));
   let history = new ForceHistory({
     sampleIntervalSteps: sampleInterval,
@@ -426,7 +429,11 @@ async function loop(): Promise<void> {
       // Race the step against the device-lost signal: a destroyed device may leave the
       // submit/readback pending forever, which would hang this await and starve loss
       // detection (2026-07-20 chaos symptom). See stepOrLost in ahmedRun.ts.
-      const outcome = await stepOrLost(r.sim.sampleForce(r.sampleInterval), r.lost.promise);
+      // forceAveraged, not sampleForce: every reported force is a two-consecutive-step
+      // average (H2 §4a). A single-parity reading at this scene's τ₀ is dominated by the
+      // staggered momentum eigenmode — it is what made Cd "rise with Re" to 3.99 for a body
+      // whose paired Cd is ~1.42. Advances the same k steps, so nothing downstream shifts.
+      const outcome = await stepOrLost(r.sim.forceAveraged(r.sampleInterval), r.lost.promise);
       if (outcome.lost) {
         if ((await handleLoss()) === 'stop') break;
         windowSteps = 0;

@@ -126,8 +126,10 @@ export class Lbm3D {
   private readonly cellForceBuf: GPUBuffer | undefined;
   private readonly forceResultBuf: GPUBuffer | undefined;
   private readonly reduceParamsBuf: GPUBuffer | undefined;
+  private readonly reduceParamsBuf1: GPUBuffer | undefined;
   private readonly reducePipeline: GPUComputePipeline | undefined;
   private readonly reduceBindGroup: GPUBindGroup | undefined;
+  private reduceBindGroup1: GPUBindGroup | undefined;
   private forceStaging: GPUBuffer | undefined;
   // M10 ABL boundary conditions (H11 freeSlipMask is uniform-only; H12 needs two buffers).
   private readonly ablEnabled: boolean;
@@ -278,12 +280,20 @@ export class Lbm3D {
         mk('paramsC-even', PARAMS_SIZE, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST),
         mk('paramsC-odd', PARAMS_SIZE, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST),
       ];
+      // Two vec3f slots: `forceAveraged` reduces consecutive steps into 0 and 1 within one
+      // submit so the pair-average of H2 §4a costs a single readback (`sampleForce` uses
+      // slot 0 only).
       this.forceResultBuf = mk(
         'forceResult3d',
-        16,
+        32,
         GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
       );
       this.reduceParamsBuf = mk('rforce3d', 16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+      this.reduceParamsBuf1 = mk(
+        'rforce3d-1',
+        16,
+        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+      );
     }
     if (this.ablEnabled) {
       // Profile buffer sized max(ny,nz) so a velocityInlet-only config (scalar u_in,
@@ -421,12 +431,23 @@ export class Lbm3D {
           { binding: 2, resource: { buffer: this.forceResultBuf! } },
         ],
       });
-      // Reduce params: n cells, slot 0 (single-result; sampleForce reads slot 0 each call).
+      this.reduceBindGroup1 = device.createBindGroup({
+        layout: this.reducePipeline.getBindGroupLayout(0),
+        entries: [
+          { binding: 0, resource: { buffer: this.reduceParamsBuf1! } },
+          { binding: 1, resource: { buffer: this.cellForceBuf! } },
+          { binding: 2, resource: { buffer: this.forceResultBuf! } },
+        ],
+      });
+      // Reduce params: n cells; slot 0 for sampleForce and the first half of a pair,
+      // slot 1 for the second half (forceAveraged).
       const rf = new ArrayBuffer(16);
       const dv = new DataView(rf);
       dv.setUint32(0, this.n, true);
       dv.setUint32(4, 0, true); // slot
       this.device.queue.writeBuffer(this.reduceParamsBuf!, 0, rf);
+      dv.setUint32(4, 1, true);
+      this.device.queue.writeBuffer(this.reduceParamsBuf1!, 0, rf);
     }
 
     if (o.hasTimestamp) {
@@ -573,18 +594,31 @@ export class Lbm3D {
   }
 
   /**
-   * Advance `k` steps and return the momentum-exchange force (lattice units) on all solid
-   * cells at the final step (docs/handoff/H2 §5). Requires `forces: true` at construction.
-   * Only the last step collects (collectForces = 1) so the preceding k−1 steps run at
-   * baseline cost; a single reduce dispatch in the same pass sums the per-cell buffer. For
-   * the sphere scenes the only solids are the obstacle, so this equals the obstacle force
-   * (H2 §2 — no per-cell mask). Reads back once per call (H2 §5 protocol).
+   * Advance `k` steps and return the INSTANTANEOUS momentum-exchange force (lattice units)
+   * at the final step (docs/handoff/H2 §5). Requires `forces: true` at construction. Only
+   * the last step collects (collectForces = 1) so the preceding k−1 steps run at baseline
+   * cost; a single reduce dispatch in the same pass sums the per-cell buffer. Reads back
+   * once per call (H2 §5 protocol).
    *
-   * Use an EVEN sample interval `k`: it aliases the period-2 staggered momentum eigenmode
-   * (H2 §4a) to a constant offset removed by downstream mean subtraction — no explicit
-   * pair-averaging needed. The instantaneous single-step force still matches the CPU
-   * oracle at the SAME step/parity (the eigenmode moves both identically); that is what the
-   * force parity gate (parity3d.ts) checks to ~1e-4 relative (float summation order, §6.7).
+   * **Weighs `BodySolid` (BODY) links only, not every solid** — see `CellType.BodySolid`.
+   * The flag *is* the per-cell mask; a scene whose obstacle is tagged plain `Solid` reads
+   * zero here. (This corrects a JSDoc that claimed "all solid cells … no per-cell mask",
+   * written before M9 added the flag and left in place through the ground-contamination
+   * fix.)
+   *
+   * **This is a single-parity reading and is NOT the physical force.** Prefer
+   * `forceAveraged` for anything reported. The period-2 staggered momentum eigenmode
+   * (H2 §4a) is damped by ω⁻ = 1/(½ + Λ/(τ_eff−½)), which collapses as τ₀ → ½: the mode is
+   * 0.1% of the force at τ=0.8 but 60% at τ₀=0.500003, where consecutive steps differ by
+   * 4×. A previous version of this comment argued an even `k` aliases the mode "to a
+   * constant offset removed by downstream mean subtraction" — that holds for an amplitude
+   * (Cl, St) but NOT for a mean Cd, which is itself a DC quantity, and it is how the Ahmed
+   * ladder came to report Cd 3.99 for a body whose pair-averaged Cd is ~1.42
+   * (packages/core/test/ahmedForceSampling.test.ts).
+   *
+   * Note that the force parity gate (parity3d.ts) cannot catch this: it compares CPU and
+   * GPU at the SAME step and parity, and the eigenmode moves both identically. It is a
+   * transliteration check, not a physics check.
    */
   async sampleForce(k: number): Promise<{ fx: number; fy: number; fz: number }> {
     if (!this.forcesEnabled) throw new Error('Lbm3D.sampleForce: constructed without forces:true');
@@ -610,23 +644,88 @@ export class Lbm3D {
     pass.dispatchWorkgroups(1);
     pass.end();
 
-    if (!this.forceStaging) {
-      this.forceStaging = this.device.createBuffer({
-        label: 'force3d-staging',
-        size: 16,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-      });
-    }
-    encoder.copyBufferToBuffer(this.forceResultBuf!, 0, this.forceStaging, 0, 16);
+    this.ensureForceStaging();
+    encoder.copyBufferToBuffer(this.forceResultBuf!, 0, this.forceStaging!, 0, 16);
     this.device.queue.submit([encoder.finish()]);
 
-    await this.forceStaging.mapAsync(GPUMapMode.READ);
-    const r = new Float32Array(this.forceStaging.getMappedRange());
+    await this.forceStaging!.mapAsync(GPUMapMode.READ);
+    const r = new Float32Array(this.forceStaging!.getMappedRange());
     const fx = r[0];
     const fy = r[1];
     const fz = r[2];
-    this.forceStaging.unmap();
+    this.forceStaging!.unmap();
     return { fx, fy, fz };
+  }
+
+  private ensureForceStaging(): void {
+    this.forceStaging ??= this.device.createBuffer({
+      label: 'force3d-staging',
+      // 32 B = two vec3f slots, so `forceAveraged` needs one readback, not two.
+      size: 32,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+  }
+
+  /**
+   * Advance `k` steps (`k ≥ 2`) and return the momentum-exchange force on the measured
+   * body (`BodySolid` links) averaged over the final TWO consecutive steps. Advances
+   * exactly `k` steps, like `sampleForce`, so it is a drop-in replacement and no caller's
+   * step bookkeeping shifts.
+   *
+   * **This, not `sampleForce`, is the physical force.** H2 §4a: "All reported forces are
+   * two-consecutive-step averages." Forced/bounce-back flows settle into an exact period-2
+   * limit cycle (a non-hydrodynamic staggered momentum eigenmode), and the instantaneous
+   * force alternates around the true value every step, forever. The mode is damped by
+   * ω⁻ = 1/(½ + Λ/(τ_eff−½)); at τ=0.8 it is 0.1% of the force, at τ₀=0.500003 it is 60%
+   * and consecutive steps differ by 4×. Averaging the pair cancels it to ~1e-12 — the
+   * two-step average recovers the exact injected momentum where either single reading
+   * misses it by orders of magnitude (packages/core/test/forceLedger.test.ts).
+   *
+   * Cost over `sampleForce`: one extra collecting step (the second-to-last step writes
+   * `cellForce` instead of skipping it) and one extra reduce dispatch, both inside the same
+   * compute pass, plus a 32 B readback instead of 16 B — the two steps reduce into
+   * different slots of `forceResultBuf`, so there is still exactly one map per call.
+   */
+  async forceAveraged(k: number): Promise<{ fx: number; fy: number; fz: number }> {
+    if (!this.forcesEnabled)
+      throw new Error('Lbm3D.forceAveraged: constructed without forces:true');
+    if (k < 2) throw new Error('Lbm3D.forceAveraged: k must be ≥ 2 (it averages a step pair)');
+    const encoder = this.device.createCommandEncoder();
+    const pass = encoder.beginComputePass({ label: `lbm3d ${k} steps +paired force` });
+    // Collect on the last two steps; reduce each into its own slot immediately after, so
+    // the second step's cellForce writes cannot overwrite the first before it is summed.
+    for (let s = 0; s < k; s++) {
+      const collecting = s >= k - 2;
+      const group = (collecting ? this.collectBindGroups! : this.bindGroups)[this.parity];
+      pass.setPipeline(this.snapshotPipeline);
+      pass.setBindGroup(0, group);
+      pass.dispatchWorkgroups(Math.ceil(this.ny / 64), this.nz, 1);
+      pass.setPipeline(this.streamPipeline);
+      pass.setBindGroup(0, group);
+      pass.dispatchWorkgroups(Math.ceil(this.nx / 64), this.ny, this.nz);
+      this.parity = this.parity === 0 ? 1 : 0;
+      this.totalSteps++;
+      if (collecting) {
+        pass.setPipeline(this.reducePipeline!);
+        pass.setBindGroup(0, s === k - 2 ? this.reduceBindGroup! : this.reduceBindGroup1!);
+        pass.dispatchWorkgroups(1);
+      }
+    }
+    pass.end();
+
+    this.ensureForceStaging();
+    encoder.copyBufferToBuffer(this.forceResultBuf!, 0, this.forceStaging!, 0, 32);
+    this.device.queue.submit([encoder.finish()]);
+
+    await this.forceStaging!.mapAsync(GPUMapMode.READ);
+    const r = new Float32Array(this.forceStaging!.getMappedRange());
+    const out = {
+      fx: 0.5 * (r[0] + r[4]),
+      fy: 0.5 * (r[1] + r[5]),
+      fz: 0.5 * (r[2] + r[6]),
+    };
+    this.forceStaging!.unmap();
+    return out;
   }
 
   /**
@@ -876,6 +975,7 @@ export class Lbm3D {
     this.cellForceBuf?.destroy();
     this.forceResultBuf?.destroy();
     this.reduceParamsBuf?.destroy();
+    this.reduceParamsBuf1?.destroy();
     this.forceStaging?.destroy();
     this.inletProfileBuf?.destroy();
     this.velInletRhoBuf?.destroy();

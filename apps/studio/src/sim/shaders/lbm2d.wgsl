@@ -65,6 +65,14 @@ const FLUID: u32 = 0u;
 const SOLID: u32 = 1u;
 const INLET: u32 = 2u;
 const OUTLET: u32 = 3u;
+// Solid cell belonging to a measured body. Streams and bounces exactly like SOLID —
+// isSolidFlag() covers both. Mirrors CellType.BodySolid; keep the value synchronized by
+// hand with lattice.ts. Present here so a BodySolid cell cannot be read as FLUID, which
+// would punch a hole through the geometry rather than merely leave it unweighed; the 2D
+// force accumulator weighs every solid link, so no BODY test appears below.
+const BODY: u32 = 6u;
+
+fn isSolidFlag(f: u32) -> bool { return f == SOLID || f == BODY; }
 
 fn feq(w: f32, e: vec2f, rho: f32, u: vec2f) -> f32 {
   let eu = dot(e, u);
@@ -94,7 +102,7 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
   let y = i32(idx / P.nx);
   let flag = flags[idx];
 
-  if (flag == SOLID) {
+  if (isSolidFlag(flag)) {
     vel[idx] = vec2f(0.0);
     tauField[idx] = 0.0;
     if (P.collectForces == 1u) { cellForce[idx] = vec2f(0.0); }
@@ -157,7 +165,7 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
       if (P.periodicY == 1u) { sy = (sy + iny) % iny; } else { edge = true; }
     }
     var solidNb = -1;
-    if (!edge && flags[u32(sy) * P.nx + u32(sx)] == SOLID) {
+    if (!edge && isSolidFlag(flags[u32(sy) * P.nx + u32(sx)])) {
       solidNb = i32(u32(sy) * P.nx + u32(sx));
     }
     if (edge || solidNb >= 0) {

@@ -37,6 +37,12 @@ import { ahmedScene, EsotericPull3D } from '../src/index.js';
  * The residual is not addressed here: pair-averaged Cd ≈ 1.42 is still ~5× the 0.285 band,
  * on a scene whose body is ~20 cells long. That gap is the one a resolution study is
  * actually entitled to attack — after this fix, and from a baseline of 1.42, not 3.99.
+ *
+ * KNOWN, BENIGN: like `groundForceContamination.test.ts`, this file's body is ~90 s of
+ * UNBROKEN synchronous CPU, so vitest's birpc `onTaskUpdate` ack times out at 60 s and the
+ * run prints `Error: [vitest-worker]: Timeout calling "onTaskUpdate"`. It is reporter
+ * plumbing, not the test — the assertions run and pass. See that file's header for the full
+ * diagnosis; do not silence it by raising the RPC timeout.
  */
 
 /** Re values chosen to straddle the τ₀ ≈ 0.5025 threshold where the mode takes over. */

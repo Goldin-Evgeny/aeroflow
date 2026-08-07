@@ -46,6 +46,13 @@ export interface Lbm3DOptions {
    */
   forces?: boolean;
   /**
+   * Permit `forces: true` on a scene with no `CellType.BodySolid` cell. Off by default:
+   * the kernel weighs BODY links only, so an untagged obstacle reduces to exactly zero
+   * force silently, and `uploadFlags` refuses it. Set this only for genuinely body-free
+   * control runs (the empty-tunnel reference), where measuring nothing is the point.
+   */
+  allowNoMeasuredBody?: boolean;
+  /**
    * H11 free-slip domain faces (y/z only; x carries inlet/outlet). Uniform-only config —
    * no extra buffers. Cells flagged CellType.FreeSlip must lie on configured faces
    * (validate CPU-side with validateFreeSlip before uploadFlags).
@@ -127,6 +134,8 @@ export class Lbm3D {
   private readonly forceResultBuf: GPUBuffer | undefined;
   private readonly reduceParamsBuf: GPUBuffer | undefined;
   private readonly reduceParamsBuf1: GPUBuffer | undefined;
+  private readonly allowNoMeasuredBody: boolean;
+  private _measuredCells = 0;
   private readonly reducePipeline: GPUComputePipeline | undefined;
   private readonly reduceBindGroup: GPUBindGroup | undefined;
   private reduceBindGroup1: GPUBindGroup | undefined;
@@ -147,6 +156,7 @@ export class Lbm3D {
       | 'maxStorageBuffersPerStage'
       | 'les'
       | 'forces'
+      | 'allowNoMeasuredBody'
       | 'freeSlip'
       | 'inletProfile'
       | 'velocityInlet'
@@ -186,6 +196,7 @@ export class Lbm3D {
       throw new Error('Lbm3D: fp16 precision requested but shader-f16 not available');
     }
     this.flags = new Uint8Array(this.n);
+    this.allowNoMeasuredBody = o.allowNoMeasuredBody ?? false;
     this.opts = {
       nx: o.nx,
       ny: o.ny,
@@ -501,11 +512,14 @@ export class Lbm3D {
   uploadFlags(): void {
     const words = new Uint32Array(Math.ceil(this.n / 4));
     let firstFreeSlip = -1;
+    let measured = 0;
     for (let idx = 0; idx < this.n; idx++) {
       const flag = this.flags[idx] & 0xff;
       if (flag === CellType.FreeSlip && firstFreeSlip < 0) firstFreeSlip = idx;
+      if (flag === CellType.BodySolid) measured++;
       words[idx >> 2] |= flag << ((idx & 3) * 8);
     }
+    this._measuredCells = measured;
     // The FREESLIP shader variant is compiled out when no face is configured, so a scene
     // that flags FreeSlip cells anyway would have them silently treated as plain fluid —
     // a wrong answer with no error. Refuse it instead. (Which FACES are legal is the
@@ -517,7 +531,27 @@ export class Lbm3D {
           `\`freeSlip: { … }\` to the constructor.`,
       );
     }
+    // Mirror of the free-slip guard above, for the force path. The kernel weighs BODY links
+    // ONLY (there is no GPU equivalent of the CPU solvers' per-cell `forceMask`), so a scene
+    // that tags its obstacle plain `Solid` — or builds a `forceMask` and forgets the flag —
+    // reduces to exactly zero force with no error at all. Since the CPU oracle honours
+    // `forceMask`, that also reads as a CPU/GPU physics disagreement rather than a tagging
+    // slip. Refuse it, with an opt-out for the body-less control runs (empty tunnel), which
+    // legitimately measure nothing.
+    if (this.forcesEnabled && measured === 0 && !this.allowNoMeasuredBody) {
+      throw new Error(
+        `Lbm3D.uploadFlags: constructed with \`forces: true\` but no cell is ` +
+          `CellType.BodySolid, so every force sample would be exactly zero. Tag the measured ` +
+          `body BodySolid (the flag IS the mask on GPU), or pass ` +
+          `\`allowNoMeasuredBody: true\` if this is a deliberately body-free control run.`,
+      );
+    }
     this.device.queue.writeBuffer(this.flagsBuf, 0, words);
+  }
+
+  /** Number of `BodySolid` cells seen by the last `uploadFlags()` — what the force weighs. */
+  get measuredCells(): number {
+    return this._measuredCells;
   }
 
   /**

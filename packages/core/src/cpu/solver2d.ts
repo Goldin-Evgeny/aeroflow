@@ -1,4 +1,4 @@
-import { CellType, D2Q9 } from '../lattice.js';
+import { CellType, D2Q9, isSolid } from '../lattice.js';
 import {
   collideCell,
   D2Q9_SPEC,
@@ -153,7 +153,7 @@ export class Solver2D {
   /** Initialize every non-solid cell to equilibrium at (rho, ux, uy). */
   reset(rho = 1, ux = 0, uy = 0): void {
     for (let idx = 0; idx < this.n; idx++) {
-      const solid = this.flags[idx] === CellType.Solid;
+      const solid = isSolid(this.flags[idx]);
       for (let i = 0; i < q; i++) {
         this.fSrc[i * this.n + idx] = solid ? 0 : equilibrium3(D2Q9_SPEC, i, rho, ux, uy, 0);
         this.fDst[i * this.n + idx] = 0;
@@ -177,7 +177,7 @@ export class Solver2D {
       for (let x = 0; x < nx; x++) {
         const idx = y * nx + x;
         const flag = flags[idx];
-        if (flag === CellType.Solid) continue;
+        if (isSolid(flag)) continue;
 
         if (flag === CellType.Inlet) {
           for (let i = 0; i < q; i++) {
@@ -232,7 +232,7 @@ export class Solver2D {
           }
           if (!bounce) {
             const s = sy * nx + sx;
-            if (flags[s] === CellType.Solid) {
+            if (isSolid(flags[s])) {
               bounce = true;
               solidIdx = s;
             }
@@ -256,7 +256,9 @@ export class Solver2D {
               const cy = 2 * ey[ib] * base;
               fx += cx;
               fy += cy;
-              if (this.forceMask && this.forceMask[solidIdx] === 1) {
+              // Mirrors Solver3D/EsotericPull3D.isMeasured: BodySolid is a mask in its own
+              // right, so the flag means the same thing in 2D and 3D.
+              if (flags[solidIdx] === CellType.BodySolid || this.forceMask?.[solidIdx] === 1) {
                 mfx += cx;
                 mfy += cy;
               }
@@ -293,7 +295,7 @@ export class Solver2D {
     const cx = ctx.forcing === 'guo' ? 0.5 * ctx.gx : 0;
     const cy = ctx.forcing === 'guo' ? 0.5 * ctx.gy : 0;
     for (let idx = 0; idx < n; idx++) {
-      if (flags[idx] === CellType.Solid) continue;
+      if (isSolid(flags[idx])) continue;
       let r = 0;
       let mx = 0;
       let my = 0;
@@ -324,7 +326,7 @@ export class Solver2D {
     const { n, fSrc, flags } = this;
     let m = 0;
     for (let idx = 0; idx < n; idx++) {
-      if (flags[idx] === CellType.Solid) continue;
+      if (isSolid(flags[idx])) continue;
       for (let i = 0; i < q; i++) m += fSrc[i * n + idx];
     }
     return m;

@@ -156,6 +156,8 @@ export function mountAhmed(root: HTMLElement): void {
   let scene: AhmedSceneSummary | null = null;
   let lastCheckpoint = 'never';
   let recoveries = 0;
+  /** Set when a run ends in divergence or an unrecoverable error — see `setRunning`. */
+  let fatal = false;
   const logLine = (s: string): void => {
     log.textContent = `${new Date().toLocaleTimeString()}  ${s}\n${log.textContent}`.slice(0, 8000);
   };
@@ -183,20 +185,30 @@ export function mountAhmed(root: HTMLElement): void {
     }
   });
 
-  const setRunning = (running: boolean): void => {
+  /**
+   * `analysisAvailable` gates the two READ-ONLY reductions (approach-flow diagnostics and the
+   * τ_eff oracle) separately from the controls that drive the sim.
+   *
+   * They stay available on a run that has STOPPED, which is when they are most worth taking:
+   * the worker keeps its `run` alive after `stop` (only `running` is cleared), and a settled,
+   * no-longer-advancing field is the only one on which the stations and the τ snapshot describe
+   * the same instant. While stepping continues, the sim moves underneath both readbacks.
+   *
+   * They are withdrawn after a FATAL run: divergence quarantines the run, destroying the sim and
+   * the GPUDevice, so a click there could only produce a teardown error dressed up as a
+   * measurement.
+   */
+  const setRunning = (running: boolean, analysisAvailable = running): void => {
     startBtn.disabled = resumeBtn.disabled = running;
-    stopBtn.disabled =
-      ckptBtn.disabled =
-      diagBtn.disabled =
-      tauBtn.disabled =
-      chaosBtn.disabled =
-        !running;
+    stopBtn.disabled = ckptBtn.disabled = chaosBtn.disabled = !running;
+    diagBtn.disabled = tauBtn.disabled = !analysisAvailable;
     shouldHoldLock = running;
     if (running) void acquireLock();
     else void wakeLock?.release().catch(() => undefined);
   };
 
   const start = (resume: boolean): void => {
+    fatal = false;
     setRunning(true);
     startedAt.t = performance.now();
     verdict.textContent = '';
@@ -386,12 +398,15 @@ export function mountAhmed(root: HTMLElement): void {
         break;
       case 'stopped':
         logLine(`stopped at step ${m.totalSteps.toLocaleString()}`);
-        setRunning(false);
+        // The worker posts `error` BEFORE the `stopped` that follows it, so `fatal` is already
+        // set here on a diverged run and the analysis buttons stay withdrawn.
+        setRunning(false, !fatal);
         break;
       case 'error':
         logLine(`ERROR: ${m.message}`);
         setVerdict(m.message, 'bad');
-        setRunning(false);
+        fatal = true;
+        setRunning(false, false);
         break;
     }
   };

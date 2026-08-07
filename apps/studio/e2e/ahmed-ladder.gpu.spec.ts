@@ -8,7 +8,7 @@ import {
   type AhmedTauReport,
   type AhmedWorkerEvent,
 } from '../src/sim/ahmedRun';
-import type { FieldStats } from '@aeroflow/core';
+import { blocksAgree, relSpread, type FieldStats } from '@aeroflow/core';
 
 /**
  * M9 acceptance-1 harness: the resolution / effective-Re ladder, plus the two diagnostics
@@ -33,14 +33,18 @@ import type { FieldStats } from '@aeroflow/core';
  * 2. **Whether "converged" means anything.** `isConverged(20, 3%)` fires on a running-mean
  *    drift, and the first ladder saw every rung stop at 1.73–2.97% — clustered just under
  *    the gate, with σ≈1.0 against a mean of 4.0. That is how M7's Cd 0.509 was recorded and
- *    later struck ("premature: read off a running mean still climbing"). So each rung now
- *    continues past the first trigger and compares INDEPENDENT block means: if consecutive
- *    blocks disagree by more than the gate claims, the trigger was noise.
+ *    later struck ("premature: read off a running mean still climbing"). So the trigger only
+ *    OPENS an observation window, and the rung runs until INDEPENDENT block means agree.
  *
- *    The first pass ran 40 extra T_conv, which buys only TWO complete blocks — enough to
- *    exclude immediate drift, not slow wandering, since a monotone walk looks identical to
- *    a settled mean when you only have two points on it. The default is 80 for that reason:
- *    four blocks can show a trend. Two cannot.
+ *    **The stop rule (rewritten 2026-08-06).** A rung stops when the last two overlapping
+ *    4-block windows both hold within the 3% gate — or when its simulation budget runs out,
+ *    which is recorded as `budget` and is NOT convergence. Before this, the rung stopped on a
+ *    clock (`trigger + 80 T_conv`, floored at `MIN_TCONV`) and the block verdict was merely
+ *    printed afterwards: the first full 8M ladder consequently stopped all three surviving
+ *    rungs at ~143 T_conv with spreads of 3.04%, 5.57% and 7.12% — every one above the gate —
+ *    while leaving ~82 of each rung's 90 wall-clock minutes unspent. The window is rolling
+ *    (not the whole post-trigger series, which its oldest blocks dominate forever) and must
+ *    survive one further completed block, so a single lucky window cannot end a rung.
  *
  * 3. **Whole-field stability.** Mass drift, density extrema, Ma and non-finite cells, sampled on
  *    a coarse convective-time cadence. A rung that finishes is not thereby a valid measurement:
@@ -90,11 +94,28 @@ const RUNGS = (process.env.AHMED_RUNGS ?? '8000000@1000')
     return { cells, Re, lesCs, precision };
   });
 
+/**
+ * Wall-clock ceiling per rung, covering **the simulation only** — from `start` to the moment
+ * stepping stops. Diagnostics and the τ_eff oracle run AFTER the physics is done and are
+ * budgeted (and reported) separately, because the oracle streams the whole DDF image to the
+ * host and gathers 19 directions per cell in scalar JS: at the 8M tier that is minutes. Folding
+ * it into this ceiling would let an expensive readback consume — or overrun — a budget that
+ * exists to bound how long the flow is allowed to develop, which is a different question.
+ */
 const RUNG_BUDGET_MS = Number(process.env.AHMED_RUNG_BUDGET_MS ?? 30 * 60_000);
-/** Convective times to keep running AFTER the first 3% trigger. 80 ⇒ four complete blocks. */
-const EXTRA_TCONV = Number(process.env.AHMED_EXTRA_TCONV ?? 80);
 /** Width of each independent block mean, in convective times. */
 const BLOCK_TCONV = Number(process.env.AHMED_BLOCK_TCONV ?? 20);
+/**
+ * Blocks in the agreement window. The stop test needs `MIN_BLOCKS + 1` complete blocks and
+ * requires BOTH overlapping windows to pass — see `blocksAgree`.
+ */
+const MIN_BLOCKS = Number(process.env.AHMED_MIN_BLOCKS ?? 4);
+/**
+ * The convergence criterion, as a relative block spread. **Never weaken this to make a rung
+ * pass** (hard rule 3): a rung that cannot hold 3% is a rung that is not converged, and
+ * reporting that is the entire point of the ladder.
+ */
+const BLOCK_GATE = 0.03;
 /**
  * Capture the τ_eff snapshot per rung. On by default — it is the measurement M9 is currently
  * blocked on. `AHMED_TAU=0` skips it when only Cd is wanted, since the oracle streams the
@@ -103,8 +124,13 @@ const BLOCK_TCONV = Number(process.env.AHMED_BLOCK_TCONV ?? 20);
 const WANT_TAU = process.env.AHMED_TAU !== '0';
 /**
  * Common floor on total convective time across every rung, so the τ_eff snapshots are taken
- * at equivalent points in each flow's development. 0 disables it and each rung stops at its
- * own trigger + EXTRA_TCONV.
+ * at equivalent points in each flow's development.
+ *
+ * A FLOOR, NOT A STOP CONDITION. It can only delay a stop, never cause one: reaching it does
+ * nothing for a rung whose blocks still disagree. (Until 2026-08-06 it *was* a stop condition,
+ * and that is why the first full 8M ladder stopped all three surviving rungs at ~143 T_conv
+ * with spreads of 3.04%, 5.57% and 7.12% — every one of them above the gate, every one of them
+ * reported "DISAGREE", and ~82 of each rung's 90 wall-clock minutes left unspent.)
  */
 const MIN_TCONV = Number(process.env.AHMED_MIN_TCONV ?? 0);
 /** Stability-snapshot cadence, in convective times, at the acceptance Cs. */
@@ -123,6 +149,71 @@ const events = (h: AeroflowHooks): AhmedWorkerEvent[] =>
   (h.ahmedEvents ?? []) as AhmedWorkerEvent[];
 const samples = (h: AeroflowHooks): Sample[] =>
   events(h).filter((e): e is Sample => e.type === 'sample');
+
+/**
+ * The stop test, bound to this ladder's configuration. Implementation and rationale live in
+ * `@aeroflow/core` (analysis/blockConvergence.ts) so the predicate that decides "this rung is
+ * converged" is unit-tested rather than only exercised by multi-hour GPU runs.
+ */
+const agrees = (blockVals: number[]): boolean =>
+  blocksAgree(blockVals, { minBlocks: MIN_BLOCKS, gate: BLOCK_GATE });
+
+/**
+ * Why a rung stopped. Recorded per rung and printed, because "settled" and "ran out of clock
+ * still disagreeing" produce tables that are otherwise indistinguishable — and conflating them
+ * is exactly how M7's Cd 0.509 was recorded and later struck.
+ */
+type StopReason =
+  /** Independent blocks agreed within the gate, twice over. The ONLY converged outcome. */
+  | 'agreed'
+  /** The simulation budget ran out with the blocks still disagreeing. A result, not an error. */
+  | 'budget'
+  /** The budget ran out before isConverged ever fired: no post-trigger window was ever opened. */
+  | 'budget-no-trigger'
+  /** The solver went non-finite. Expected at reduced Cs; see the end-of-test assertion. */
+  | 'diverged';
+
+/**
+ * Has this rung settled?
+ *
+ * Judged on a ROLLING window of the most recent `MIN_BLOCKS` complete post-trigger blocks, not
+ * on every block since the trigger. Spread over the whole post-trigger series is dominated by
+ * its oldest blocks, so a rung that genuinely settles late can never satisfy it — the early
+ * disagreement stays in the series forever and the rung would run to its deadline no matter
+ * what the flow does.
+ *
+ * Agreement must then SURVIVE ONE MORE COMPLETED BLOCK: both overlapping windows
+ * (`blocks[-5..-2]` and `blocks[-4..-1]`) must pass, which is why five blocks are required.
+ * One four-block window passing is a coin that came up heads once — with a wandering mean and
+ * a 3% gate, some window will eventually pass by luck, and stopping on it would reproduce the
+ * original sin this harness exists to prevent: reading convergence off a statistic that had
+ * not converged.
+ */
+const pct = (x: number): string => (Number.isFinite(x) ? `${(x * 100).toFixed(2)}%` : '—');
+
+function stopExplanation(reason: StopReason): string {
+  switch (reason) {
+    case 'agreed':
+      return (
+        `the last two overlapping ${MIN_BLOCKS}-block windows AND their ${MIN_BLOCKS + 1}-block ` +
+        `union all held within the ${(BLOCK_GATE * 100).toFixed(0)}% gate. This rung is CONVERGED`
+      );
+    case 'budget':
+      return (
+        'the simulation budget was exhausted with the agreement test unsatisfied — the blocks ' +
+        'still disagreed, or they agreed but the MIN_TCONV comparability floor was not yet ' +
+        'reached (the per-rung windows above say which). NOT converged either way, and no ' +
+        'figure taken from this rung may be quoted as one'
+      );
+    case 'budget-no-trigger':
+      return (
+        'the simulation budget was exhausted before isConverged ever fired, so no observation ' +
+        'window was ever opened. NOT converged, and weaker evidence than "budget"'
+      );
+    case 'diverged':
+      return 'the solver went non-finite';
+  }
+}
 
 function sceneLine(scene: AhmedSceneSummary): string {
   return (
@@ -275,6 +366,10 @@ function comparisonTable(
     allBlocks: number[];
     allSpread: number;
     triggerTConv?: number;
+    stopReason: StopReason;
+    simMs: number;
+    diagMs: number;
+    tauMs: number;
     diagnostics?: AhmedDiagnostics;
     tau?: AhmedTauReport;
     lastField?: FieldStats;
@@ -288,7 +383,8 @@ function comparisonTable(
     x === undefined || Number.isNaN(x) ? '—' : x.toFixed(digits);
 
   const header =
-    `${'Cs'.padStart(5)} ${'prec'.padStart(5)} ${'T_conv'.padStart(7)} ${'trig'.padStart(6)}  ` +
+    `${'Cs'.padStart(5)} ${'prec'.padStart(5)} ${'T_conv'.padStart(7)} ${'trig'.padStart(6)} ` +
+    `${'stop'.padStart(17)} ${'sim min'.padStart(7)}  ` +
     `${`ALL complete ${BLOCK_TCONV}-T_conv Cd block means`.padEnd(46)} ` +
     `${'range(all)'.padStart(10)} ${'blocks?'.padStart(8)}  ` +
     `${'δ99'.padStart(5)} ${'ν appr'.padStart(7)} ${'ν whole'.padStart(8)} ${'ν body'.padStart(7)} ` +
@@ -302,17 +398,14 @@ function comparisonTable(
     // (a diverged rung has no settled field to reduce).
     const f = r.diagnostics?.field ?? r.lastField;
     const blocks = r.allBlocks.length > 0 ? r.allBlocks.map((b) => b.toFixed(4)).join(' ') : '—';
-    // "blocks?" is deliberately NOT a convergence verdict. It reports only whether the
-    // post-trigger independent blocks agree within the 3% gate — the one piece of evidence
-    // that could support calling a rung converged. Everything else reads "no".
-    const blocksVerdict = !Number.isFinite(r.spread)
-      ? 'no data'
-      : r.spread > 0.03
-        ? 'DISAGREE'
-        : 'agree';
+    // "blocks?" is the stop test itself: both trailing windows within the gate. It agrees with
+    // the "stop" column by construction on a converged rung — that is the point, not redundancy.
+    const blocksVerdict =
+      r.blocks.length < MIN_BLOCKS + 1 ? 'no data' : agrees(r.blocks) ? 'agree' : 'DISAGREE';
     return (
       `${String(r.rung.lesCs).padStart(5)} ${r.rung.precision.padStart(5)} ` +
-      `${num(r.lastTConv, 1).padStart(7)} ${num(r.triggerTConv, 1).padStart(6)}  ` +
+      `${num(r.lastTConv, 1).padStart(7)} ${num(r.triggerTConv, 1).padStart(6)} ` +
+      `${r.stopReason.padStart(17)} ${(r.simMs / 60_000).toFixed(1).padStart(7)}  ` +
       `${blocks.padEnd(46)} ` +
       `${(Number.isFinite(r.allSpread) ? `${(r.allSpread * 100).toFixed(2)}%` : '—').padStart(10)} ` +
       `${blocksVerdict.padStart(8)}  ` +
@@ -348,16 +441,32 @@ function comparisonTable(
     '  ~1%. It is here to show whether Cd WANDERED across the run, which the post-trigger',
     '  tail alone can hide; read it against the block series beside it, never on its own.',
     '',
-    '"blocks?" reports ONLY whether the post-trigger independent blocks agree within the 3%',
-    'gate. It is not a convergence verdict either, and nothing here is:',
+    '"stop" IS THE COLUMN TO READ FIRST. It is why the rung stopped, and only one value means',
+    'converged:',
+    '',
+    `  agreed             the last two overlapping ${MIN_BLOCKS}-block windows both held within the`,
+    `                     ${(BLOCK_GATE * 100).toFixed(0)}% gate. CONVERGED.`,
+    '  budget             the simulation ceiling ran out with the blocks still disagreeing.',
+    '                     NOT converged. A real result about the criterion — not a harness',
+    '                     failure — and no figure from such a rung may be quoted as converged.',
+    '  budget-no-trigger  the ceiling ran out before isConverged ever fired; no observation',
+    '                     window was ever opened. NOT converged, and weaker than "budget".',
+    '  diverged           the solver went non-finite.',
+    '',
+    '"sim min" is SIMULATION wall-clock only. The diagnostics and τ_eff readbacks run after the',
+    'physics has stopped and are reported per rung above, deliberately outside the budget: the',
+    'ceiling bounds how long the flow may develop, and an expensive oracle must not eat it.',
+    '',
+    '"blocks?" is the stop test itself — both trailing windows inside the gate. Note it is NOT',
+    'the "range(all)" column, and not the whole post-trigger spread either:',
     '',
     '  NO RUNG IS CONVERGED UNLESS ITS OWN INDEPENDENT BLOCKS SAY SO. The common T_conv floor',
     '  every rung is held to exists to make the snapshots COMPARABLE — same point in each',
-    "  flow's development, same masks — and is not evidence about any rung's convergence. A",
-    '  rung that reaches the horizon has reached the horizon; that is all. `isConverged`',
-    '  reads a running-mean drift that decays as 1/N whether or not the mean is moving, so',
-    '  its trigger firing is not evidence either. Independent block agreement is the only',
-    '  evidence that counts, and it is reported per rung above.',
+    "  flow's development, same masks. It is a FLOOR, NOT A STOP CONDITION: it can delay a",
+    "  stop, never cause one, and reaching it is not evidence about any rung's convergence.",
+    '  `isConverged` reads a running-mean drift that decays as 1/N whether or not the mean is',
+    '  moving, so its trigger firing is not evidence either — the trigger only opens the',
+    '  observation window. Agreement of independent blocks is the only evidence that counts.',
     '',
     header,
     '-'.repeat(header.length),
@@ -376,7 +485,15 @@ function comparisonTable(
 test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
   gpuPage: page,
 }, testInfo) => {
-  test.setTimeout(RUNGS.length * (RUNG_BUDGET_MS + 120_000));
+  // THE WHOLE LADDER IS ONE TEST — every rung runs inside this single timeout, so it must cover
+  // their SUM, not one rung. Hence the RUNGS.length factor; `test.setTimeout` overrides the
+  // project's 30-min default at runtime, so no --timeout is needed on the command line.
+  //
+  // Per rung: the simulation ceiling, plus the readbacks that deliberately sit OUTSIDE it —
+  // 300 s stop-drain + 300 s diagnostics + 900 s τ oracle at the 8M tier — plus boot, page load
+  // and the screenshot. 30 min of allowance covers all of it.
+  // (6 rungs at a 90-min budget ⇒ 12 h; that is intended for a full sweep.)
+  test.setTimeout(RUNGS.length * (RUNG_BUDGET_MS + 1_800_000));
 
   const rows: string[] = [];
   /** One record per rung, reduced into the comparison table at the end. */
@@ -390,6 +507,11 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
     allBlocks: number[];
     allSpread: number;
     triggerTConv?: number;
+    stopReason: StopReason;
+    /** Simulation wall-clock (the budgeted part) and the two unbudgeted readbacks. */
+    simMs: number;
+    diagMs: number;
+    tauMs: number;
     diagnostics?: AhmedDiagnostics;
     tau?: AhmedTauReport;
     lastField?: FieldStats;
@@ -430,50 +552,89 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
         `rung asked for Cs ${rung.lesCs} but the solver built ${scene.lesCs}`,
       ).toBeCloseTo(rung.lesCs, 12);
 
-      // Phase 1 — run to the first isConverged(20, 3%) trigger.
-      await expect
-        .poll(
-          async () => {
-            const h = await readHooks(page);
-            if (events(h).some((e) => e.type === 'error')) return 'error';
-            return samples(h).some((s) => s.converged) ? 'triggered' : 'running';
-          },
-          { timeout: RUNG_BUDGET_MS, intervals: [5_000] },
-        )
-        .not.toBe('running');
-
+      // ── Run the physics under ONE absolute deadline ──────────────────────────────────
+      //
+      // The rung runs until its independent blocks agree, it diverges, or the simulation
+      // budget is exhausted — whichever comes first. Every exit is a legitimate outcome and
+      // is recorded as `stopReason`; none of them fails the sweep. The trigger's only job is
+      // to OPEN the post-trigger observation window: it decides where the measurement starts,
+      // never when the rung is done.
+      //
+      // This is deliberately not `expect.poll`, whose timeout throws. Running out of budget
+      // while still disagreeing is the single most informative thing this ladder can report
+      // about criterion 1′, and it must survive into the summary rather than abort the sweep.
+      const deadline = startedAt + RUNG_BUDGET_MS;
       let h = await readHooks(page);
       const errored = () =>
         events(h).find((e) => e.type === 'error') as
           Extract<AhmedWorkerEvent, { type: 'error' }> | undefined;
-      const trigger = samples(h).find((s) => s.converged);
+      const triggerOf = (hh: AeroflowHooks): Sample | undefined =>
+        samples(hh).find((s) => s.converged);
 
-      // Phase 2 — keep going EXTRA_TCONV past the trigger, so independent blocks exist.
-      //
-      // MIN_TCONV additionally holds every rung to a common floor. Without it each rung stops
-      // at its own trigger + EXTRA, and the triggers differ by Re (42.3 vs 55.9 T_conv at 1e4
-      // vs 1e5), so the τ_eff snapshots would be taken at 123 and 137 T_conv — different points
-      // in each flow's development. Comparing eddy viscosity between two Reynolds numbers
-      // requires the same convective time as much as it requires the same masks.
-      if (trigger && !errored()) {
-        const target = Math.max(trigger.convectiveTimes + EXTRA_TCONV, MIN_TCONV);
-        await expect
-          .poll(
-            async () => {
-              const hh = await readHooks(page);
-              if (events(hh).some((e) => e.type === 'error')) return Number.POSITIVE_INFINITY;
-              return samples(hh).at(-1)?.convectiveTimes ?? 0;
-            },
-            { timeout: RUNG_BUDGET_MS, intervals: [5_000] },
-          )
-          .toBeGreaterThanOrEqual(target);
+      let stopReason: StopReason;
+      for (;;) {
         h = await readHooks(page);
+        if (errored()) {
+          stopReason = 'diverged';
+          break;
+        }
+        const all = samples(h);
+        const trig = triggerOf(h);
+        const tConv = all.at(-1)?.convectiveTimes ?? 0;
+        if (trig) {
+          const post = all.filter((s) => s.convectiveTimes > trig.convectiveTimes);
+          const { blocks } = blockMeans(post, BLOCK_TCONV);
+          // MIN_TCONV is a floor on comparability, ANDed in — it can delay this stop but can
+          // never cause one. A rung that reaches the floor while still disagreeing keeps running.
+          if (agrees(blocks.map((b) => b.mean)) && tConv >= MIN_TCONV) {
+            stopReason = 'agreed';
+            break;
+          }
+        }
+        if (Date.now() >= deadline) {
+          stopReason = trig ? 'budget' : 'budget-no-trigger';
+          break;
+        }
+        await page.waitForTimeout(5_000);
       }
+      const simMs = Date.now() - startedAt;
+      const trigger = triggerOf(h);
 
-      // Diagnostics last, so the approach flow is measured on the settled field.
+      // Stop stepping before the readbacks. Beyond honesty about what the budget bought, this
+      // is what makes the diagnostics and τ snapshots describe ONE field: the loop does not
+      // pause itself for either readback, so a still-running sim would advance underneath them
+      // and hand back two measurements of two different instants.
+      //
+      // `stop` is ASYNCHRONOUS — the command only flips `run.running`, and the loop finishes its
+      // current step, its sample and (if due) its checkpoint before posting `stopped`. Clicking
+      // and immediately reading back would race exactly the advance this is here to prevent, so
+      // wait for the event. A diverged rung has already posted it, hence no click and no wait.
+      const stopBtn = page.getByTestId('ahmed-stop');
+      if (await stopBtn.isEnabled()) {
+        await stopBtn.click();
+        await expect
+          .poll(async () => events(await readHooks(page)).some((e) => e.type === 'stopped'), {
+            // Generous: the in-flight step plus a possible auto-checkpoint (~0.5 GB at the 8M
+            // tier) can both land between the flag flip and the event.
+            timeout: 300_000,
+            intervals: [1_000],
+          })
+          .toBe(true);
+      }
+      h = await readHooks(page);
+
+      // Diagnostics last, so the approach flow is measured on the settled field. Timed and
+      // reported separately from `simMs`: this is post-physics overhead, deliberately OUTSIDE
+      // the rung budget (see RUNG_BUDGET_MS), and its cost should be visible rather than
+      // silently folded into a ceiling that means something else.
+      const diagStart = Date.now();
       let diagnostics: AhmedDiagnostics | undefined;
       if (!errored()) {
-        await page.getByTestId('ahmed-diag').click();
+        // `timeout` is explicit because Playwright's default action timeout is 0 = WAIT FOREVER.
+        // Measured 2026-08-06: stopping the run before the readbacks left this button disabled
+        // (the page gated diagnostics on `running`), and the sweep hung here with no diagnostic
+        // of its own until the 10-minute outer kill. A disabled button must fail fast and loud.
+        await page.getByTestId('ahmed-diag').click({ timeout: 30_000 });
         await expect
           .poll(
             async () => {
@@ -490,12 +651,16 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
         )?.diagnostics;
       }
 
-      // τ_eff on the same settled field, immediately after the approach-flow diagnostics —
-      // so every rung's snapshot is taken at the same point in its run and the two Reynolds
-      // numbers are compared at equivalent convective times over identical masks.
+      const diagMs = Date.now() - diagStart;
+
+      // τ_eff on the same settled field, immediately after the approach-flow diagnostics. Since
+      // 2026-08-06 the sim is STOPPED before either readback, so "the same field" is now
+      // literally true: previously the loop kept stepping underneath both, and the τ report was
+      // stamped tens of T_conv apart from the diagnostics it was meant to accompany.
+      const tauStart = Date.now();
       let tau: AhmedTauReport | undefined;
       if (!errored() && WANT_TAU) {
-        await page.getByTestId('ahmed-tau').click();
+        await page.getByTestId('ahmed-tau').click({ timeout: 30_000 });
         await expect
           .poll(
             async () => {
@@ -514,15 +679,11 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
         )?.tau;
       }
 
+      const tauMs = Date.now() - tauStart;
+
       const all = samples(h);
       const final = all.at(-1);
       const post = trigger ? all.filter((s) => s.convectiveTimes > trigger.convectiveTimes) : [];
-
-      const relSpread = (vals: number[]): number =>
-        vals.length > 1
-          ? (Math.max(...vals) - Math.min(...vals)) /
-            Math.abs(vals.reduce((a, b) => a + b, 0) / vals.length)
-          : NaN;
 
       // Post-trigger blocks: the convergence verdict, unchanged. Comparing blocks from before the
       // trigger against ones after would mix the startup transient into the spread.
@@ -560,6 +721,10 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
         allBlocks: allBlockVals,
         allSpread,
         triggerTConv: trigger?.convectiveTimes,
+        stopReason,
+        simMs,
+        diagMs,
+        tauMs,
         diagnostics,
         tau,
         lastField,
@@ -576,21 +741,28 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
                 : '  (no stability snapshot was taken before the failure)\n')
             : `steps ${final?.totalSteps.toLocaleString()}   ${final?.convectiveTimes.toFixed(1)} T_conv   ` +
               `${final?.mlups.toFixed(0)} MLUPs   wall ${wallMin.toFixed(1)} min\n` +
+              `STOPPED: ${stopReason} — ` +
+              stopExplanation(stopReason) +
+              `\n` +
+              `  sim ${(simMs / 60_000).toFixed(1)} min of the ${(RUNG_BUDGET_MS / 60_000).toFixed(0)}-min budget` +
+              `   +diagnostics ${(diagMs / 1000).toFixed(0)} s   +τ oracle ${(tauMs / 1000).toFixed(0)} s` +
+              `   (readbacks are outside the budget)\n` +
               `mean Cd ${final?.meanCd.toFixed(4)} ± ${final?.stdCd.toFixed(4)}   ` +
               `drift ${((final?.drift ?? NaN) * 100).toFixed(2)}%   drag ${final?.meanNewtons.toFixed(1)} N\n` +
               `  first 3% trigger at ${trigger?.convectiveTimes.toFixed(1)} T_conv, ` +
-              `Cd ${trigger?.meanCd.toFixed(4)}; ran ${EXTRA_TCONV} T_conv further\n` +
+              `Cd ${trigger?.meanCd.toFixed(4)} — opened the observation window\n` +
               `  independent ${BLOCK_TCONV}-T_conv block means (${blocks.length} complete` +
               `${droppedSamples > 0 ? `, ${droppedSamples} trailing samples dropped as a partial block` : ''}): ` +
               `${blocks.map((b) => `${b.mean.toFixed(4)} [${b.t0.toFixed(0)}–${b.t1.toFixed(0)}, n=${b.n}]`).join('  ')}\n` +
-              `  post-trigger block spread ${(spread * 100).toFixed(2)}% — ` +
-              (Number.isFinite(spread)
-                ? spread > 0.03
-                  ? 'ABOVE the 3% gate: independent blocks disagree by more than the ' +
-                    'convergence criterion claims, so the trigger was noise, NOT convergence'
-                  : 'within the 3% gate: independent blocks agree, so the trigger holds up'
-                : 'not enough post-trigger blocks to judge — NOT converged, undetermined') +
-              `\n` +
+              // The stop test reads the LAST two overlapping windows, so report those, not just
+              // the whole-series spread the earlier harness stopped on.
+              `  agreement test (last ${MIN_BLOCKS + 1} blocks; ALL THREE must be ≤ ${(BLOCK_GATE * 100).toFixed(0)}%): ` +
+              `previous ${pct(relSpread(blockVals.slice(-(MIN_BLOCKS + 1), -1)))}  ` +
+              `current ${pct(relSpread(blockVals.slice(-MIN_BLOCKS)))}  ` +
+              `whole ${pct(relSpread(blockVals.slice(-(MIN_BLOCKS + 1))))}  ⇒ ` +
+              `${agrees(blockVals) ? 'AGREE' : 'DISAGREE'}\n` +
+              `  whole post-trigger spread ${pct(spread)} (context only — NOT the stop test: it is ` +
+              `dominated by its oldest blocks, so a rung that settles late can never satisfy it)\n` +
               // The full series, so the cross-rung comparison rests on every complete block and
               // not on a single end-of-run figure.
               `  ALL complete ${BLOCK_TCONV}-T_conv blocks over the whole run (${allBlocks.length}): ` +
@@ -612,13 +784,11 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
         `ahmed-${(rung.cells / 1e6).toFixed(1)}M-Re${rung.Re}-Cs${rung.lesCs}-${rung.precision}.png`,
         { body: await page.screenshot({ fullPage: true }), contentType: 'image/png' },
       );
-      // Stop only if the run is still running. A rung that self-terminated — which is exactly
-      // what a diverged rung does — has already posted 'stopped', and the page disables the
-      // button on that event. Clicking it unconditionally waits for an element that will never
-      // become enabled, i.e. the sweep hangs on precisely the outcome it exists to capture.
-      // (Measured: this burned an entire 18-minute smoke run on the first diverging rung.)
-      const stop = page.getByTestId('ahmed-stop');
-      if (await stop.isEnabled()) await stop.click();
+      // (The run was already stopped before the readbacks, guarded by `isEnabled` — a rung that
+      // self-terminated, which is exactly what a diverged rung does, has already posted 'stopped'
+      // and the page disables the button on that event. Clicking it unconditionally waits for an
+      // element that will never become enabled, i.e. the sweep hangs on precisely the outcome it
+      // exists to capture. Measured: that burned an entire 18-minute smoke run.)
 
       // NO per-rung assertion here — see the end-of-test assertion. A rung that diverges must not
       // prevent the remaining rungs from running, because in a Cs sweep divergence is a RESULT.

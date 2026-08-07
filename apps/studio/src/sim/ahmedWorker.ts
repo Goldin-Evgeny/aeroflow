@@ -288,6 +288,7 @@ function buildSim(state: Pick<RunState, 'scene' | 'gpu' | 'opts'>): Lbm3D {
     les: { cs: opts.lesCs ?? AHMED_LES_CS },
     forces: true,
     freeSlip,
+    velocityInlet: scene.inletBC === 'velocity',
     precision,
     hasF16: gpu.caps.hasF16,
     hasTimestamp: gpu.caps.hasTimestamp,

@@ -10,7 +10,12 @@ import { ahmedScene, EsotericPull3D } from '../src/index.js';
  * functional is exact at every τ (T-FORCE-LEDGER), while a single-parity *sample* of it
  * carries a 60% error as τ₀ → ½ (T-STAGGER). This test shows what that does to the actual
  * acceptance quantity on the actual scene, and it is the reason the Re ladder looked like
- * a physics result:
+ * a physics result.
+ *
+ * The four-rung table below is a SEPARATE recorded sweep on a 60k-cell scene — it is NOT
+ * what this test computes. The test body runs a 30k scene at two rungs, and its numbers are
+ * in the paragraph after the table. Both are kept: the 60k sweep is the one that spans four
+ * decades of Re, which is the claim being made. Quote either by its scene size.
  *
  *   Re      τ₀        Cd single-parity   Cd pair-averaged
  *   1e3     0.502466       0.8597            1.3195
@@ -74,7 +79,19 @@ function sampleCd(Re: number, maxCells: number): Sampled {
     les: { cs: 0.1 },
     regularize: true,
     conserveMass: true,
-    freeSlip: { yMax: true, zMin: true, zMax: true },
+    // NO `freeSlip` here, deliberately. An earlier version of this file passed
+    // `freeSlip: { yMax, zMin, zMax }`, which read as "the CPU runs the M9 spec's slip far
+    // field and the GPU does not". It did not: free-slip is driven ENTIRELY by
+    // `CellType.FreeSlip` cells in the flag array (cpu/esoteric.ts, cpu/freeslip.ts —
+    // `resolveFreeSlipPull` is only ever reached from a `flags[n] === FreeSlip` branch, and
+    // `validateFreeSlip` only inspects cells already carrying that flag). `ahmedScene`
+    // writes `CellType.Inlet` on the top and side faces, so the option configured a mask no
+    // cell consumed. Removing it changes no number here; it removes a false implication.
+    //
+    // The real state of affairs, recorded so it is not rediscovered a third time: BOTH the
+    // CPU reference and the GPU worker run hard-Dirichlet equilibrium `Inlet` on top/sides.
+    // That is a documented deviation from the M9 spec, not a CPU/GPU difference, and it is
+    // measured against a free-slip variant separately.
   });
   sim.reset(1, uLattice, 0, 0);
 

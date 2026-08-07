@@ -157,6 +157,11 @@ const ROUTES: Record<string, Route> = {
     const { mountVoxParity } = await import('./dev/voxParity');
     await mountVoxParity(gpu.device, app);
   },
+  // M9 dev route: matched-config Ahmed CPU↔GPU reconciliation (force-audit phase 1).
+  ahmedmatch: async (app, gpu) => {
+    const { mountAhmedMatch } = await import('./dev/ahmedCpuGpuMatch');
+    await mountAhmedMatch(gpu.device, app);
+  },
 };
 
 /**

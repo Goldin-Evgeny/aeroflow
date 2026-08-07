@@ -1,6 +1,7 @@
 import { CellType, D3Q19, EsotericPull3D } from '@aeroflow/core';
 import { Lbm3D } from './lbm3d';
 import { hooks } from '../dev/testHooks';
+import { runForceAveragedSemantics } from '../dev/forceAveragedCheck';
 
 /**
  * GPU↔CPU parity harness (M6 acceptance criterion #3). Runs the WGSL FP32-storage kernel
@@ -19,7 +20,7 @@ import { hooks } from '../dev/testHooks';
 const PARITY_BAR = 5e-5;
 
 /** Bumped whenever this harness changes — confirms fresh code loaded past HMR. */
-export const PARITY3D_VERSION = 'v10-conservative';
+export const PARITY3D_VERSION = 'v11-pair-averaged-force';
 
 /**
  * Force parity bar: the GPU momentum-exchange sum differs from the fp64 CPU oracle only by
@@ -43,6 +44,24 @@ export interface Parity3DResult {
     gpu: { x: number; y: number; z: number };
     cpu: { x: number; y: number; z: number };
     /** max component relative error, ‖ΔF‖ / max(‖F_cpu‖ component). */
+    maxRelForce: number;
+    pass: boolean;
+  };
+  /**
+   * PAIR-AVERAGED force parity (only when cfg.forces): `Lbm3D.forceAveraged` against the
+   * CPU oracle's own two-consecutive-step average, over the same two timesteps.
+   *
+   * This is a different question from `force` above, and the M9 audit is the reason it
+   * exists. `force` compares the two implementations at ONE step and parity — so the
+   * period-2 staggered momentum eigenmode (H2 §4a) moves both sides identically and the
+   * comparison passes with both equally far from the physical force. It is a
+   * transliteration check, not a physics check. Since `ahmedWorker` now reports
+   * `forceAveraged` and nothing else, the quantity actually being published had no gate
+   * at all until this field.
+   */
+  forcePair?: {
+    gpu: { x: number; y: number; z: number };
+    cpu: { x: number; y: number; z: number };
     maxRelForce: number;
     pass: boolean;
   };
@@ -190,6 +209,21 @@ export async function runParity3D(
   // compare a body drag against a body-plus-walls sum — measured 3.57e-1 vs 4.89e+0 on the
   // tunnel, i.e. the walls were 93% of it.
   const cpuForce = cpu.maskedForce;
+  // Two MORE steps, for the pair-averaged gate below. They run after the macro snapshot, so
+  // the ρ/u comparison stays anchored at exactly STEPS and none of its numbers move.
+  // `maskedForce` returns a fresh copy each read, so `cpuForce` above is not disturbed.
+  let cpuForcePair: { x: number; y: number; z: number } | undefined;
+  if (forces) {
+    cpu.step(1);
+    const p1 = cpu.maskedForce;
+    cpu.step(1);
+    const p2 = cpu.maskedForce;
+    cpuForcePair = {
+      x: 0.5 * (p1.x + p2.x),
+      y: 0.5 * (p1.y + p2.y),
+      z: 0.5 * (p1.z + p2.z),
+    };
+  }
 
   // Capture any WebGPU validation/out-of-memory errors that would otherwise be swallowed
   // (a rejected dispatch silently discards the command buffer → zeros → "error 1.0").
@@ -233,6 +267,15 @@ export async function runParity3D(
   }
   const macGpu = await gpu.readMacro();
 
+  // Pair-averaged gate. The macro readback above is already done, so advancing two more
+  // steps here cannot affect it. `forceAveraged(2)` runs steps STEPS+1 and STEPS+2 and
+  // collects BOTH — the same two steps the CPU pair was taken over, in the same order.
+  let gpuForcePair: { x: number; y: number; z: number } | undefined;
+  if (forces) {
+    const fp = await gpu.forceAveraged(2);
+    gpuForcePair = { x: fp.fx, y: fp.fy, z: fp.fz };
+  }
+
   for (const scope of ['out-of-memory', 'internal', 'validation']) {
     const err = await device.popErrorScope();
     if (err) gpuErrors.push(`[${scope}] ${err.message}`);
@@ -260,19 +303,21 @@ export async function runParity3D(
   const sampleCpuRho = macCpu[4 * si];
   gpu.destroy();
 
-  let force: Parity3DResult['force'];
-  if (forces && gpuForce) {
-    // Relative error per component, normalized by the largest CPU force component (drag Fx
-    // dominates; Fy/Fz are ~0 by symmetry so an absolute-only norm would divide by ~0).
-    const denom = Math.max(Math.abs(cpuForce.x), Math.abs(cpuForce.y), Math.abs(cpuForce.z), 1e-30);
+  // Relative error per component, normalized by the largest CPU force component (drag Fx
+  // dominates; Fy/Fz are ~0 by symmetry so an absolute-only norm would divide by ~0).
+  const compareForce = (
+    g: { x: number; y: number; z: number },
+    c: { x: number; y: number; z: number },
+  ): { gpu: typeof g; cpu: typeof c; maxRelForce: number; pass: boolean } => {
+    const denom = Math.max(Math.abs(c.x), Math.abs(c.y), Math.abs(c.z), 1e-30);
     const maxRelForce =
-      Math.max(
-        Math.abs(gpuForce.x - cpuForce.x),
-        Math.abs(gpuForce.y - cpuForce.y),
-        Math.abs(gpuForce.z - cpuForce.z),
-      ) / denom;
-    force = { gpu: gpuForce, cpu: cpuForce, maxRelForce, pass: maxRelForce <= FORCE_BAR };
-  }
+      Math.max(Math.abs(g.x - c.x), Math.abs(g.y - c.y), Math.abs(g.z - c.z)) / denom;
+    return { gpu: g, cpu: c, maxRelForce, pass: maxRelForce <= FORCE_BAR };
+  };
+
+  const force = forces && gpuForce ? compareForce(gpuForce, cpuForce) : undefined;
+  const forcePair =
+    forces && gpuForcePair && cpuForcePair ? compareForce(gpuForcePair, cpuForcePair) : undefined;
 
   const parityPass = maxRelRho <= PARITY_BAR && maxRelU <= PARITY_BAR && gpuErrors.length === 0;
   return {
@@ -280,11 +325,12 @@ export async function runParity3D(
     maxRelRho,
     maxRelU,
     fluidCells,
-    pass: parityPass && (force ? force.pass : true),
+    pass: parityPass && (force ? force.pass : true) && (forcePair ? forcePair.pass : true),
     gpuErrors,
     sampleGpuRho,
     sampleCpuRho,
     force,
+    forcePair,
   };
 }
 
@@ -349,6 +395,11 @@ export async function mountParity3D(
            <tr><td>force CPU (Fx,Fy,Fz)</td><td>${r.force.cpu.x.toExponential(4)}, ${r.force.cpu.y.toExponential(4)}, ${r.force.cpu.z.toExponential(4)}</td></tr>
            <tr><td>max rel. force error</td><td style="color:${r.force.pass ? '#2a2' : '#c22'}">${r.force.maxRelForce.toExponential(3)} (bar ≤ ${FORCE_BAR.toExponential(0)})</td></tr>`
         : '';
+      const pairRows = r.forcePair
+        ? `<tr><td>pair-avg force GPU</td><td>${r.forcePair.gpu.x.toExponential(4)}, ${r.forcePair.gpu.y.toExponential(4)}, ${r.forcePair.gpu.z.toExponential(4)}</td></tr>
+           <tr><td>pair-avg force CPU</td><td>${r.forcePair.cpu.x.toExponential(4)}, ${r.forcePair.cpu.y.toExponential(4)}, ${r.forcePair.cpu.z.toExponential(4)}</td></tr>
+           <tr><td>max rel. pair-avg error</td><td style="color:${r.forcePair.pass ? '#2a2' : '#c22'}">${r.forcePair.maxRelForce.toExponential(3)} (bar ≤ ${FORCE_BAR.toExponential(0)})</td></tr>`
+        : '';
       return `
         <h3>${label}
           <span style="color:${r.pass ? '#2a2' : '#c22'}">${r.pass ? 'PASS' : 'FAIL'}</span>
@@ -361,6 +412,7 @@ export async function mountParity3D(
           <tr><td>sample ρ (GPU / CPU)</td><td>${r.sampleGpuRho.toFixed(6)} / ${r.sampleCpuRho.toFixed(6)}</td></tr>
           <tr><td>bar</td><td>≤ ${PARITY_BAR.toExponential(0)} (fp32 floor)</td></tr>
           ${forceRows}
+          ${pairRows}
         </table>
         ${errs}`;
     };
@@ -386,9 +438,23 @@ export async function mountParity3D(
           (r.force
             ? ` force=${r.force.maxRelForce.toExponential(2)} (bar ${FORCE_BAR.toExponential(0)})`
             : '') +
+          (r.forcePair ? ` pairForce=${r.forcePair.maxRelForce.toExponential(2)}` : '') +
           (r.gpuErrors.length ? ` gpuErrors=${r.gpuErrors.length}` : ''),
       );
     }
+    // `forceAveraged` self-consistency (M9 force audit). Runs once, not per config: it is a
+    // property of the method's step/slot bookkeeping, not of a collision variant. Folded
+    // into the same allPass/lines the e2e spec already gates, so it needs no new plumbing.
+    const fa = await runForceAveragedSemantics(device);
+    allPass = allPass && fa.pass;
+    lines.push(...fa.lines);
+    for (const e of fa.gpuErrors) lines.push(`FAIL forceAveraged gpuError: ${e}`);
+    parts.push(`
+      <h3>forceAveraged semantics (M9)
+        <span style="color:${fa.pass ? '#2a2' : '#c22'}">${fa.pass ? 'PASS' : 'FAIL'}</span>
+      </h3>
+      <pre style="white-space:pre-wrap">${fa.lines.join('\n')}</pre>`);
+
     hooks().parity3d = { version: PARITY3D_VERSION, allPass, lines };
     root.innerHTML = `
       <h2>M6 GPU↔CPU parity (criterion #3) <small>[${PARITY3D_VERSION}]</small></h2>

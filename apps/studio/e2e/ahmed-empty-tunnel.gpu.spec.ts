@@ -40,7 +40,7 @@ test('Ahmed empty-tunnel control is clean at the acceptance τ₀, both far fiel
   const parts: string[] = [...r.lines, ''];
   for (const run of r.runs) {
     parts.push(
-      `--- [${run.lateralBC}] ${run.nx}×${run.ny}×${run.nz} (${run.cells} cells), dx=${(run.dx * 1e3).toFixed(2)} mm, ` +
+      `--- [${run.lateralBC}/${run.inletBC}] ${run.nx}×${run.ny}×${run.nz} (${run.cells} cells), dx=${(run.dx * 1e3).toFixed(2)} mm, ` +
         `Re=${run.Re.toExponential(3)}, u=${run.uLattice}, Ma=${run.mach.toFixed(4)}, ` +
         `τ₀=${run.tau0.toFixed(9)}, ν=${run.nu.toExponential(4)}, ` +
         `L=${run.lengthCells.toFixed(1)} cells, T_conv=${run.convectiveTimeSteps}, ` +
@@ -93,19 +93,21 @@ test('Ahmed empty-tunnel control is clean at the acceptance τ₀, both far fiel
   expect(r.gpuErrors).toEqual([]);
   for (const run of r.runs) expect(run.worst.nonFiniteCells).toBe(0);
 
-  // Both arms must actually have run. Without this, a harness that silently fell back to one
-  // far field would still print a PASS and an "A/B" section with nothing in it — and the
-  // deliverable of phase 3 is the comparison, not either arm on its own.
-  const arms = new Set(r.runs.map((run) => run.lateralBC));
-  expect([...arms].sort(), 'both far fields must be exercised').toEqual([
-    'freeslip',
-    'freestream',
+  // Every arm of the 2×2 must actually have run. Without this, a harness that silently fell
+  // back to fewer would still print a PASS and a comparison section with nothing in it — and
+  // the deliverable is the comparison, not any arm on its own.
+  const arms = new Set(r.runs.map((run) => `${run.lateralBC}/${run.inletBC}`));
+  expect([...arms].sort(), 'all four far-field × inlet combinations must be exercised').toEqual([
+    'freeslip/equilibrium',
+    'freeslip/velocity',
+    'freestream/equilibrium',
+    'freestream/velocity',
   ]);
   for (const cells of new Set(r.runs.map((run) => run.cells))) {
     expect(
       r.runs.filter((run) => run.cells === cells).length,
-      `tier ${cells} must contribute a matched pair`,
-    ).toBe(2);
+      `tier ${cells} must contribute a full 2×2`,
+    ).toBe(4);
   }
 
   expect(r.pass).toBe(true);

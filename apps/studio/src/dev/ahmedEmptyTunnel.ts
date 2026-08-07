@@ -5,6 +5,7 @@ import {
   lateralFlux,
   sectionStats,
   validateFreeSlip,
+  type AhmedInletBC,
   type AhmedLateralBC,
   type FieldStats,
   type LateralFlux,
@@ -187,6 +188,8 @@ export interface TransientDecay {
 export interface EmptyTunnelRun {
   /** Which far field this arm ran (phase 3). */
   lateralBC: AhmedLateralBC;
+  /** Which inlet formulation this arm ran (phase 3b). */
+  inletBC: AhmedInletBC;
   cells: number;
   nx: number;
   ny: number;
@@ -289,9 +292,10 @@ async function runOne(
   tConvTotal: number,
   gpuErrors: string[],
   lateralBC: AhmedLateralBC,
+  inletBC: AhmedInletBC,
 ): Promise<EmptyTunnelRun> {
   const t0 = performance.now();
-  const scene = ahmedScene({ maxCells, Re, omitBody: true, lateralBC });
+  const scene = ahmedScene({ maxCells, Re, omitBody: true, lateralBC, inletBC });
   if (scene.bodyVoxels !== 0 || scene.frontalCells !== 0) {
     throw new Error(
       `empty tunnel still has a body: ${scene.bodyVoxels} voxels, ${scene.frontalCells} frontal`,
@@ -316,6 +320,9 @@ async function runOne(
     conserveMass: true,
     precision: 'fp32',
     freeSlip,
+    // H12: compiles the ABL kernel variant that carries the per-cell ρ snapshot the
+    // VelocityInlet reads. Off unless the scene actually flagged VelocityInlet cells.
+    velocityInlet: scene.inletBC === 'velocity',
     // NO `forces`. There is no BodySolid to weigh, and Lbm3D's invariant that a force run
     // must have one is deliberately left intact — the control just does not ask.
   });
@@ -445,6 +452,7 @@ async function runOne(
 
     return {
       lateralBC: scene.lateralBC,
+      inletBC: scene.inletBC,
       cells: nx * ny * nz,
       nx,
       ny,
@@ -483,31 +491,75 @@ async function runOne(
   }
 }
 
+/** One cell of the phase-3b 2×2: a far field crossed with an inlet formulation. */
+export interface TunnelArm {
+  lateralBC: AhmedLateralBC;
+  inletBC: AhmedInletBC;
+}
+
+/**
+ * The full 2×2. Each pair answers a different question, and the reason all four are run
+ * rather than just the interesting one is that no single pair is interpretable alone:
+ *
+ *  - freestream/equilibrium → freeslip/equilibrium   reproduces the phase-3 Stage A result
+ *  - freeslip/equilibrium   → freeslip/velocity      isolates the inlet correction
+ *  - freestream/velocity    → freeslip/velocity      the CLEAN lateral-BC A/B
+ *  - freestream/equilibrium → freestream/velocity    how much the historical lateral
+ *                                                    reservoir was masking the inlet
+ */
+export const TUNNEL_2X2: TunnelArm[] = [
+  { lateralBC: 'freestream', inletBC: 'equilibrium' },
+  { lateralBC: 'freeslip', inletBC: 'equilibrium' },
+  { lateralBC: 'freestream', inletBC: 'velocity' },
+  { lateralBC: 'freeslip', inletBC: 'velocity' },
+];
+
 export async function runEmptyTunnel(
   device: GPUDevice,
   tiers: number[] = [250_000, 2_000_000],
   tConvTotal = 40,
-  arms: AhmedLateralBC[] = ['freestream', 'freeslip'],
+  arms: TunnelArm[] = TUNNEL_2X2,
 ): Promise<EmptyTunnelReport> {
   const gpuErrors: string[] = [];
   const onErr = (e: Event) => gpuErrors.push(String((e as GPUUncapturedErrorEvent).error.message));
   device.addEventListener('uncapturederror', onErr);
   const runs: EmptyTunnelRun[] = [];
   try {
-    // Tier-major, so the two arms of a tier sit next to each other in the output and in time.
-    // The comparison is between arms at a FIXED tier; interleaving tiers would put the pair
-    // that has to be read together at opposite ends of the log.
+    // Tier-major, so a tier's arms sit next to each other in the output and in time. The
+    // comparison is between arms at a FIXED tier; interleaving tiers would put the runs that
+    // have to be read together at opposite ends of the log.
     for (const cells of tiers) {
       for (const arm of arms) {
-        runs.push(await runOne(device, cells, 4.29e6, tConvTotal, gpuErrors, arm));
+        runs.push(
+          await runOne(device, cells, 4.29e6, tConvTotal, gpuErrors, arm.lateralBC, arm.inletBC),
+        );
       }
     }
   } finally {
     device.removeEventListener('uncapturederror', onErr);
   }
 
-  const verdict = (r: EmptyTunnelRun): { ok: boolean; why: string[] } => {
-    const why: string[] = [];
+  const verdict = verdictOf;
+
+  const lines: string[] = [];
+  let pass = gpuErrors.length === 0;
+  for (const r of runs) {
+    const v = verdict(r);
+    pass = pass && v.ok;
+    lines.push(...perRunLines(r, v));
+  }
+  lines.push(...abLines(runs));
+  return { runs, pass, lines, gpuErrors };
+}
+
+/**
+ * Health verdict for one arm, against the UNCHANGED `BOUNDS`. Module-scope so the 2×2 table
+ * can print a PASS/FAIL row per arm from the same predicate the headline lines use — one
+ * definition, so the table and the lines can never disagree.
+ */
+function verdictOf(r: EmptyTunnelRun): { ok: boolean; why: string[] } {
+  const why: string[] = [];
+  {
     if (r.worst.nonFiniteCells > 0) why.push(`${r.worst.nonFiniteCells} non-finite cells`);
     if (r.worst.absMassDrift > BOUNDS.massDrift)
       why.push(`mass drift ${r.worst.absMassDrift.toExponential(2)} > ${BOUNDS.massDrift}`);
@@ -555,63 +607,50 @@ export async function runEmptyTunnel(
           `(< ${BOUNDS.transientDecay})`,
       );
     return { ok: why.length === 0, why };
-  };
-
-  const lines: string[] = [];
-  let pass = gpuErrors.length === 0;
-  for (const r of runs) {
-    const v = verdict(r);
-    pass = pass && v.ok;
-    lines.push(
-      `${v.ok ? 'PASS' : 'FAIL'} empty tunnel [${r.lateralBC}] ${r.nx}x${r.ny}x${r.nz} ` +
-        `(${r.cells} cells) ` +
-        `tau0=${r.tau0.toFixed(9)} T_conv=${r.convectiveTimeSteps} steps=${r.totalSteps} ` +
-        `(${(r.ms / 1000).toFixed(1)} s)` +
-        (v.ok ? '' : `\n     ${v.why.join('; ')}`),
-    );
-    lines.push(
-      `     steady (T>=${r.transient.windowTConv}): massDrift=${r.worst.absMassDrift.toExponential(2)} ` +
-        `fluxMismatch=${r.worst.fluxMismatch.toExponential(2)} ` +
-        `rho[${r.worst.rhoMin.toFixed(6)}, ${r.worst.rhoMax.toFixed(6)}] span=${r.worst.rhoSpan.toExponential(2)}`,
-    );
-    lines.push(
-      `     transient: massDrift ${r.transient.peakMassDrift.toExponential(2)}→${r.transient.steadyMassDrift.toExponential(2)} ` +
-        `(${r.transient.massDriftDecay.toFixed(0)}x); fluxMismatch ${r.transient.peakFluxMismatch.toExponential(2)}→` +
-        `${r.transient.steadyFluxMismatch.toExponential(2)} (${r.transient.fluxMismatchDecay.toFixed(0)}x); ` +
-        `peak rhoMax=${r.transient.peakRhoMax.toFixed(6)}`,
-    );
-    lines.push(
-      `     streamwise |rho-1|max=${r.worst.rhoDeviation.toExponential(2)} rhoSpan(x)=${r.worst.rhoGradient.toExponential(2)} ` +
-        `uMax=${r.worst.uMax.toFixed(6)} Ma=${r.worst.machMax.toFixed(4)} coreU/u_in-1=${r.worst.coreVelocityRatio.toFixed(4)}`,
-    );
-    lines.push(
-      `     period-2: mass=${r.stagger.staggerTotalMass.toExponential(2)} rhoMean=${r.stagger.staggerRhoMean.toExponential(2)} ` +
-        `uMax=${r.stagger.staggerUMax.toExponential(2)} | cv: mass=${r.stagger.cvTotalMass.toExponential(2)} ` +
-        `rhoMean=${r.stagger.cvRhoMean.toExponential(2)} uMax=${r.stagger.cvUMax.toExponential(2)}`,
-    );
-    const last = r.samples.at(-1);
-    lines.push(
-      `     lateral flux (outward, last sample): top=${fmtE(last?.lateral.top)} ` +
-        `zMin=${fmtE(last?.lateral.zMin)} zMax=${fmtE(last?.lateral.zMax)} ` +
-        `net=${fmtE(last?.lateral.net)} (ground EXCLUDED — not a through-wall flux; ` +
-        `its near-wall layer u_y term=${fmtE(last?.lateral.groundLayerUy)}) | ` +
-        `worst |net|/inFlux=${r.worst.lateralNetOverInflow.toExponential(2)} (UNGATED proxy)`,
-    );
-    lines.push(
-      `     budget: in=${fmtE(last?.inFlux)} out=${fmtE(last?.outFlux)} ` +
-        `in-out=${fmtE((last?.inFlux ?? 0) - (last?.outFlux ?? 0))} vs lateral net=${fmtE(last?.lateral.net)} ` +
-        `| steady massDrift ${r.transient.steadyMassDriftFirst.toExponential(2)}→` +
-        `${r.transient.steadyMassDriftLast.toExponential(2)} ` +
-        `(slope ${r.transient.massDriftSlopePerTConv.toExponential(2)}/T_conv)`,
-    );
-    lines.push(`     nonFinite=${r.worst.nonFiniteCells}`);
   }
-  lines.push(...abLines(runs));
-  return { runs, pass, lines, gpuErrors };
+}
+
+/** The per-arm headline block: verdict line plus the six diagnostic lines under it. */
+function perRunLines(r: EmptyTunnelRun, v: { ok: boolean; why: string[] }): string[] {
+  const last = r.samples.at(-1);
+  return [
+    `${v.ok ? 'PASS' : 'FAIL'} empty tunnel [${armLabel(r)}] ${r.nx}x${r.ny}x${r.nz} ` +
+      `(${r.cells} cells) ` +
+      `tau0=${r.tau0.toFixed(9)} T_conv=${r.convectiveTimeSteps} steps=${r.totalSteps} ` +
+      `(${(r.ms / 1000).toFixed(1)} s)` +
+      (v.ok ? '' : `\n     ${v.why.join('; ')}`),
+    `     steady (T>=${r.transient.windowTConv}): massDrift=${r.worst.absMassDrift.toExponential(2)} ` +
+      `fluxMismatch=${r.worst.fluxMismatch.toExponential(2)} ` +
+      `rho[${r.worst.rhoMin.toFixed(6)}, ${r.worst.rhoMax.toFixed(6)}] span=${r.worst.rhoSpan.toExponential(2)}`,
+    `     transient: massDrift ${r.transient.peakMassDrift.toExponential(2)}→${r.transient.steadyMassDrift.toExponential(2)} ` +
+      `(${r.transient.massDriftDecay.toFixed(2)}x); fluxMismatch ${r.transient.peakFluxMismatch.toExponential(2)}→` +
+      `${r.transient.steadyFluxMismatch.toExponential(2)} (${r.transient.fluxMismatchDecay.toFixed(0)}x); ` +
+      `peak rhoMax=${r.transient.peakRhoMax.toFixed(6)}`,
+    `     streamwise |rho-1|max=${r.worst.rhoDeviation.toExponential(2)} rhoSpan(x)=${r.worst.rhoGradient.toExponential(2)} ` +
+      `uMax=${r.worst.uMax.toFixed(6)} Ma=${r.worst.machMax.toFixed(4)} coreU/u_in=${(r.worst.coreVelocityRatio + 1).toFixed(4)}`,
+    `     period-2: mass=${r.stagger.staggerTotalMass.toExponential(2)} rhoMean=${r.stagger.staggerRhoMean.toExponential(2)} ` +
+      `uMax=${r.stagger.staggerUMax.toExponential(2)} | cv: mass=${r.stagger.cvTotalMass.toExponential(2)} ` +
+      `rhoMean=${r.stagger.cvRhoMean.toExponential(2)} uMax=${r.stagger.cvUMax.toExponential(2)}`,
+    `     lateral flux (outward, last sample): top=${fmtE(last?.lateral.top)} ` +
+      `zMin=${fmtE(last?.lateral.zMin)} zMax=${fmtE(last?.lateral.zMax)} ` +
+      `net=${fmtE(last?.lateral.net)} (ground EXCLUDED — not a through-wall flux; ` +
+      `its near-wall layer u_y term=${fmtE(last?.lateral.groundLayerUy)}) | ` +
+      `worst |net|/inFlux=${r.worst.lateralNetOverInflow.toExponential(2)} (UNGATED proxy)`,
+    `     budget: in=${fmtE(last?.inFlux)} out=${fmtE(last?.outFlux)} ` +
+      `in-out=${fmtE((last?.inFlux ?? 0) - (last?.outFlux ?? 0))} vs lateral net=${fmtE(last?.lateral.net)} ` +
+      `| steady massDrift ${r.transient.steadyMassDriftFirst.toExponential(2)}→` +
+      `${r.transient.steadyMassDriftLast.toExponential(2)} ` +
+      `(slope ${r.transient.massDriftSlopePerTConv.toExponential(2)}/T_conv)`,
+    `     nonFinite=${r.worst.nonFiniteCells}`,
+  ];
 }
 
 const fmtE = (x: number | undefined): string =>
   x === undefined || !Number.isFinite(x) ? '—' : x.toExponential(3);
+
+/** `freeslip/velocity` — short enough for a row label, unambiguous about both variables. */
+export const armLabel = (r: { lateralBC: AhmedLateralBC; inletBC: AhmedInletBC }): string =>
+  `${r.lateralBC}/${r.inletBC === 'velocity' ? 'velocity' : 'equilib'}`;
 
 /**
  * The phase-3 comparison: the two arms of each tier, side by side.
@@ -628,59 +667,76 @@ const fmtE = (x: number | undefined): string =>
  */
 function abLines(runs: EmptyTunnelRun[]): string[] {
   const tiers = [...new Set(runs.map((r) => r.cells))];
-  const pairs = tiers
-    .map((cells) => ({
-      cells,
-      a: runs.find((r) => r.cells === cells && r.lateralBC === 'freestream'),
-      b: runs.find((r) => r.cells === cells && r.lateralBC === 'freeslip'),
-    }))
-    .filter((p): p is { cells: number; a: EmptyTunnelRun; b: EmptyTunnelRun } =>
-      Boolean(p.a && p.b),
-    );
-  if (pairs.length === 0) return [];
-
-  const ratio = (x: number, y: number): string =>
-    Math.abs(y) > 0 ? `${(x / y).toFixed(2)}x` : '—';
   const out: string[] = [
     '',
-    '## Phase 3 A/B — hard-Dirichlet vs free-slip top/sides (empty tunnel)',
+    '## Phase 3b 2x2 — far field x inlet formulation (empty tunnel)',
     '',
-    'Everything but the top/side boundary is identical: same grid, dx, tau0, nu, ground,',
-    'inlet/outlet, u_in, Cs, precision and initial condition. The one structural difference the',
-    'BC forces is the outlet-face ring (H11 3.2 keeps the outlet one row in under free-slip).',
+    'Held identical across all four arms: grid, dx, tau0, nu, no-slip ground, outlet, u_in,',
+    'Cs, precision, initial condition, T_conv. Two structural differences follow from the BCs',
+    'themselves: free-slip keeps the outlet one row in (H11 3.2), and VelocityInlet occupies',
+    'the strict interior of the x=0 face with the edge ring left as plain Inlet (H12 2).',
     '',
-    '  |net|/inFlux is the UNGATED lateral proxy (see lateralFlux docs) — read the RATIO between',
-    '  arms, never the absolute value. Health is decided by the BOUNDS columns, unchanged.',
+    'WHY FOUR ARMS. No pair is interpretable alone:',
+    '  freestream/equilib -> freeslip/equilib    reproduces the phase-3 Stage A result',
+    '  freeslip/equilib   -> freeslip/velocity   isolates the inlet correction',
+    '  freestream/velocity-> freeslip/velocity   the CLEAN lateral-BC A/B',
+    '  freestream/equilib -> freestream/velocity how much the historical lateral reservoir',
+    '                                            was masking the inlet',
     '',
-    '  coreU/u_in-1 IS NOT A SUCCESS METRIC. A free-slip arm that moves it has moved the',
-    '  effective Reynolds number (nu and tau0 are fixed, so Re_eff ~ u_core) and the two arms',
-    '  are no longer the same flow — that is a STOP for the phase, not a result.',
+    '  coreU/u_in IS THE HEADLINE, and not as a score. nu and tau0 are fixed by the scene, so',
+    '  Re_eff ~ u_core: an arm that does not deliver u_in is running a different Reynolds',
+    '  number, and cannot be compared against one that does. No tolerance is asserted here —',
+    '  the residual is reported and judged afterwards.',
+    '',
+    '  |net|/inFlux is the UNGATED lateral proxy (ground excluded — a bounce-back wall passes',
+    '  no mass). Read the ratio between arms. Health is decided by the BOUNDS columns.',
     '',
   ];
-  for (const p of pairs) {
-    const row = (label: string, get: (r: EmptyTunnelRun) => number, exp = true): string => {
-      const fa = get(p.a);
-      const fb = get(p.b);
-      const f = (x: number) => (exp ? x.toExponential(2) : x.toFixed(4));
-      return (
-        `    ${label.padEnd(22)} freestream ${f(fa).padStart(11)}   ` +
-        `freeslip ${f(fb).padStart(11)}   ${ratio(fb, fa).padStart(8)}`
-      );
-    };
+
+  for (const cells of tiers) {
+    const tier = TUNNEL_2X2.map((arm) =>
+      runs.find(
+        (r) => r.cells === cells && r.lateralBC === arm.lateralBC && r.inletBC === arm.inletBC,
+      ),
+    ).filter((r): r is EmptyTunnelRun => r !== undefined);
+    if (tier.length === 0) continue;
+    const head = tier[0];
+
+    const row = (label: string, get: (r: EmptyTunnelRun) => number, exp = true): string =>
+      `    ${label.padEnd(21)}` +
+      tier
+        .map((r) => {
+          const v = get(r);
+          return (exp ? v.toExponential(2) : v.toFixed(4)).padStart(14);
+        })
+        .join('');
+
     out.push(
-      `  ${p.a.nx}x${p.a.ny}x${p.a.nz} (${p.cells} cells)  tau0=${p.a.tau0.toFixed(9)}  ` +
-        `verdicts: freestream=${p.a.worst.nonFiniteCells === 0 ? 'ran' : 'NaN'} ` +
-        `freeslip=${p.b.worst.nonFiniteCells === 0 ? 'ran' : 'NaN'}`,
+      `  ${head.nx}x${head.ny}x${head.nz} (${cells} cells)  tau0=${head.tau0.toFixed(9)}  ` +
+        `T_conv=${head.convectiveTimeSteps}  steps=${head.totalSteps}`,
+      `    ${''.padEnd(21)}${tier.map((r) => armLabel(r).padStart(14)).join('')}`,
+      `    ${'VERDICT'.padEnd(21)}${tier
+        .map((r) => (verdictOf(r).ok ? 'PASS' : 'FAIL').padStart(14))
+        .join('')}`,
+      row('coreU/u_in', (r) => r.worst.coreVelocityRatio + 1, false),
+      row('rho mean (last)', (r) => r.samples.at(-1)?.field.rhoMean ?? Number.NaN, false),
+      row('massDrift (steady)', (r) => r.worst.absMassDrift),
+      row('massDrift slope/Tc', (r) => r.transient.massDriftSlopePerTConv),
       row('fluxMismatch', (r) => r.worst.fluxMismatch),
+      row('inFlux', (r) => r.samples.at(-1)?.inFlux ?? Number.NaN),
+      row('outFlux', (r) => r.samples.at(-1)?.outFlux ?? Number.NaN),
+      row('lat net (no ground)', (r) => r.samples.at(-1)?.lateral.net ?? Number.NaN),
       row('|lat net|/inFlux', (r) => r.worst.lateralNetOverInflow),
-      row('massDrift', (r) => r.worst.absMassDrift),
       row('rho span', (r) => r.worst.rhoSpan),
       row('streamwise rho span', (r) => r.worst.rhoGradient),
+      row('rho min', (r) => r.worst.rhoMin, false),
+      row('rho max', (r) => r.worst.rhoMax, false),
+      row('uMax', (r) => r.worst.uMax, false),
       row('Ma max', (r) => r.worst.machMax, false),
-      row('coreU/u_in-1', (r) => r.worst.coreVelocityRatio, false),
       row('massDrift decay', (r) => r.transient.massDriftDecay, false),
       row('fluxMism decay', (r) => r.transient.fluxMismatchDecay, false),
       row('period-2 mass', (r) => r.stagger.staggerTotalMass),
+      row('period-2 rhoMean', (r) => r.stagger.staggerRhoMean),
       row('period-2 uMax', (r) => r.stagger.staggerUMax),
       row('nonFinite', (r) => r.worst.nonFiniteCells, false),
       '',
@@ -690,20 +746,36 @@ function abLines(runs: EmptyTunnelRun[]): string[] {
 }
 
 /**
- * `?lateralBC=` — which arms to run. Default `both`, because the deliverable of phase 3 is a
- * COMPARISON: a single arm produces numbers with nothing to read them against, and the two
- * together cost ~60 s.
+ * `?lateralBC=` and `?inletBC=` narrow the 2×2; absent means run all four, because the
+ * deliverable is the COMPARISON — a single arm produces numbers with nothing to read them
+ * against. `?tiers=250000,2000000` overrides the cell budgets (phase 3b runs the cheap tier
+ * first and escalates only if the conclusion needs it).
  */
-function armsFromUrl(): AhmedLateralBC[] {
-  const raw = new URLSearchParams(location.search).get('lateralBC');
-  if (raw === 'freestream' || raw === 'freeslip') return [raw];
-  return ['freestream', 'freeslip'];
+function armsFromUrl(): TunnelArm[] {
+  const q = new URLSearchParams(location.search);
+  const lat = q.get('lateralBC');
+  const inl = q.get('inletBC');
+  return TUNNEL_2X2.filter(
+    (a) =>
+      (lat === null || lat === a.lateralBC) &&
+      (inl === null || inl === a.inletBC),
+  );
+}
+
+function tiersFromUrl(): number[] | undefined {
+  const raw = new URLSearchParams(location.search).get('tiers');
+  if (!raw) return undefined;
+  const tiers = raw
+    .split(',')
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  return tiers.length > 0 ? tiers : undefined;
 }
 
 export async function mountEmptyTunnel(device: GPUDevice, root: HTMLElement): Promise<void> {
-  root.innerHTML = '<p>Running the Ahmed empty-tunnel control (M9 phase 2/3)…</p>';
+  root.innerHTML = '<p>Running the Ahmed empty-tunnel control (M9 phase 2/3/3b)…</p>';
   try {
-    const r = await runEmptyTunnel(device, undefined, undefined, armsFromUrl());
+    const r = await runEmptyTunnel(device, tiersFromUrl(), undefined, armsFromUrl());
     hooks().emptyTunnel = r;
     const tbl = (rows: string) => `<table style="border-collapse:collapse">${rows}</table>`;
     root.innerHTML = `
@@ -715,7 +787,7 @@ export async function mountEmptyTunnel(device: GPUDevice, root: HTMLElement): Pr
       ${r.runs
         .map(
           (run) => `
-        <h3>${run.nx}×${run.ny}×${run.nz} [${run.lateralBC}] — streamwise profile</h3>
+        <h3>${run.nx}×${run.ny}×${run.nz} [${armLabel(run)}] — streamwise profile</h3>
         ${tbl(
           `<tr><th>x</th><th>meanRho</th><th>bulkUx</th><th>coreUx</th><th>massFlux</th><th>nonUnif</th><th>δ99 cells</th></tr>` +
             run.streamwise
@@ -727,7 +799,7 @@ export async function mountEmptyTunnel(device: GPUDevice, root: HTMLElement): Pr
               )
               .join(''),
         )}
-        <h3>${run.nx}×${run.ny}×${run.nz} [${run.lateralBC}] — time series</h3>
+        <h3>${run.nx}×${run.ny}×${run.nz} [${armLabel(run)}] — time series</h3>
         ${tbl(
           `<tr><th>T_conv</th><th>massDrift</th><th>rhoMin</th><th>rhoMax</th><th>uMax</th><th>Ma</th><th>fluxMismatch</th><th>lat net/in</th><th>NaN</th></tr>` +
             run.samples

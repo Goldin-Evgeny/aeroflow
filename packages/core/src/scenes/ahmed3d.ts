@@ -62,6 +62,37 @@ export type AhmedLateralBC = 'freestream' | 'freeslip';
  */
 export const AHMED_FREESLIP_FACES = { yMax: true, zMin: true, zMax: true } as const;
 
+/**
+ * Inlet formulation on the x=0 face (M9 force audit, phase 3b).
+ *
+ * `'equilibrium'` — plain `CellType.Inlet`, emitting f^eq(ρ=1, u_in). What every Ahmed
+ * number on record was measured with, so it stays the default. It is **not a velocity BC**
+ * (H12 §1): only the populations it sends carry u_in, and a standing density discontinuity
+ * at the interface absorbs any momentum mismatch.
+ *
+ * `'velocity'` — H12 `CellType.VelocityInlet`, emitting f^eq(ρ_up, u_in) at the +x neighbour's
+ * previous post-collision density. Removing the interface density jump is what forces u → u_in.
+ *
+ * ## Why this option exists
+ *
+ * Phase 3 Stage A measured the two deviations from the M9 spec compensating for each other.
+ * The spec asks for a "uniform velocity inlet" AND "free-slip top and sides"; the scene had
+ * neither. With hard-Dirichlet lateral cells the equilibrium inlet looks fine — the approach
+ * flow reaches 99% of commanded — because those cells clamp u = u_in throughout and mask it.
+ * Switch the far field to the free-slip the spec asks for and the mask comes off: the flow
+ * settles at 0.645·u_in and the box pressurizes to ρ ≈ 1.055, still climbing, exactly the
+ * attractor H12 §1 documented at 0.660·u_in.
+ *
+ * So the lateral BC cannot be A/B'd honestly while the inlet is the equilibrium one — the two
+ * arms would run at different effective Reynolds numbers. This option makes the inlet a
+ * controlled variable so the 2×2 can separate them.
+ *
+ * **Selecting `'velocity'` does not make a run an acceptance run.** Which formulation the
+ * acceptance configuration uses is a decision for docs/VALIDATION.md, informed by the
+ * experiment, not by whichever arm produces a better Cd.
+ */
+export type AhmedInletBC = 'equilibrium' | 'velocity';
+
 export interface AhmedSceneOptions extends AhmedBodyOptions {
   /** Cell budget the grid is fitted to. Default 15.7M (the M9 target tier). */
   maxCells?: number;
@@ -96,6 +127,11 @@ export interface AhmedSceneOptions extends AhmedBodyOptions {
    * phase-3 A/B opts IN.
    */
   lateralBC?: AhmedLateralBC;
+  /**
+   * Inlet formulation on x=0. Default `'equilibrium'` — see `AhmedInletBC`. Like `lateralBC`,
+   * the phase-3b experiment opts IN; the historical configuration is what you get by default.
+   */
+  inletBC?: AhmedInletBC;
 }
 
 export interface AhmedScene {
@@ -129,6 +165,13 @@ export interface AhmedScene {
    * `freeSlip` config and the flag array can never disagree — mirrors `Sphere3DScene.lateralBC`.
    */
   lateralBC: AhmedLateralBC;
+  /**
+   * The inlet formulation this scene was BUILT with. Consumers pass
+   * `velocityInlet: scene.inletBC === 'velocity'` to the GPU solver from this, so the flag
+   * array and the kernel variant cannot disagree. (The CPU solver needs no opt-in: it keys
+   * off `CellType.VelocityInlet` in the flags directly.)
+   */
+  inletBC: AhmedInletBC;
   /** The body mesh in lattice coordinates (preview / GPU-voxelizer parity). */
   mesh: TriangleMesh;
 }
@@ -198,6 +241,7 @@ export function ahmedScene(opts: AhmedSceneOptions = {}): AhmedScene {
   const flags = new Uint8Array(nx * ny * nz).fill(CellType.Fluid);
   const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
   const lateralBC = opts.lateralBC ?? 'freestream';
+  const inletBC = opts.inletBC ?? 'equilibrium';
   // Both branches share the same precedence, which is what keeps the two arms comparable:
   // lateral faces first, then the no-slip ground (it wins every shared edge — the experiment's
   // floor is not negotiable), then the inlet/outlet x faces for y ≥ 1 so the ground row stays
@@ -212,6 +256,17 @@ export function ahmedScene(opts: AhmedSceneOptions = {}): AhmedScene {
   for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) flags[at(x, 0, z)] = CellType.Solid;
   for (let z = 0; z < nz; z++)
     for (let y = 1; y < ny; y++) flags[at(0, y, z)] = CellType.Inlet;
+  if (inletBC === 'velocity') {
+    // H12 §2: VelocityInlet only on the x=0 face, and only where the +x neighbour is Fluid.
+    // The strict interior satisfies that (the body starts a full body length downstream);
+    // the edge ring stays plain `Inlet`, exactly as `urbanBoundaryFlags` lays it out, because
+    // those cells' +x neighbours are shell. y=0 stays Solid ground and is never overwritten.
+    for (let z = 1; z < nz - 1; z++)
+      for (let y = 1; y < ny - 1; y++) {
+        if (flags[at(1, y, z)] !== CellType.Fluid) continue;
+        flags[at(0, y, z)] = CellType.VelocityInlet;
+      }
+  }
   if (lateralBC === 'freeslip') {
     // The outlet must be STRICTLY INTERIOR here. `validateFreeSlip` (H11 §3.2) rejects an
     // Outlet with a FreeSlip upstream neighbor — its zero-gradient copy would read a passive
@@ -298,6 +353,7 @@ export function ahmedScene(opts: AhmedSceneOptions = {}): AhmedScene {
     blockage: frontalCells / ((ny - 2) * (nz - 2)),
     noseX,
     lateralBC,
+    inletBC,
     mesh: { positions: domainMesh, indices: bodyMm.indices },
   };
 }

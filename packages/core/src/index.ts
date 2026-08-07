@@ -66,7 +66,12 @@ export {
 } from './geometry/windFrame.js';
 export type { EnuVector, WindFrameVector, WindFrameBasis } from './geometry/windFrame.js';
 export { ahmedScene, AHMED_EXPERIMENTAL_RE, AHMED_FREESLIP_FACES } from './scenes/ahmed3d.js';
-export type { AhmedScene, AhmedSceneOptions, AhmedLateralBC } from './scenes/ahmed3d.js';
+export type {
+  AhmedScene,
+  AhmedSceneOptions,
+  AhmedLateralBC,
+  AhmedInletBC,
+} from './scenes/ahmed3d.js';
 export { powerLawProfile, logLawProfile, ablProfileLattice, LATTICE_MACH_LIMIT } from './abl.js';
 export type { AblSpec, AblLatticeProfile } from './abl.js';
 export { hitRate, pearson } from './validation/score.js';

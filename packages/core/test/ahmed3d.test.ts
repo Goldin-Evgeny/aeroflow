@@ -366,6 +366,103 @@ describe('ahmedScene', () => {
       }
     });
 
+    /**
+     * `inletBC` — the phase-3b inlet control. Stage A showed the two M9-spec deviations
+     * compensating: the hard-Dirichlet laterals clamp u = u_in everywhere, which hides that
+     * the plain equilibrium `Inlet` is not a velocity BC (H12 §1). Making the inlet selectable
+     * is what lets the 2×2 separate them.
+     */
+    describe('inletBC (phase-3b inlet control)', () => {
+      const equilibrium = ahmedScene({ maxCells: CELLS, lateralBC: 'freeslip' });
+      const velocity = ahmedScene({
+        maxCells: CELLS,
+        lateralBC: 'freeslip',
+        inletBC: 'velocity',
+      });
+
+      it("defaults to 'equilibrium' and leaves the historical flag array untouched", () => {
+        expect(freestream.inletBC).toBe('equilibrium');
+        expect(equilibrium.inletBC).toBe('equilibrium');
+        expect(ahmedScene({ maxCells: CELLS, inletBC: 'equilibrium' }).flags).toEqual(
+          freestream.flags,
+        );
+        expect(freestream.flags.indexOf(CellType.VelocityInlet)).toBe(-1);
+      });
+
+      it('changes the inlet face and nothing else', () => {
+        const { nx, ny, nz } = velocity;
+        expect(velocity.inletBC).toBe('velocity');
+        expect(velocity.bodyVoxels).toBe(equilibrium.bodyVoxels);
+        expect(velocity.frontalCells).toBe(equilibrium.frontalCells);
+        expect(velocity.omega).toBe(equilibrium.omega);
+        let differing = 0;
+        for (let i = 0; i < velocity.flags.length; i++) {
+          if (velocity.flags[i] === equilibrium.flags[i]) continue;
+          differing++;
+          expect(i % nx, `cell ${i} differs but is not on the x=0 face`).toBe(0);
+        }
+        expect(differing).toBeGreaterThan(0);
+        void ny;
+        void nz;
+      });
+
+      /**
+       * H12 §2, the two constraints that make a VelocityInlet well-posed. `EsotericPull3D`
+       * throws on either, but only for cells a run happens to touch — this walks the whole
+       * face, and the +x-Fluid rule is the one a scene can violate silently by growing the
+       * body or moving the shell.
+       */
+      it('places VelocityInlet only where H12 §2 allows, edges left as plain Inlet', () => {
+        const { nx, ny, nz, flags } = velocity;
+        const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+        let count = 0;
+        for (let z = 0; z < nz; z++)
+          for (let y = 0; y < ny; y++)
+            for (let x = 0; x < nx; x++) {
+              if (flags[at(x, y, z)] !== CellType.VelocityInlet) continue;
+              count++;
+              expect(x, 'VelocityInlet off the x=0 face').toBe(0);
+              expect(flags[at(1, y, z)], `VelocityInlet (0,${y},${z}) needs a Fluid +x neighbour`)
+                .toBe(CellType.Fluid);
+            }
+        expect(count).toBeGreaterThan(0);
+        // The edge ring keeps a BC whose +x neighbour may be shell — never VelocityInlet.
+        expect(flags[at(0, ny - 1, Math.floor(nz / 2))]).not.toBe(CellType.VelocityInlet);
+        expect(flags[at(0, Math.floor(ny / 2), 0)]).not.toBe(CellType.VelocityInlet);
+        expect(flags[at(0, Math.floor(ny / 2), nz - 1)]).not.toBe(CellType.VelocityInlet);
+        expect(flags[at(0, 0, Math.floor(nz / 2))]).toBe(CellType.Solid); // ground still wins
+      });
+
+      it('steps under EsotericPull3D on all four arms of the 2×2', () => {
+        for (const lateral of ['freestream', 'freeslip'] as const)
+          for (const inlet of ['equilibrium', 'velocity'] as const) {
+            const s = ahmedScene({
+              maxCells: CELLS,
+              lateralBC: lateral,
+              inletBC: inlet,
+              omitBody: true,
+            });
+            const solver = new EsotericPull3D({
+              nx: s.nx,
+              ny: s.ny,
+              nz: s.nz,
+              omega: s.omega,
+              flags: s.flags,
+              inletVelocity: s.uLattice,
+              collision: 'trt',
+              regularize: true,
+              les: { cs: 0.1 },
+              freeSlip: lateral === 'freeslip' ? AHMED_FREESLIP_FACES : undefined,
+            });
+            solver.step(2); // both parities — the H12 pre-pass differs between them
+            expect(
+              Number.isFinite(solver.totalMass()),
+              `${lateral}/${inlet} went non-finite`,
+            ).toBe(true);
+          }
+      });
+    });
+
     it('composes with omitBody: the empty free-slip tunnel is the same tunnel, bodyless', () => {
       const empty = ahmedScene({ maxCells: CELLS, lateralBC: 'freeslip', omitBody: true });
       expect(empty.lateralBC).toBe('freeslip');

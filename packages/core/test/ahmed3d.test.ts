@@ -78,4 +78,64 @@ describe('ahmedScene', () => {
     expect(Number.isFinite(solver.totalMass())).toBe(true);
     expect(solver.force.x).not.toBe(0); // the body is in the flow and feels it
   });
+
+  /**
+   * `omitBody` is the M9 phase-2 empty-tunnel control. Its whole value is being the SAME
+   * tunnel with the body removed — if the domain moved too, it would isolate nothing. So
+   * this pins that the grid, the boundary shell and every lattice parameter are untouched
+   * and ONLY the body is gone.
+   */
+  describe('omitBody (empty-tunnel control)', () => {
+    const empty = ahmedScene({ maxCells: 300_000, omitBody: true });
+    const withBody = ahmedScene({ maxCells: 300_000 });
+
+    it('keeps the identical domain, grid and lattice parameters', () => {
+      expect([empty.nx, empty.ny, empty.nz]).toEqual([withBody.nx, withBody.ny, withBody.nz]);
+      expect(empty.dx).toBe(withBody.dx);
+      expect(empty.omega).toBe(withBody.omega);
+      expect(empty.uLattice).toBe(withBody.uLattice);
+      expect(empty.nu).toBe(withBody.nu);
+      expect(empty.lengthCells).toBe(withBody.lengthCells);
+      expect(empty.convectiveTimeSteps).toBe(withBody.convectiveTimeSteps);
+      expect(empty.noseX).toBe(withBody.noseX);
+    });
+
+    it('removes the body and only the body', () => {
+      expect(empty.bodyVoxels).toBe(0);
+      expect(empty.frontalCells).toBe(0);
+      expect(empty.blockage).toBe(0);
+      expect(empty.flags.indexOf(CellType.BodySolid)).toBe(-1);
+      expect(withBody.bodyVoxels).toBeGreaterThan(0); // control: the option is doing the work
+
+      // Every non-BodySolid flag is unchanged, cell for cell — the boundary shell, the
+      // ground and the inlet/outlet faces are byte-identical to the acceptance tunnel.
+      let differing = 0;
+      for (let i = 0; i < empty.flags.length; i++) {
+        if (withBody.flags[i] === CellType.BodySolid) continue;
+        if (empty.flags[i] !== withBody.flags[i]) differing++;
+      }
+      expect(differing).toBe(0);
+    });
+
+    it('steps, and feels no body force because there is no body', () => {
+      const solver = new EsotericPull3D({
+        nx: empty.nx,
+        ny: empty.ny,
+        nz: empty.nz,
+        omega: empty.omega,
+        flags: empty.flags,
+        inletVelocity: empty.uLattice,
+        collision: 'trt',
+        regularize: true,
+        les: { cs: 0.1 },
+      });
+      solver.step(2);
+      expect(Number.isFinite(solver.totalMass())).toBe(true);
+      // The ground is still Solid, so the UNMASKED accumulator is non-zero — the tunnel has
+      // walls. The MASKED one is what a Cd would use, and it must be exactly zero.
+      expect(solver.maskedForce.x).toBe(0);
+      expect(solver.maskedForce.y).toBe(0);
+      expect(solver.maskedForce.z).toBe(0);
+    });
+  });
 });

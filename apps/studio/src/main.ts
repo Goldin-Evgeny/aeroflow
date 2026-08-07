@@ -162,6 +162,11 @@ const ROUTES: Record<string, Route> = {
     const { mountAhmedMatch } = await import('./dev/ahmedCpuGpuMatch');
     await mountAhmedMatch(gpu.device, app);
   },
+  // M9 dev route: empty-tunnel control — is the tunnel clean at the acceptance τ₀ (phase 2).
+  emptytunnel: async (app, gpu) => {
+    const { mountEmptyTunnel } = await import('./dev/ahmedEmptyTunnel');
+    await mountEmptyTunnel(gpu.device, app);
+  },
 };
 
 /**

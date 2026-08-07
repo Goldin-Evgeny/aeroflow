@@ -5,6 +5,7 @@ import type { SphereCaseName, LateralBC } from '@aeroflow/core';
 import type { CheckpointParityResult } from '../sim/checkpointParity';
 import type { TauOracleCheckResult } from '../sim/tauOracleCheck';
 import type { AhmedMatchReport } from './ahmedCpuGpuMatch';
+import type { EmptyTunnelReport } from './ahmedEmptyTunnel';
 
 /**
  * Write-only observation hooks for the Playwright e2e suite (docs/E2E.md). Pages mirror
@@ -70,6 +71,9 @@ export interface AeroflowHooks {
   /** ?ahmedmatch: M9 phase-1 matched-config Ahmed CPU↔GPU reconciliation. */
   ahmedMatch?: AhmedMatchReport;
   ahmedMatchError?: string;
+  /** ?emptytunnel: M9 phase-2 empty-tunnel control (no body, no force requested). */
+  emptyTunnel?: EmptyTunnelReport;
+  emptyTunnelError?: string;
   /** ?bench3d ladder results. */
   benchRows?: BenchRow[];
   benchMarkdown?: string;

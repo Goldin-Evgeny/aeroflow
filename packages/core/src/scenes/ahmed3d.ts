@@ -42,6 +42,20 @@ export interface AhmedSceneOptions extends AhmedBodyOptions {
   downstreamL?: number;
   /** Reynolds number on body length. Default 4.29e6 (SAE 840300). */
   Re?: number;
+  /**
+   * Build the tunnel WITHOUT the body — the empty-tunnel control (M9 force audit, phase 2).
+   *
+   * Everything else is unchanged, deliberately: the domain is still sized from the body's
+   * dimensions, blockage cap and fetch rule, so this is the acceptance tunnel with the body
+   * removed rather than a different, emptier box. That is the whole point — it isolates what
+   * the BOUNDARIES and the τ₀ regime do from what the body does.
+   *
+   * `bodyVoxels` and `frontalCells` come out 0, so `blockage` is 0 and no Cd is defined. A
+   * consumer must therefore NOT ask the solver for body force: `Lbm3D` refuses `forces: true`
+   * with no `BodySolid` cell, and that invariant is left exactly as it is — the control simply
+   * does not request a force it has no body to measure.
+   */
+  omitBody?: boolean;
 }
 
 export interface AhmedScene {
@@ -158,7 +172,7 @@ export function ahmedScene(opts: AhmedSceneOptions = {}): AhmedScene {
   const clearanceCells = Math.round(clearance / dx);
   const oz = Math.round((nz - tightNz) / 2);
   let bodyVoxels = 0;
-  for (let z = 0; z < tightNz; z++)
+  for (let z = 0; z < tightNz && !opts.omitBody; z++)
     for (let y = 0; y < tightNy; y++)
       for (let x = 0; x < tightNx; x++) {
         if (tightMask[x + tightNx * (y + tightNy * z)] !== CellType.Solid) continue;

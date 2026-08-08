@@ -192,6 +192,8 @@ export { lateralFlux } from './analysis/lateralFlux.js';
 export type { LateralFlux } from './analysis/lateralFlux.js';
 export { boundaryMassByClass3D } from './analysis/boundaryMassBudget.js';
 export type { BoundaryMassBudget } from './analysis/boundaryMassBudget.js';
+export { linearTrend } from './analysis/linearTrend.js';
+export type { LinearTrend } from './analysis/linearTrend.js';
 export { wakeProbe } from './analysis/wakeProbe.js';
 export type { WakeProbe, AhmedWakeGeometry } from './analysis/wakeProbe.js';
 export { relSpread, blocksAgree } from './analysis/blockConvergence.js';

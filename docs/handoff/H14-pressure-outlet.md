@@ -181,3 +181,47 @@ global mass mode relaxes with `tau = V/(kappa*A_out) = 223443/285 ~ 783` steps, 
 residual cannot be the anchored mass mode still relaxing. Likewise, a _constant_ boundary
 source under a working anchor produces a steady density **level**, not a slope. Both point at
 a time-varying driver or at the metric, and neither is resolved here.
+
+### 8.1 E0 — the class-decomposed Float64 budget
+
+`boundaryMassByClass3D` splits the gate-5 sum by boundary class, so the Stage A residual can
+be attributed instead of inferred. Run on a 10x8x7 scene carrying the same topology as the
+tunnel — no-slip ground, free-slip top and sides, VelocityInlet with the H12 plain-`Inlet`
+edge ring, `Outlet` interior with the H11 §3.2 FreeSlip outlet ring — at the acceptance-tier
+`tau0 = 0.5000005` with TRT, LES `Cs = 0.1`, regularization and `conserveMass`, 6000 steps:
+
+| class                | pressure rho0=1 | pressure rho0=1.05 | zero-gradient |
+| -------------------- | --------------: | -----------------: | ------------: |
+| `velocityInlet`      |        7.889e+3 |           7.890e+3 |      9.496e+3 |
+| `inlet`              |        8.364e+2 |           8.362e+2 |     -1.668e+2 |
+| `outlet`             |       -7.830e+3 |          -7.842e+3 |     -8.595e+3 |
+| `freeSlipFace`       |       -4.23e-16 |          -8.60e-16 |      2.12e-16 |
+| `freeSlipEdge`       |               0 |                  0 |             0 |
+| `freeSlipInletRing`  |               0 |                  0 |             0 |
+| `freeSlipOutletRing` |       -8.951e+2 |          -8.962e+2 |     -6.351e+2 |
+| final `rhoMean`      |     1.001218109 |        1.001218109 |   1.409881586 |
+| late `drho/dstep`    |        -4.7e-18 |           -5.2e-18 |       6.3e-05 |
+
+**Free-slip is exact wherever the bijection argument applies.** The flat face stays at Float64
+roundoff over the whole run. Slip-slip edges are _identically_ zero, not merely small: the
+double mirror is an involution that resolves back onto the pulling cell's own opposite
+population, so each link cancels exactly. Slip-solid intersections take the H11 §3.1
+bounce-back fallback, `incoming = outgoing`, likewise exactly zero. Those three classes are
+gated at roundoff as a regression guard. `freeSlipOutletRing` is large but is **not a leak**:
+it appears in both outlet modes, it is the ring redirecting into the outlet plane, and in the
+pressure arm it participates in a budget that balances exactly. It is reported and ungated —
+bounding legitimate flux would be inventing a tolerance.
+
+**The pressure outlet reaches a genuinely stationary state**, approached from both above and
+below to the same `rhoMean = 1.001218109`, with a late rate of 5e-18 per step. Its stable
+state carries a **finite density offset**, and that is why `massDriftDecay = peak/steady` is
+the wrong stationarity statement for it: a decay-to-zero ratio scores a converged run as a
+failure. Late-time stationarity must be stated as a rate, and the density-level error judged
+separately against its own bound. Zero-gradient on the identical scene climbs monotonically
+to 1.41 and is still climbing at 6.3e-5 per step, reproducing the Stage A pathology in
+Float64 on 240 fluid cells.
+
+**Conclusion.** The Stage A residual is neither a free-slip defect nor the outlet
+reconstruction. What this scene cannot settle is magnitude: its mass mode relaxes in
+`V/(kappa*A_out) = 240/4.25 ~ 56` steps and it ran 107 of those, while the 250k tunnel ran 29.
+The open question is therefore whether the 250k run had simply not finished settling.

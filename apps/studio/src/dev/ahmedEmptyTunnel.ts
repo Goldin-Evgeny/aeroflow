@@ -3,12 +3,14 @@ import {
   ahmedScene,
   fieldStats,
   lateralFlux,
+  linearTrend,
   sectionStats,
   validateFreeSlip,
   type AhmedInletBC,
   type AhmedLateralBC,
   type FieldStats,
   type LateralFlux,
+  type LinearTrend,
   type Outlet3D,
 } from '@aeroflow/core';
 import { Lbm3D } from '../sim/lbm3d';
@@ -119,6 +121,22 @@ export interface TunnelSample {
   /** Center-plane density/velocity used for the impulsive-start acoustic pulse report. */
   centerRho: number;
   centerUx: number;
+  /**
+   * Mean ρ at the first and last FLUID plane, PER SAMPLE (phase 3c).
+   *
+   * The `streamwise` stations are computed once, at the end, which cannot close a budget that
+   * evolves. These two are the terms in the steady balance the fixed-density outlet has to
+   * satisfy: it removes `kappa·(ρ_out − 1)` per outlet cell per step on top of the convective
+   * flux, so at equilibrium `kappa·(ρ_out − 1) = u·(ρ_in − ρ_out) + other/A_out`. Recording
+   * both over time is what makes that testable rather than asserted.
+   */
+  inRho: number;
+  outRho: number;
+  /** ρ extremes on those two planes — a mean alone hides a local excursion. */
+  inRhoMin: number;
+  inRhoMax: number;
+  outRhoMin: number;
+  outRhoMax: number;
 }
 
 export interface StreamwiseStation {
@@ -191,6 +209,36 @@ export interface TransientDecay {
   steadyMassDriftLast: number;
   /** (last − first) / ΔT_conv over the post-transient window. */
   massDriftSlopePerTConv: number;
+  /**
+   * Fitted mass-drift slope over successive late windows (phase 3c), oldest first.
+   *
+   * `massDriftSlopePerTConv` above is a two-endpoint chord, and on a saturating trajectory a
+   * chord stays positive long after the trend has died — it is dominated by wherever its
+   * first endpoint landed, which here is `T_conv = 5`, still inside the startup ring-down.
+   * These are least-squares fits with standard errors, so the three cases that matter can be
+   * told apart: slopes approaching zero (still settling), plateauing at a nonzero value (a
+   * genuine secular source), or alternating in sign (oscillating). Read each `slope` against
+   * its own `tStatistic`; below ~2 it is not distinguishable from zero.
+   *
+   * The chord is retained unchanged so the phase-3b record stays comparable.
+   */
+  lateWindowSlopes: Array<LinearTrend & { fromTConv: number; toTConv: number }>;
+  /**
+   * Late-time level the drift is settling toward: the mean over the final window.
+   *
+   * Reported because `massDriftDecay` is measured against ZERO, which presumes the settled
+   * state is ρ ≡ 1. A fixed-density outlet anchors to a finite offset instead, so a
+   * decay-to-zero ratio scores a converged run as a failure (E0 measured exactly this: a
+   * Float64 run stationary to 5e-18 per step sitting at ρ̄ = 1.0012). The offset itself is
+   * still judged, separately and unchanged, by `BOUNDS.massDrift`.
+   */
+  lateLevel: number;
+  /**
+   * peak |drift − lateLevel| / steady |drift − lateLevel| — `massDriftDecay` re-referenced to
+   * the level the run is actually approaching. For a run that settles at zero the two
+   * coincide exactly; for one that settles at an offset only this one is meaningful.
+   */
+  massDriftDecayAboutLevel: number;
 }
 
 export interface AcousticPulse {
@@ -377,6 +425,24 @@ async function runOne(
       // as the streamwise one it is meant to close, or the two cannot be added.
       const lateral = lateralFlux(macro, flags, nx, ny, nz);
       const inScale = Math.max(Math.abs(a.massFlux), 1e-30);
+      const planeRhoRange = (x: number): { min: number; max: number } => {
+        let min = Infinity;
+        let max = -Infinity;
+        for (let z = 0; z < nz; z++) {
+          for (let y = 0; y < ny; y++) {
+            const idx = x + nx * (y + ny * z);
+            // Only Fluid cells carry macroscopics; every shell flag reads back as exactly 0
+            // (see `hasMacroscopics`), and folding those zeros in would report rhoMin = 0.
+            if (flags[idx] !== 0) continue;
+            const rho = macro[4 * idx];
+            if (rho < min) min = rho;
+            if (rho > max) max = rho;
+          }
+        }
+        return Number.isFinite(min) ? { min, max } : { min: Number.NaN, max: Number.NaN };
+      };
+      const inRange = planeRhoRange(xIn);
+      const outRange = planeRhoRange(xOut);
       samples.push({
         steps: sim.totalSteps,
         tConv: sim.totalSteps / T,
@@ -391,6 +457,12 @@ async function runOne(
           (field.totalMass - initialMass - cumulativeBoundaryMass) / initialMass,
         centerRho: center.meanRho,
         centerUx: center.coreMeanUx,
+        inRho: a.meanRho,
+        outRho: b.meanRho,
+        inRhoMin: inRange.min,
+        inRhoMax: inRange.max,
+        outRhoMin: outRange.min,
+        outRhoMax: outRange.max,
       });
     };
 
@@ -459,13 +531,46 @@ async function runOne(
       steadyMassDriftFirst: steady[0].field.massDriftRel,
       steadyMassDriftLast: steady[steady.length - 1].field.massDriftRel,
       massDriftSlopePerTConv: 0,
+      lateWindowSlopes: [],
+      lateLevel: Number.NaN,
+      massDriftDecayAboutLevel: 0,
     };
     {
       const dt = steady[steady.length - 1].tConv - steady[0].tConv;
       transient.massDriftSlopePerTConv =
         dt > 0 ? (transient.steadyMassDriftLast - transient.steadyMassDriftFirst) / dt : 0;
     }
+    // Four equal windows over the post-transient samples, each fitted independently. Four
+    // because the question is the SHAPE of the trend and three points cannot carry a standard
+    // error; fewer, longer windows would average a decay into a single nonzero slope.
+    {
+      const windows = 4;
+      const per = Math.floor(steady.length / windows);
+      if (per >= 3) {
+        for (let w = 0; w < windows; w++) {
+          const slice = steady.slice(w * per, w === windows - 1 ? steady.length : (w + 1) * per);
+          const fit = linearTrend(
+            slice.map((s) => s.tConv),
+            slice.map((s) => s.field.massDriftRel),
+          );
+          transient.lateWindowSlopes.push({
+            ...fit,
+            fromTConv: slice[0].tConv,
+            toTConv: slice[slice.length - 1].tConv,
+          });
+        }
+      }
+      const finalWindow = steady.slice(-Math.max(3, per));
+      transient.lateLevel = meanOf(finalWindow.map((s) => s.field.massDriftRel));
+    }
     transient.massDriftDecay = transient.peakMassDrift / Math.max(transient.steadyMassDrift, 1e-30);
+    {
+      const about = (s: TunnelSample): number =>
+        Math.abs(s.field.massDriftRel - transient.lateLevel);
+      const peak = Math.max(...early.map(about), 0);
+      const settled = Math.max(...steady.map(about), 0);
+      transient.massDriftDecayAboutLevel = peak / Math.max(settled, 1e-30);
+    }
     transient.fluxMismatchDecay =
       transient.peakFluxMismatch / Math.max(transient.steadyFluxMismatch, 1e-30);
 
@@ -654,33 +759,49 @@ function verdictOf(r: EmptyTunnelRun): { ok: boolean; why: string[] } {
       );
     if (Math.abs(r.worst.coreVelocityRatio) > BOUNDS.coreVelocity)
       why.push(`core u/u_in−1 = ${r.worst.coreVelocityRatio.toFixed(3)}`);
-    // The startup wave must have decayed. WHY it did not is two different diagnoses, and
+    // The startup wave must have SETTLED. WHY it did not is two different diagnoses, and
     // naming the wrong one sends the investigation at the wrong boundary — which is exactly
     // what happened on 2026-08-07, when a free-slip run that was filling monotonically was
     // reported as "boundary may be reflecting" and the free-slip BC was the prime suspect for
-    // a defect that turned out to be the inlet's. The slope tells them apart.
-    if (r.transient.massDriftDecay < BOUNDS.transientDecay) {
+    // a defect that turned out to be the inlet's.
+    //
+    // "Settled" is stated as a RATE about the level the run is approaching, not as a decay
+    // toward zero. The original `massDriftDecay = peak/steady` measures the drift against ρ≡1,
+    // which presumes the settled state IS zero. That holds for a zero-gradient copy outlet but
+    // is mathematically inapplicable to a fixed-density outlet, whose stable state carries a
+    // finite offset: M9 phase 3c E0 measured a Float64 run stationary to 5e-18 per step and
+    // approached from BOTH sides, sitting at ρ̄ = 1.0012, which the ratio scores as a failure.
+    //
+    // No threshold moves. `BOUNDS.transientDecay` is reused at the same 10× against the
+    // deviation from that level, and the level itself is still judged — separately and
+    // unchanged — by `BOUNDS.massDrift` above. A diverging run has no plateau to be small
+    // against and fails the added slope test, so this is stricter there, not looser.
+    {
       const t = r.transient;
-      // Monotonic growth across the whole post-transient window, still going at the end.
-      const accumulating =
-        Math.abs(t.steadyMassDriftLast) > Math.abs(t.steadyMassDriftFirst) &&
-        Math.sign(t.massDriftSlopePerTConv) === Math.sign(t.steadyMassDriftLast) &&
-        t.massDriftSlopePerTConv !== 0;
-      why.push(
-        `mass-drift transient decayed only ${t.massDriftDecay.toFixed(2)}× ` +
-          `(< ${BOUNDS.transientDecay}) — ` +
-          (accumulating
-            ? `mass is ACCUMULATING MONOTONICALLY (${t.steadyMassDriftFirst.toExponential(2)} → ` +
-              `${t.steadyMassDriftLast.toExponential(2)}, slope ` +
-              `${t.massDriftSlopePerTConv.toExponential(2)}/T_conv): the run never reaches a ` +
-              `steady state. This is an inlet/outlet incompatibility — the inlet is delivering ` +
-              `mass the outlet does not remove and no boundary relieves — NOT a reflecting far ` +
-              `field. Check the inlet formulation before suspecting the lateral BC`
-            : `the drift is not decaying but is not growing either (${t.steadyMassDriftFirst.toExponential(2)} → ` +
-              `${t.steadyMassDriftLast.toExponential(2)}, slope ` +
-              `${t.massDriftSlopePerTConv.toExponential(2)}/T_conv): consistent with a far field ` +
-              `that keeps re-exciting the domain`),
-      );
+      const resolved = t.lateWindowSlopes.filter((w) => w.tStatistic > 2);
+      const trending =
+        resolved.length > 0 &&
+        resolved.every((w) => Math.sign(w.slope) === Math.sign(resolved[0].slope));
+      const settledAboutLevel = t.massDriftDecayAboutLevel >= BOUNDS.transientDecay;
+      const windowSummary = t.lateWindowSlopes
+        .map((w) => `${w.slope.toExponential(2)}±${w.slopeStdErr.toExponential(1)}`)
+        .join(', ');
+      if (trending) {
+        why.push(
+          `mass drift is still TRENDING at the end of the run: late-window slopes ` +
+            `[${windowSummary}]/T_conv, all resolved (|t|>2) and same-signed, settling toward ` +
+            `${t.lateLevel.toExponential(2)}. The run has not reached a steady state — either ` +
+            `a boundary is supplying mass no other removes, or the window is too short. ` +
+            `Compare the signed inlet/outlet budget before suspecting the lateral BC`,
+        );
+      } else if (!settledAboutLevel) {
+        why.push(
+          `mass drift is not trending (late-window slopes [${windowSummary}]/T_conv) but has ` +
+            `not settled about its level either: deviation from ${t.lateLevel.toExponential(2)} ` +
+            `decayed only ${t.massDriftDecayAboutLevel.toFixed(2)}× (< ${BOUNDS.transientDecay}) — ` +
+            `consistent with a far field that keeps re-exciting the domain`,
+        );
+      }
     }
     if (r.transient.fluxMismatchDecay < BOUNDS.transientDecay)
       why.push(
@@ -726,7 +847,23 @@ function perRunLines(r: EmptyTunnelRun, v: { ok: boolean; why: string[] }): stri
       `in-out=${fmtE((last?.inFlux ?? 0) - (last?.outFlux ?? 0))} vs lateral net=${fmtE(last?.lateral.net)} ` +
       `| steady massDrift ${r.transient.steadyMassDriftFirst.toExponential(2)}→` +
       `${r.transient.steadyMassDriftLast.toExponential(2)} ` +
-      `(slope ${r.transient.massDriftSlopePerTConv.toExponential(2)}/T_conv)`,
+      `(chord ${r.transient.massDriftSlopePerTConv.toExponential(2)}/T_conv)`,
+    `     late-window slopes/T_conv: ` +
+      (r.transient.lateWindowSlopes.length === 0
+        ? '(too few post-transient samples to fit)'
+        : r.transient.lateWindowSlopes
+            .map(
+              (w) =>
+                `[${w.fromTConv.toFixed(0)}–${w.toTConv.toFixed(0)}] ` +
+                `${w.slope.toExponential(2)}±${w.slopeStdErr.toExponential(1)} ` +
+                `(|t|=${w.tStatistic.toFixed(1)})`,
+            )
+            .join('  ')),
+    `     level=${r.transient.lateLevel.toExponential(3)} ` +
+      `decay about level=${r.transient.massDriftDecayAboutLevel.toFixed(2)}x ` +
+      `(vs decay about zero=${r.transient.massDriftDecay.toFixed(2)}x) | ` +
+      `inRho=${fmtE(last?.inRho)} outRho=${fmtE(last?.outRho)} ` +
+      `inRho-outRho=${fmtE((last?.inRho ?? 0) - (last?.outRho ?? 0))}`,
     `     exact mass ledger: cumulative boundary=${fmtE(last?.cumulativeBoundaryMass)} ` +
       `closure/initial=${fmtE(last?.massLedgerClosureRel)} ` +
       `worst=${r.worst.massLedgerClosureRel.toExponential(2)}`,
@@ -858,7 +995,16 @@ function pressureOutletAbLines(runs: EmptyTunnelRun[]): string[] {
         .map((r) => (verdictOf(r).ok ? 'PASS' : 'FAIL').padStart(16))
         .join('')}`,
       row('rhoMean last', (r) => r.samples.at(-1)?.field.rhoMean ?? Number.NaN, true),
-      row('mass slope / Tconv', (r) => r.transient.massDriftSlopePerTConv),
+      row('mass chord / Tconv', (r) => r.transient.massDriftSlopePerTConv),
+      row('fit slope w1', (r) => r.transient.lateWindowSlopes[0]?.slope ?? Number.NaN),
+      row('fit slope w4', (r) => r.transient.lateWindowSlopes.at(-1)?.slope ?? Number.NaN),
+      row('fit |t| w4', (r) => r.transient.lateWindowSlopes.at(-1)?.tStatistic ?? Number.NaN, true),
+      row('late level', (r) => r.transient.lateLevel),
+      row('decay about level', (r) => r.transient.massDriftDecayAboutLevel, true),
+      row(
+        'inRho − outRho',
+        (r) => (r.samples.at(-1)?.inRho ?? 0) - (r.samples.at(-1)?.outRho ?? 0),
+      ),
       row('mass-ledger closure', (r) => r.worst.massLedgerClosureRel),
       row('coreU / u_in', (r) => r.worst.coreVelocityRatio + 1, true),
       row('rho min', (r) => r.worst.rhoMin, true),

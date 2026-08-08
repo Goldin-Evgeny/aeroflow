@@ -1038,6 +1038,18 @@ function armsFromUrl(): TunnelArm[] {
   );
 }
 
+/**
+ * `?tconv=` — total convective times. Phase 3c needs this because the question "has the run
+ * settled?" is only answerable by running longer: the anchored mass mode relaxes in ~1.4
+ * T_conv, so a window that is too short reports a transient as a trend.
+ */
+function tConvFromUrl(): number | undefined {
+  const raw = new URLSearchParams(location.search).get('tconv');
+  if (raw === null) return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > TRANSIENT_TCONV ? n : undefined;
+}
+
 function tiersFromUrl(): number[] | undefined {
   const raw = new URLSearchParams(location.search).get('tiers');
   if (!raw) return undefined;
@@ -1051,7 +1063,7 @@ function tiersFromUrl(): number[] | undefined {
 export async function mountEmptyTunnel(device: GPUDevice, root: HTMLElement): Promise<void> {
   root.innerHTML = '<p>Running the Ahmed empty-tunnel control (M9 phase 2/3/3b)…</p>';
   try {
-    const r = await runEmptyTunnel(device, tiersFromUrl(), undefined, armsFromUrl());
+    const r = await runEmptyTunnel(device, tiersFromUrl(), tConvFromUrl(), armsFromUrl());
     hooks().emptyTunnel = r;
     const tbl = (rows: string) => `<table style="border-collapse:collapse">${rows}</table>`;
     root.innerHTML = `

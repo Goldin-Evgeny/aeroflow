@@ -225,3 +225,71 @@ Float64 on 240 fluid cells.
 reconstruction. What this scene cannot settle is magnitude: its mass mode relaxes in
 `V/(kappa*A_out) = 240/4.25 ~ 56` steps and it ran 107 of those, while the 250k tunnel ran 29.
 The open question is therefore whether the 250k run had simply not finished settling.
+
+### 8.2 E1 — the residual slope is a chord artifact
+
+Stage A re-run at 250k with the per-sample series persisted and the drift fitted over four
+successive late windows. The physics is unchanged and the run reproduces Stage A exactly
+(`rhoMean` 1.109897 / 1.003177, chord 8.140e-4 / 1.485e-4).
+
+| late-window slope / `T_conv` | H4 zero-gradient    | H14 pressure         |
+| ---------------------------- | ------------------- | -------------------- |
+| `[5–11]`                     | 1.28e-3 (\|t\|=6)   | -1.86e-3 (\|t\|=0.3) |
+| `[13–19]`                    | 7.34e-4 (\|t\|=124) | -2.43e-3 (\|t\|=0.6) |
+| `[21–27]`                    | 6.76e-4 (\|t\|=121) | 1.29e-3 (\|t\|=0.4)  |
+| `[29–41]`                    | 7.50e-4 (\|t\|=83)  | 1.86e-4 (\|t\|=0.4)  |
+| late level                   | 1.075e-1            | -1.171e-4            |
+
+**H14 has no secular mass drift.** All four of its fitted slopes are indistinguishable from
+zero at \|t\| <= 0.6 and they alternate in sign; the drift oscillates about -1.2e-4. The
+reported 1.49e-4 per `T_conv` was the two-endpoint chord between `drift(5) = -2.17e-3`, taken
+inside the startup ring-down, and `drift(41) = +3.18e-3`. Zero-gradient on the same grid is
+the opposite in every respect: four same-signed slopes resolved at \|t\| = 83 to 124, settling
+toward a level of 0.108. The statistic separates them cleanly.
+
+### 8.3 E2 — the window was too short, by about 20x
+
+Pressure arm only, same 250k grid, 120 convective times (68,144 steps, 9.5 s). Maxima taken
+over successive windows rather than over everything after `T_conv = 5`:
+
+| window `T_conv` | max \|drift\| | max fluxMismatch | center-rho amplitude |
+| --------------- | ------------: | ---------------: | -------------------: |
+| 5–10            |       2.62e-2 |          7.63e-1 |              1.50e-2 |
+| 10–20           |       2.81e-2 |          4.38e-1 |              3.34e-2 |
+| 20–40           |       1.19e-2 |          1.87e-1 |              1.47e-2 |
+| 40–60           |       3.65e-3 |          8.75e-2 |              4.30e-3 |
+| 60–90           |       1.74e-3 |          3.08e-2 |              2.10e-3 |
+| 90–125          |       5.73e-4 |          9.46e-3 |              6.33e-4 |
+
+Everything decays monotonically, by roughly a decade per 40 `T_conv`: drift 49x, flux
+mismatch 81x, center-rho amplitude 53x. **In its final window the run satisfies both
+`BOUNDS.massDrift` (5.73e-4 < 1e-3) and `BOUNDS.fluxMismatch` (9.46e-3 < 0.05)**, with no
+threshold touched. The fitted slopes fall the same way — 4.95e-5, -2.71e-5, -1.26e-5,
+-2.01e-6 per `T_conv`, a 25x reduction, none resolved from zero — and the chord itself drops
+from 1.485e-4 to 2.15e-5 purely from running longer.
+
+The standing density field converges with it. Streamwise `max|rho-1|` falls from 8.18e-3 at
+41 `T_conv` to **8.64e-4** at 120, `rhoSpan(x)` to 9.82e-4, and `rho_in - rho_out` from
+8.21e-3 to 9.82e-4. The outlet holds `rho_out = 0.9999`: the anchor does exactly what it was
+built to do. Against zero-gradient's 1.11e-1 standing deviation, that is a 128x improvement.
+The ledger closes at 1.2e-7 throughout.
+
+**Why the ring-down is so long.** Resolved viscosity is `nu = u*L/Re = 3.28e-7`, so there is
+almost nothing to damp acoustic energy, and a fixed-density outlet is a pressure-release
+condition that reflects it rather than passing it. The measured reflection ratio is 0.91 at
+both run lengths. Section 7 pitfall 6 anticipated exactly this. It is a slow ring-down, not a
+sustained standing mode — it decays 50-80x over the run — but it sets the settling time, and
+~90 `T_conv` is what this configuration needs.
+
+**Verdict on Stage A: the FAIL was correct as a statement about that run, and wrong as a
+statement about H14.** The outlet is sound. What failed was a 40-`T_conv` window applied to a
+configuration that rings down over ~90, judged by a chord that cannot tell settling from
+divergence. Both diagnostics are now stated as rates.
+
+**Open, and deliberately not decided here:** `TRANSIENT_TCONV = 5` in `ahmedEmptyTunnel.ts`
+splits transient from steady, and every `worst.*` is a maximum after it. That split was
+calibrated against a non-reflecting far field. With this outlet the maxima above are dominated
+by the 5-20 `T_conv` band and describe the transient, not the steady state — which is why the
+120-`T_conv` run still reports `massDrift = 2.81e-2` even though its final window is 5.73e-4.
+Changing that constant changes what every arm of phases 2, 3 and 3b measured, so it is not
+changed as part of this investigation.

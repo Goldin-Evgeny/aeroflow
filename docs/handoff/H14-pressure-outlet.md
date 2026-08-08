@@ -293,3 +293,72 @@ by the 5-20 `T_conv` band and describe the transient, not the steady state — w
 120-`T_conv` run still reports `massDrift = 2.81e-2` even though its final window is 5.73e-4.
 Changing that constant changes what every arm of phases 2, 3 and 3b measured, so it is not
 changed as part of this investigation.
+
+### 8.4 E3 — the 2M gate-3 validation
+
+The pressure arm only, `outlet=pressure`, `?tconv=120`, real GPU FP32, via the `gpu` Playwright
+project (`H14 pressure outlet 2M empty tunnel (E3)`, `pressure-outlet.gpu.spec.ts:107`). Same
+topology as E2 (VelocityInlet, free-slip top/sides, no-slip ground, H10 + H13, LES `Cs=0.1`,
+TRT, `regularize+conserveMass`), `Re=4.29e6`. `?tiers=2000000` sizes the grid to
+**237x69x122 = 1,995,066 cells**, `tau0 = 0.500002074`. `T_conv = 1186` steps; the run advanced
+143,532 steps (94.7 s compute). Raw per-sample series and summary are preserved at
+`apps/studio/test-results/phase3c/pressure-outlet-2m-tconv120{.txt,-samples.json}` (git-ignored,
+regenerate by re-running the command below).
+
+```
+PHASE3C_E3=1 npx playwright test -c apps/studio/playwright.config.ts --project=gpu \
+  apps/studio/e2e/pressure-outlet.gpu.spec.ts -g "E3"
+```
+
+| window `T_conv` | max \|drift\| | max fluxMismatch | center-rho amplitude | mirror max\|du\| | mirror max\|dRho\| |
+| ---------------- | ------------: | ----------------: | --------------------: | ----------------: | ------------------: |
+| 5–10              |       3.27e-2 |           9.78e-1 |               1.64e-2 |            9.94e-2 |              1.03e-2 |
+| 10–20             |       4.32e-2 |           6.57e-1 |               5.04e-2 |            1.00e-1 |              5.15e-3 |
+| 20–40             |       2.41e-2 |           3.87e-1 |               2.48e-2 |            6.82e-2 |              1.10e-1 |
+| 40–60             |       7.42e-3 |           2.02e-1 |               9.83e-3 |            8.92e-2 |              1.95e-1 |
+| 60–90             |       3.07e-3 |           6.10e-2 |               4.87e-3 |            7.67e-2 |              1.60e-1 |
+| 90–120            |       7.65e-4 |           9.25e-3 |               1.10e-3 |            7.15e-2 |              1.23e-1 |
+
+`massDrift`/`fluxMismatch`/`centerRhoAmplitude` reproduce E2's 250k shape almost exactly: a
+5-20 `T_conv` transient peak, then monotonic decay to a final window comparable in *magnitude*
+to the 250k result (250k final window: 5.73e-4 / 9.46e-3; 2M final window: 7.65e-4 / 9.25e-3).
+Decay from peak to final window is 56.6x (drift), 105.7x (flux), 45.7x (center-rho) — same
+order as E2's 49x/81x/53x. The four late-window slope fits are all unresolved from zero
+(`|t|` = 0.1, 0.2, 0.3, 0.1 per `T_conv`), matching E1's finding at 250k: no secular trend, an
+oscillating residual settling toward a level.
+
+**`worst.*`/`verdictOf` report FAIL** (`massDrift 4.32e-2 > 1e-3`, `fluxMismatch 9.78e-1 > 0.05`,
+transient decay 1.88x/1.1x `< 10`) — this is the same known artifact as Stage A: `worst.*` is a
+maximum over the whole post-`TRANSIENT_TCONV` window, so for this outlet it is dominated by the
+5-20 `T_conv` band and cannot distinguish "still ringing down" from "diverging" (§8.3 above,
+"Open, and deliberately not decided here"). It is not read as the gate result, for the same
+reason `worst.*` was not read as the gate result at 250k.
+
+**Gate-3 evidence** (the E3 test's own assertions, independently re-derived from the persisted
+`-samples.json`, not just the boolean exit code): `nonFiniteCells = 0`;
+`massLedgerClosureRel = 2.484e-7` (bound `5e-5`); `machMax = 0.2222` (bound `0.3`); final window
+`maxAbsMassDrift = 7.645e-4` (bound `BOUNDS.massDrift = 1e-3`); final window
+`maxFluxMismatch = 9.252e-3` (bound `BOUNDS.fluxMismatch = 0.05`). All five pass, with no bound
+touched or relaxed.
+
+**Mirror asymmetry (`mirrorAsymmetryZ`) — reported, still ungated, first measurement at this
+grid.** `maxMirrorDu` stays roughly flat across windows (9.9e-2 → 1.00e-1 → 6.8e-2 → 8.9e-2 →
+7.7e-2 → 7.1e-2 lattice velocity units), a modest ~1.4x reduction from first window to last,
+against `uMax = 0.128` — i.e. it does not decay toward roundoff the way the scalar bounds do.
+`maxMirrorDRho` is **not** monotonic and does **not** decay: it grows roughly 19x from the first
+window (1.03e-2) to its peak in the 40-60 window (1.95e-1), then eases only to 1.23e-1 by the
+final window — still ~12x its starting level, against a streamwise `rhoSpan ≈ 0.48`. This is
+exactly the kind of signal `mirrorAsymmetryZ` was added to catch (a growing asymmetry no scalar
+`BOUNDS` sees), and it is not a re-run of an existing number — this is the instrumentation's
+first-ever measurement, so there is no 250k analog to compare it against. H14 does not define an
+acceptance bound for it, and per Section 6 none is invented here; it is recorded as an open
+question for follow-up, not read as a gate-3 stop condition (Section 6 lists non-finite
+populations, unbounded density, a resolved secular mass trend, failed flux closure, and
+out-of-envelope Mach as the stop conditions — mirror asymmetry is not among them).
+
+**Verdict: Gate 3 (H14 §5 step 3) is CLOSED.** The 2M pressure arm passes every existing H14
+acceptance bound in its final window, by the same judging method (final window over `worst.*`)
+already established and justified at 250k in §8.2-8.3, with the same qualitative ring-down shape
+and comparable final-window magnitude. No solver, kernel, or bound changed to reach this result.
+The growing mirror-density asymmetry is flagged as an open, ungated follow-up question, not a
+blocker.

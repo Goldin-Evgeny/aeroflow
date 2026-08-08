@@ -4,6 +4,7 @@ import {
   fieldStats,
   lateralFlux,
   linearTrend,
+  mirrorAsymmetryZ,
   sectionStats,
   validateFreeSlip,
   type AhmedInletBC,
@@ -11,6 +12,7 @@ import {
   type FieldStats,
   type LateralFlux,
   type LinearTrend,
+  type MirrorAsymmetry,
   type Outlet3D,
 } from '@aeroflow/core';
 import { Lbm3D } from '../sim/lbm3d';
@@ -137,6 +139,14 @@ export interface TunnelSample {
   inRhoMax: number;
   outRhoMin: number;
   outRhoMax: number;
+  /**
+   * z-mirror symmetry residual (phase 3c/2M), off the SAME readback as `field` — no extra GPU
+   * round trip. The empty tunnel has no asymmetric geometry or forcing under any BC combination
+   * it runs, so this should hold at a flat floor; a residual that GROWS across the window table
+   * is a pathology none of the existing scalar bounds would catch (see `mirrorAsymmetryZ`).
+   * Diagnostic only — no threshold is asserted on it.
+   */
+  mirror: MirrorAsymmetry;
 }
 
 export interface StreamwiseStation {
@@ -250,6 +260,41 @@ export interface AcousticPulse {
   decay: number;
 }
 
+/**
+ * One T_conv window's maxima over the post-transient samples it contains (phase 3c/2M).
+ *
+ * H14 §8.3's window table (5–10, 10–20, 20–40, 40–60, 60–90, 90–end T_conv) was built by hand
+ * off the persisted per-sample JSON to answer one question a single post-transient maximum
+ * cannot: is the envelope still SHRINKING, or has it stopped? This computes that table directly
+ * from the harness so the answer is reproducible from the run itself.
+ *
+ * REPORTED, UNGATED — like `AcousticPulse` and `lateral`, no threshold is invented here.
+ * `BOUNDS`/`worst.*` still decide pass/fail on the identical post-transient window they always
+ * have; these windows only describe the SHAPE within that window (still decaying, plateaued at
+ * a bounded floor, or growing) — see the module-level stop-condition discussion in the M9
+ * force-audit plan. A plateau is not automatically unhealthy: a quantity that has settled to a
+ * flat, in-bounds floor with an unresolved slope is a converged run, not a failing one.
+ */
+export interface WindowEnvelope {
+  fromTConv: number;
+  toTConv: number;
+  samples: number;
+  maxAbsMassDrift: number;
+  maxFluxMismatch: number;
+  /**
+   * max|centerRho − windowMeanRho|, the acoustic amplitude measured about THIS window's OWN
+   * mean rather than the run-end baseline `AcousticPulse` uses. H14 §8 qualification 1: a
+   * baseline taken from the run's last samples aliases any secular offset between an early
+   * window and the run's end into "amplitude" when the run has not yet settled. A per-window
+   * baseline cannot make that mistake.
+   */
+  centerRhoAmplitude: number;
+  /** Worst z-mirror velocity-residual magnitude in this window (diagnostic, see `mirror`). */
+  maxMirrorDu: number;
+  /** Worst z-mirror density residual in this window (diagnostic, see `mirror`). */
+  maxMirrorDRho: number;
+}
+
 export interface EmptyTunnelRun {
   /** Which far field this arm ran (phase 3). */
   lateralBC: AhmedLateralBC;
@@ -277,6 +322,15 @@ export interface EmptyTunnelRun {
   stagger: StaggerProbe;
   transient: TransientDecay;
   acoustic: AcousticPulse;
+  /**
+   * Successive T_conv windows over the post-transient samples (phase 3c/2M) — see
+   * `WindowEnvelope`. REPORTED, UNGATED. Empty when the run is too short to form even one
+   * window past `TRANSIENT_TCONV`.
+   */
+  windows: WindowEnvelope[];
+  /** `windows.at(-1)` — the window a settled run should be judged by. `undefined` iff
+   *  `windows` is empty. */
+  finalWindow: WindowEnvelope | undefined;
   /** Worst values over the POST-TRANSIENT samples only — see `TransientDecay`. */
   worst: {
     absMassDrift: number;
@@ -296,6 +350,9 @@ export interface EmptyTunnelRun {
     /** Worst |lateral.net| / |inFlux| over the post-transient samples (phase 3, ungated). */
     lateralNetOverInflow: number;
     massLedgerClosureRel: number;
+    /** Worst z-mirror velocity-residual magnitude over the post-transient samples (phase
+     *  3c/2M, REPORTED UNGATED — see `mirrorAsymmetryZ`). */
+    mirrorMaxDu: number;
   };
   ms: number;
 }
@@ -355,6 +412,44 @@ function staggerOf(v: number[]): { stagger: number; cv: number } {
   const denom = Math.max(Math.abs(m), 1e-30);
   const sd = Math.sqrt(meanOf(v.map((x) => (x - m) * (x - m))));
   return { stagger: Math.abs(meanOf(even) - meanOf(odd)) / denom, cv: sd / denom };
+}
+
+/**
+ * Window edges (T_conv), matching H14 §8.3's hand-built table exactly: roughly a decade of
+ * runtime per window past the transient split, so a run that keeps decaying by an order of
+ * magnitude every ~40 T_conv shows it, and a run that has plateaued shows that too.
+ */
+const WINDOW_EDGES_TCONV = [5, 10, 20, 40, 60, 90] as const;
+
+/**
+ * Reduces the post-transient (`steady`) samples into successive `WindowEnvelope`s — see that
+ * interface for what this answers and does not. Edges below `tConvTotal` are used as given;
+ * `tConvTotal` itself always closes the last window, so a short run (e.g. the historical 40
+ * T_conv default) still gets a table, just with fewer rows, and a long run (120+) reproduces
+ * the H14 §8.3 windows exactly.
+ */
+function computeWindows(steady: TunnelSample[], tConvTotal: number): WindowEnvelope[] {
+  const edges = [...WINDOW_EDGES_TCONV.filter((e) => e < tConvTotal), tConvTotal];
+  const windows: WindowEnvelope[] = [];
+  for (let i = 0; i < edges.length - 1; i++) {
+    const from = edges[i];
+    const to = edges[i + 1];
+    const isLast = i === edges.length - 2;
+    const slice = steady.filter((s) => s.tConv >= from && (isLast ? s.tConv <= to : s.tConv < to));
+    if (slice.length === 0) continue;
+    const windowMeanRho = meanOf(slice.map((s) => s.centerRho));
+    windows.push({
+      fromTConv: from,
+      toTConv: to,
+      samples: slice.length,
+      maxAbsMassDrift: Math.max(...slice.map((s) => Math.abs(s.field.massDriftRel))),
+      maxFluxMismatch: Math.max(...slice.map((s) => s.fluxMismatch)),
+      centerRhoAmplitude: Math.max(...slice.map((s) => Math.abs(s.centerRho - windowMeanRho)), 0),
+      maxMirrorDu: Math.max(...slice.map((s) => s.mirror.maxAbsDu), 0),
+      maxMirrorDRho: Math.max(...slice.map((s) => s.mirror.maxAbsDRho), 0),
+    });
+  }
+  return windows;
 }
 
 async function runOne(
@@ -424,6 +519,10 @@ async function runOne(
       // Same readback as the section stats — the lateral budget must describe the same instant
       // as the streamwise one it is meant to close, or the two cannot be added.
       const lateral = lateralFlux(macro, flags, nx, ny, nz);
+      // Same readback — no extra GPU round trip. The empty tunnel has no asymmetric geometry
+      // or forcing under any BC combination it runs, so this is a growth check, not a level
+      // check (see `mirrorAsymmetryZ`'s module docstring for why the scalar bounds miss this).
+      const mirror = mirrorAsymmetryZ(macro, flags, nx, ny, nz);
       const inScale = Math.max(Math.abs(a.massFlux), 1e-30);
       const planeRhoRange = (x: number): { min: number; max: number } => {
         let min = Infinity;
@@ -463,6 +562,7 @@ async function runOne(
         inRhoMax: inRange.max,
         outRhoMin: outRange.min,
         outRhoMax: outRange.max,
+        mirror,
       });
     };
 
@@ -607,8 +707,11 @@ async function runOne(
       coreVelocityRatio: Math.max(...streamwise.map((s) => s.coreMeanUx)) / scene.uLattice - 1,
       lateralNetOverInflow: Math.max(...steady.map((s) => Math.abs(s.lateralNetOverInflow))),
       massLedgerClosureRel: Math.max(...samples.map((s) => Math.abs(s.massLedgerClosureRel))),
+      mirrorMaxDu: Math.max(...steady.map((s) => s.mirror.maxAbsDu)),
     };
     worst.rhoSpan = worst.rhoMax - worst.rhoMin;
+
+    const windows = computeWindows(steady, tConvTotal);
 
     return {
       lateralBC: scene.lateralBC,
@@ -633,6 +736,8 @@ async function runOne(
       streamwise,
       transient,
       acoustic,
+      windows,
+      finalWindow: windows.at(-1),
       stagger: {
         totalMass,
         rhoMean,
@@ -867,6 +972,33 @@ function perRunLines(r: EmptyTunnelRun, v: { ok: boolean; why: string[] }): stri
     `     exact mass ledger: cumulative boundary=${fmtE(last?.cumulativeBoundaryMass)} ` +
       `closure/initial=${fmtE(last?.massLedgerClosureRel)} ` +
       `worst=${r.worst.massLedgerClosureRel.toExponential(2)}`,
+    `     T_conv windows (REPORTED, UNGATED — shape only, BOUNDS/worst.* still decide health): ` +
+      (r.windows.length === 0
+        ? '(too few post-transient samples to form a window)'
+        : r.windows
+            .map(
+              (w) =>
+                `[${w.fromTConv.toFixed(0)}-${w.toTConv.toFixed(0)}] n=${w.samples} ` +
+                `maxDrift=${w.maxAbsMassDrift.toExponential(2)} ` +
+                `maxFluxMismatch=${w.maxFluxMismatch.toExponential(2)} ` +
+                `centerRhoAmp=${w.centerRhoAmplitude.toExponential(2)} ` +
+                `mirrorDu=${w.maxMirrorDu.toExponential(2)}`,
+            )
+            .join('  ')),
+    r.finalWindow
+      ? `     final window [${r.finalWindow.fromTConv.toFixed(0)}-${r.finalWindow.toTConv.toFixed(0)}]: ` +
+        `massDrift=${r.finalWindow.maxAbsMassDrift.toExponential(2)} ` +
+        `(bar ${BOUNDS.massDrift.toExponential(0)}) ` +
+        `fluxMismatch=${r.finalWindow.maxFluxMismatch.toExponential(2)} ` +
+        `(bar ${BOUNDS.fluxMismatch.toExponential(0)}) ` +
+        `centerRhoAmp=${r.finalWindow.centerRhoAmplitude.toExponential(2)}`
+      : '     final window: (too few post-transient samples)',
+    `     mirror asymmetry (z, REPORTED UNGATED — diagnostic only, see mirrorAsymmetryZ): ` +
+      `worst(steady) maxDu=${r.worst.mirrorMaxDu.toExponential(2)} | ` +
+      `by window: ` +
+      (r.windows.length === 0
+        ? '(none)'
+        : r.windows.map((w) => `${w.maxMirrorDu.toExponential(2)}`).join(' -> ')),
     `     nonFinite=${r.worst.nonFiniteCells}`,
   ];
 }
@@ -1013,10 +1145,47 @@ function pressureOutletAbLines(runs: EmptyTunnelRun[]): string[] {
       row('acoustic reflected', (r) => r.acoustic.reflectedAmplitude),
       row('acoustic late', (r) => r.acoustic.lateAmplitude),
       row('acoustic decay', (r) => r.acoustic.decay, true),
+      row('final window massDrift', (r) => r.finalWindow?.maxAbsMassDrift ?? Number.NaN),
+      row('final window fluxMismatch', (r) => r.finalWindow?.maxFluxMismatch ?? Number.NaN),
+      row(
+        'final window centerRhoAmp',
+        (r) => r.finalWindow?.centerRhoAmplitude ?? Number.NaN,
+      ),
+      row('mirror asymmetry (worst)', (r) => r.worst.mirrorMaxDu),
+      row('mirror asymmetry (final window)', (r) => r.finalWindow?.maxMirrorDu ?? Number.NaN),
       '',
     );
   }
   return out;
+}
+
+const OUTLET_VALUES: readonly Outlet3D[] = ['zero-gradient', 'pressure'];
+const LATERAL_BC_VALUES: readonly AhmedLateralBC[] = ['freestream', 'freeslip'];
+const INLET_BC_VALUES: readonly AhmedInletBC[] = ['equilibrium', 'velocity'];
+
+/**
+ * Reads `param` off the URL and validates it against `valid`. Absent means "keep the default" —
+ * `undefined`. **Present-but-wrong throws**, rather than falling back the way an absent param
+ * does: a typo in an experimental BC override (`?outlet=typo`) must not silently run a
+ * DIFFERENT, unrequested experiment (here, silently falling back to the historical arm) and
+ * report a clean result for it. The other overrides in this module (`tconv`, `tiers`) stay
+ * fall-back-on-absent-or-garbage because they are not experiment SELECTORS — a bad `tconv` just
+ * means "use the caller's own default duration", not "run a different boundary condition".
+ */
+function requireValidParam<T extends string>(
+  q: URLSearchParams,
+  param: string,
+  valid: readonly T[],
+): T | undefined {
+  const raw = q.get(param);
+  if (raw === null) return undefined;
+  if (!(valid as readonly string[]).includes(raw)) {
+    throw new Error(
+      `?${param}=${raw} is not a recognized value (expected one of: ${valid.join(', ')}). ` +
+        `Refusing to silently fall back to the historical configuration for a typo.`,
+    );
+  }
+  return raw as T;
 }
 
 /**
@@ -1028,13 +1197,13 @@ function pressureOutletAbLines(runs: EmptyTunnelRun[]): string[] {
 function armsFromUrl(): TunnelArm[] {
   const q = new URLSearchParams(location.search);
   if (q.has('phase3c')) {
-    const outlet = q.get('outlet');
-    return PRESSURE_OUTLET_AB.filter((arm) => outlet === null || arm.outlet === outlet);
+    const outlet = requireValidParam(q, 'outlet', OUTLET_VALUES);
+    return PRESSURE_OUTLET_AB.filter((arm) => outlet === undefined || arm.outlet === outlet);
   }
-  const lat = q.get('lateralBC');
-  const inl = q.get('inletBC');
+  const lat = requireValidParam(q, 'lateralBC', LATERAL_BC_VALUES);
+  const inl = requireValidParam(q, 'inletBC', INLET_BC_VALUES);
   return TUNNEL_2X2.filter(
-    (a) => (lat === null || lat === a.lateralBC) && (inl === null || inl === a.inletBC),
+    (a) => (lat === undefined || lat === a.lateralBC) && (inl === undefined || inl === a.inletBC),
   );
 }
 

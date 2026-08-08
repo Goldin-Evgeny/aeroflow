@@ -88,6 +88,45 @@ test('H14 pressure outlet long-window ring-down (E2)', async ({ gpuPage: page },
   expect(long.runs[0].worst.massLedgerClosureRel).toBeLessThanOrEqual(5e-5);
 });
 
+/**
+ * E3 — the 2M H14 empty-tunnel validation (M9 phase 3c/2M plan, step 1).
+ *
+ * H14 §5 gate 3 calls for the 2M pressure arm; the staged test below never reached it, because
+ * its escalation gates on the 250k verdict (dominated by the 5–20 T_conv transient band for
+ * this outlet) and would in any case have used the 40-T_conv default window E2 proved too
+ * short. This runs the 2M tier directly at the 120-T_conv protocol, independent of that staged
+ * escalation, with `?tconv=120` so the run is judged by its FINAL window rather than by
+ * `worst.*` (which, by construction, is still dominated by the startup ring-down at any T_conv).
+ *
+ * A plateau at a low, in-bounds, non-growing level is a converged run, not a failure — only a
+ * final window outside the existing bounds, a resolved secular slope, or growing asymmetry is a
+ * stop condition. `BOUNDS.massDrift`/`BOUNDS.fluxMismatch` are not exported from the harness
+ * module; the literal values below are the SAME numbers, not new ones (see
+ * `ahmedEmptyTunnel.ts`'s `BOUNDS` and H14 §8.3, which state them explicitly).
+ */
+test('H14 pressure outlet 2M empty tunnel (E3)', async ({ gpuPage: page }, testInfo) => {
+  test.setTimeout(30 * 60_000);
+  test.skip(process.env.PHASE3C_E3 !== '1', 'set PHASE3C_E3=1 to run the 2M validation');
+
+  await page.goto(`${BASE_URL}/?emptytunnel&phase3c&outlet=pressure&tiers=2000000&tconv=120`);
+  const report = await waitForRun(page);
+  console.log(`\n${report.lines.join('\n')}\n`);
+  await attachRun(testInfo, 'pressure-outlet-2m-tconv120', report);
+
+  expect(report.gpuErrors).toEqual([]);
+  expect(report.runs).toHaveLength(1);
+  const run = report.runs[0];
+  expect(run.outlet).toBe('pressure');
+  expect(run.worst.nonFiniteCells).toBe(0);
+  expect(run.worst.massLedgerClosureRel).toBeLessThanOrEqual(5e-5);
+
+  // Judge the FINAL window, not `worst.*` — see the module docstring above and H14 §8.3.
+  expect(run.finalWindow, 'run too short to form a final window').toBeDefined();
+  expect(run.finalWindow!.maxAbsMassDrift).toBeLessThan(1e-3); // BOUNDS.massDrift
+  expect(run.finalWindow!.maxFluxMismatch).toBeLessThan(0.05); // BOUNDS.fluxMismatch
+  expect(run.worst.machMax).toBeLessThan(0.3); // BOUNDS.machMax
+});
+
 test('H14 pressure outlet staged empty-tunnel validation', async ({ gpuPage: page }, testInfo) => {
   test.setTimeout(30 * 60_000);
   // Stage A only unless Stage B is asked for BY NAME. It used to default to 'all', which left
@@ -125,7 +164,10 @@ test('H14 pressure outlet staged empty-tunnel validation', async ({ gpuPage: pag
     return;
   }
 
-  await page.goto(`${BASE_URL}/?emptytunnel&phase3c&outlet=pressure&tiers=2000000`);
+  // E2/E3 measured this outlet ringing down over ~90 T_conv; the old 40-T_conv default would
+  // report the transient as the verdict (H14 §8.3), so the escalation now uses the protocol
+  // that has actually been shown to settle.
+  await page.goto(`${BASE_URL}/?emptytunnel&phase3c&outlet=pressure&tiers=2000000&tconv=120`);
   const stageB = await waitForRun(page);
   console.log(`\n${stageB.lines.join('\n')}\n`);
   await attachRun(testInfo, 'pressure-outlet-2m', stageB);

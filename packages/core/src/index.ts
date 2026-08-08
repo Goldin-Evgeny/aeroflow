@@ -190,6 +190,8 @@ export { fieldStats } from './analysis/fieldStats.js';
 export type { FieldStats } from './analysis/fieldStats.js';
 export { lateralFlux } from './analysis/lateralFlux.js';
 export type { LateralFlux } from './analysis/lateralFlux.js';
+export { boundaryMassByClass3D } from './analysis/boundaryMassBudget.js';
+export type { BoundaryMassBudget } from './analysis/boundaryMassBudget.js';
 export { wakeProbe } from './analysis/wakeProbe.js';
 export type { WakeProbe, AhmedWakeGeometry } from './analysis/wakeProbe.js';
 export { relSpread, blocksAgree } from './analysis/blockConvergence.js';

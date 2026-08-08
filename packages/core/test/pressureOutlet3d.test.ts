@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { CellType, isSolid } from '../src/lattice.js';
+import { CellType } from '../src/lattice.js';
 import { D3Q19 } from '../src/lattice3d.js';
 import { D3Q19_SPEC, equilibrium3, makeCollideContext } from '../src/cpu/collide.js';
 import { EsotericPull3D } from '../src/cpu/esoteric.js';
 import { reconstructPressureOutlet3D } from '../src/cpu/outlet3d.js';
 import { Solver3D } from '../src/cpu/solver3d.js';
-import { resolveFreeSlipPull, type FreeSlipFaces } from '../src/cpu/freeslip.js';
+import { type FreeSlipFaces } from '../src/cpu/freeslip.js';
+import {
+  boundaryMassByClass3D,
+  type BoundaryMassBudget,
+} from '../src/analysis/boundaryMassBudget.js';
 
 const NX = 10;
 const NY = 8;
@@ -72,41 +76,14 @@ function fluidMass(populations: Float64Array, flags: Uint8Array): number {
   return mass;
 }
 
+/** The gate-5 scalar. `boundaryMassByClass3D` accumulates `total` in the same loop and
+ *  operation order the inlined version used, so the closure numbers are unchanged. */
 function signedBoundaryMassSource(
   populations: Float64Array,
   flags: Uint8Array,
   freeSlip: FreeSlipFaces,
 ): number {
-  const n = flags.length;
-  let flux = 0;
-  for (let z = 1; z < NZ - 1; z++) {
-    for (let y = 1; y < NY - 1; y++) {
-      for (let x = 1; x < NX - 1; x++) {
-        const idx = at(x, y, z);
-        if (flags[idx] !== CellType.Fluid) continue;
-        for (let i = 0; i < D3Q19.q; i++) {
-          const sx = x - D3Q19.ex[i];
-          const sy = y - D3Q19.ey[i];
-          const sz = z - D3Q19.ez[i];
-          const source = at(sx, sy, sz);
-          if (flags[source] === CellType.Fluid) continue;
-
-          const outgoing = populations[D3Q19.opp[i] * n + idx];
-          let incoming = populations[i * n + source];
-          if (isSolid(flags[source])) {
-            incoming = outgoing;
-          } else if (flags[source] === CellType.FreeSlip) {
-            const redirect = resolveFreeSlipPull(flags, NX, NY, NZ, freeSlip, sx, sy, sz, i);
-            incoming = redirect.fallback
-              ? outgoing
-              : populations[redirect.dir * n + at(redirect.sx, redirect.sy, redirect.sz)];
-          }
-          flux += incoming - outgoing;
-        }
-      }
-    }
-  }
-  return flux;
+  return boundaryMassByClass3D(populations, flags, NX, NY, NZ, freeSlip).total;
 }
 
 const commonOptions = () => ({
@@ -269,4 +246,167 @@ describe('D3Q19 pressure outlet (H14)', () => {
     const finalMass = fluidMass(solver.snapshotPostCollision(), options.flags);
     expect(Math.abs(finalMass - initialMass - cumulativeFlux)).toBeLessThan(1e-10);
   });
+
+  /**
+   * The reconstruction imposes Σf = 1 on the value it WRITES. This checks the value that
+   * survives a full timestep, which is what actually streams into the fluid on the next one.
+   *
+   * Only the naive solver is inspected: `EsotericPull3D.snapshotCanonical()` skips non-Fluid
+   * cells, so the outlet slot is not observable through it. That is not a coverage gap — the
+   * outlet cell's only effect on the simulation is the populations it sends into the fluid,
+   * and the 100-step bit-identity case above would diverge immediately if Esoteric's outlet
+   * carried anything different.
+   */
+  it('holds outlet rho at 1 after a full timestep, not just at reconstruction', () => {
+    const options = { ...commonOptions(), outlet: 'pressure' as const };
+    const solver = new Solver3D(options);
+    const n = NX * NY * NZ;
+    const outlets = Array.from(options.flags).flatMap((flag, idx) =>
+      flag === CellType.Outlet ? [idx] : [],
+    );
+    expect(outlets.length).toBeGreaterThan(0);
+
+    for (let step = 1; step <= 20; step++) {
+      solver.step();
+      const f = solver.snapshotPostCollision();
+      for (const idx of outlets) {
+        let rho = 0;
+        for (let i = 0; i < D3Q19.q; i++) rho += f[i * n + idx];
+        expect(rho, `step ${step}, outlet cell ${idx}`).toBeCloseTo(1, 12);
+      }
+    }
+  });
+
+  /**
+   * E0 (M9 phase 3c): WHERE does the residual empty-tunnel mass come from?
+   *
+   * Stage A left H14 with a positive post-startup fluid-mass slope on the 250k GPU tunnel.
+   * The ledger closed, but closure is an accounting result — it proves the mass arrived
+   * through the boundary, not that any boundary is misbehaving. This case runs the same
+   * boundary combination in Float64 and splits the ledger by class, so a signed contribution
+   * can be attributed rather than inferred.
+   *
+   * The prime suspect it is built to decide is H11 free-slip: specular reflection is a link
+   * bijection in the interior of a flat face, but not necessarily where the face ends. That
+   * is a LOCAL, grid-independent property of the redirect map, which is why a 10×8×7 scene
+   * can settle it even though it is far too small to reproduce the tunnel's duct pressure
+   * drop. What this scene cannot decide is the magnitude of any inlet/outlet convective
+   * imbalance, which is a global, geometry-dependent quantity.
+   *
+   * Reported, not gated: only ledger closure and finiteness are asserted, per H14 §4 gate 4's
+   * refusal to invent new tolerances.
+   */
+  it.each([
+    { outlet: 'pressure' as const, initialRho: 1 },
+    { outlet: 'pressure' as const, initialRho: 1.05 },
+    { outlet: 'zero-gradient' as const, initialRho: 1 },
+  ])(
+    'decomposes the free-slip empty-tunnel boundary budget ($outlet, rho0=$initialRho)',
+    { timeout: 60_000 },
+    ({ outlet, initialRho }) => {
+      const flags = sceneFlags(false);
+      const freeSlip: FreeSlipFaces = { yMax: true, zMin: true, zMax: true };
+      // Tunnel-matched physics: the acceptance-tier tau0, LES and regularization are the M9
+      // empty-tunnel settings, so a source that only appears near tau -> 1/2 is not excluded.
+      const solver = new Solver3D({
+        nx: NX,
+        ny: NY,
+        nz: NZ,
+        omega: 1 / 0.5000005,
+        flags,
+        inletVelocity: 0.05,
+        collision: 'trt',
+        les: { cs: 0.1 },
+        regularize: true,
+        conserveMass: true,
+        outlet,
+        freeSlip,
+      });
+      solver.reset(initialRho);
+
+      const STEPS = 6000;
+      const SAMPLE = 500;
+      const cumulative: BoundaryMassBudget = {
+        velocityInlet: 0,
+        inlet: 0,
+        outlet: 0,
+        solid: 0,
+        freeSlipFace: 0,
+        freeSlipEdge: 0,
+        freeSlipInletRing: 0,
+        freeSlipOutletRing: 0,
+        total: 0,
+      };
+      const keys = Object.keys(cumulative) as Array<keyof BoundaryMassBudget>;
+      const initialMass = fluidMass(solver.snapshotPostCollision(), flags);
+      const fluidCells = Array.from(flags).filter((f) => f === CellType.Fluid).length;
+      const history: string[] = [];
+      const means: Array<{ step: number; rhoMean: number }> = [];
+
+      for (let step = 1; step <= STEPS; step++) {
+        const before = solver.snapshotPostCollision();
+        const budget = boundaryMassByClass3D(before, flags, NX, NY, NZ, freeSlip);
+        for (const k of keys) cumulative[k] += budget[k];
+        solver.step();
+        if (step % SAMPLE === 0) {
+          const rhoMean = fluidMass(solver.snapshotPostCollision(), flags) / fluidCells;
+          means.push({ step, rhoMean });
+          history.push(
+            `  step ${String(step).padStart(5)}  rhoMean=${rhoMean.toFixed(9)}  ` +
+              keys
+                .filter((k) => k !== 'total' && cumulative[k] !== 0)
+                .map((k) => `${k}=${cumulative[k].toExponential(3)}`)
+                .join(' '),
+          );
+        }
+      }
+
+      const finalPopulations = solver.snapshotPostCollision();
+      const finalMass = fluidMass(finalPopulations, flags);
+      // Late-time stationarity as a RATE, not a decay-to-zero ratio: this configuration's
+      // stable state may carry a finite density offset, so "settled" means the level stops
+      // changing, not that it returns to 1 (H14 §8, M9 phase 3c).
+      const tail = means.slice(-4);
+      const lateSlope =
+        (tail[tail.length - 1].rhoMean - tail[0].rhoMean) /
+        (tail[tail.length - 1].step - tail[0].step);
+      console.log(
+        `\nE0 free-slip empty tunnel [${outlet}, rho0=${initialRho}] ` +
+          `(${NX}x${NY}x${NZ}, tau0=0.5000005)\n` +
+          history.join('\n') +
+          `\n  deltaM=${(finalMass - initialMass).toExponential(4)} ` +
+          `ledgerTotal=${cumulative.total.toExponential(4)} ` +
+          `closure=${(finalMass - initialMass - cumulative.total).toExponential(3)}\n` +
+          `  freeSlip total=${(
+            cumulative.freeSlipFace +
+            cumulative.freeSlipEdge +
+            cumulative.freeSlipInletRing +
+            cumulative.freeSlipOutletRing
+          ).toExponential(4)}` +
+          `  late drho/dstep=${lateSlope.toExponential(3)}\n`,
+      );
+
+      expect(finalPopulations.every((v) => Number.isFinite(v))).toBe(true);
+      expect(
+        Math.abs(finalMass - initialMass - cumulative.total),
+        `deltaM=${finalMass - initialMass}, ledger=${cumulative.total}`,
+      ).toBeLessThan(1e-10 * fluidCells);
+      // Three of the four free-slip classes are provably mass-neutral, so they are gated at
+      // Float64 roundoff rather than merely reported:
+      //  - a flat face's reflection is a bijection onto the face's own outgoing set;
+      //  - a slip∩slip edge resolves in two mirrors back onto the pulling cell's OWN opposite
+      //    population, an exact involution, so each link contributes identically zero;
+      //  - a slip∩solid intersection falls back to plain bounce-back, incoming = outgoing.
+      // `freeSlipOutletRing` is deliberately NOT gated: it is a genuine transport path, since
+      // the ring redirects into the outlet plane, and it carries real outflow in both outlet
+      // modes. A bound there would be inventing a tolerance for legitimate flux.
+      const structurallyNeutral =
+        cumulative.freeSlipFace + cumulative.freeSlipEdge + cumulative.freeSlipInletRing;
+      expect(
+        Math.abs(structurallyNeutral),
+        `face=${cumulative.freeSlipFace} edge=${cumulative.freeSlipEdge} ` +
+          `inletRing=${cumulative.freeSlipInletRing}`,
+      ).toBeLessThan(1e-12);
+    },
+  );
 });

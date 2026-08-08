@@ -4,7 +4,7 @@ import type { AhmedWorkerEvent } from '../sim/ahmedRun';
 import type { SphereCaseName, LateralBC } from '@aeroflow/core';
 import type { CheckpointParityResult } from '../sim/checkpointParity';
 import type { TauOracleCheckResult } from '../sim/tauOracleCheck';
-import type { AhmedLateralAbReport, AhmedMatchReport } from './ahmedCpuGpuMatch';
+import type { AhmedBaselineAbReport, AhmedLateralAbReport, AhmedMatchReport } from './ahmedCpuGpuMatch';
 import type { EmptyTunnelReport } from './ahmedEmptyTunnel';
 
 /**
@@ -77,6 +77,8 @@ export interface AeroflowHooks {
   /** ?ahmedlateral: M9 phase-3 stage B1 — lateral-BC A/B with the body in (SCREENING Cd). */
   ahmedLateralAB?: AhmedLateralAbReport;
   ahmedLateralAbError?: string;
+  ahmedBaselineAB?: AhmedBaselineAbReport;
+  ahmedBaselineAbError?: string;
   /** ?bench3d ladder results. */
   benchRows?: BenchRow[];
   benchMarkdown?: string;
@@ -328,4 +330,25 @@ export function precisionOverride(): 'fp16' | 'fp32' | null {
 export function lateralBCOverride(): 'freestream' | 'freeslip' | null {
   const v = new URLSearchParams(location.search).get('lateralBC');
   return v === 'freestream' || v === 'freeslip' ? v : null;
+}
+
+/**
+ * Inlet-formulation override (`?inletBC=equilibrium|velocity`), for the M9/V11 H12 baseline
+ * question. Returns null when absent or unrecognized, i.e. "keep the scene default" —
+ * `'equilibrium'`, the historical configuration. Same fallback discipline as `lateralBCOverride`.
+ */
+export function inletBCOverride(): 'equilibrium' | 'velocity' | null {
+  const v = new URLSearchParams(location.search).get('inletBC');
+  return v === 'equilibrium' || v === 'velocity' ? v : null;
+}
+
+/**
+ * Outlet-formulation override (`?outlet=zero-gradient|pressure`), for the M9/V11 H14 baseline
+ * question. Returns null when absent or unrecognized, i.e. "keep the scene default" —
+ * `'zero-gradient'` (H4), every Ahmed number on record. Same fallback discipline as
+ * `lateralBCOverride`.
+ */
+export function outletOverride(): 'zero-gradient' | 'pressure' | null {
+  const v = new URLSearchParams(location.search).get('outlet');
+  return v === 'zero-gradient' || v === 'pressure' ? v : null;
 }

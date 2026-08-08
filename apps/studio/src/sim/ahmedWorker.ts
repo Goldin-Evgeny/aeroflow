@@ -104,6 +104,8 @@ function summarize(
     // Likewise the far field the SCENE built, not what was requested: an unrecognized override
     // falls back to 'freestream', and the row must say which tunnel produced the number.
     lateralBC: scene.lateralBC,
+    inletBC: scene.inletBC,
+    outlet: scene.outlet,
     nx: scene.nx,
     ny: scene.ny,
     nz: scene.nz,
@@ -289,6 +291,7 @@ function buildSim(state: Pick<RunState, 'scene' | 'gpu' | 'opts'>): Lbm3D {
     forces: true,
     freeSlip,
     velocityInlet: scene.inletBC === 'velocity',
+    outlet: scene.outlet,
     precision,
     hasF16: gpu.caps.hasF16,
     hasTimestamp: gpu.caps.hasTimestamp,

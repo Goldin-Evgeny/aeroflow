@@ -15,8 +15,10 @@ import {
   applyCellsOverride,
   fieldEveryOverride,
   hooks,
+  inletBCOverride,
   lateralBCOverride,
   lesCsOverride,
+  outletOverride,
   precisionOverride,
   reOverride,
 } from '../dev/testHooks';
@@ -224,6 +226,10 @@ export function mountAhmed(root: HTMLElement): void {
           // `?lateralBC=` — the M9 phase-3 far-field A/B. Absent means the scene default,
           // 'freestream', which is what every Ahmed number on record was measured with.
           lateralBC: lateralBCOverride() ?? undefined,
+          // `?inletBC=` / `?outlet=` — the M9/V11 H12/H14 baseline question. Absent means the
+          // scene defaults ('equilibrium' / 'zero-gradient'), same fallback discipline.
+          inletBC: inletBCOverride() ?? undefined,
+          outlet: outletOverride() ?? undefined,
         },
         lesCs: chosenCs(),
         fieldEveryTConv: fieldEveryOverride() ?? undefined,
@@ -264,6 +270,10 @@ export function mountAhmed(root: HTMLElement): void {
               ? ''
               : `  ← phase-3 A/B arm, NOT the acceptance configuration`) +
             `   no-slip ground`,
+          `inlet: ${scene.inletBC}` +
+            (scene.inletBC === 'equilibrium' ? '' : '  ← NOT the acceptance configuration') +
+            `   outlet: ${scene.outlet}` +
+            (scene.outlet === 'zero-gradient' ? '' : '  ← NOT the acceptance configuration'),
           `T_conv = ${scene.convectiveTimeSteps} steps   band Cd ${AHMED_CD_TARGET} ±15% [${AHMED_CD_BAND[0]}, ${AHMED_CD_BAND[1]}]`,
         ].join('\n');
         logLine('run ready');
@@ -311,6 +321,12 @@ export function mountAhmed(root: HTMLElement): void {
                 scene.lateralBC !== AHMED_ACCEPTANCE_LATERAL_BC
                   ? `${scene.lateralBC} far field ≠ ${AHMED_ACCEPTANCE_LATERAL_BC} (phase-3 A/B arm)`
                   : null,
+                // Same discipline for H12/H14 (M9/V11): selecting the validated BC baseline is
+                // itself an explicit, deliberate choice this run reports honestly, never a
+                // silent promotion to "the" acceptance configuration — that promotion belongs
+                // in docs/VALIDATION.md, informed by evidence, not printed here first.
+                scene.inletBC !== 'equilibrium' ? `${scene.inletBC} inlet ≠ equilibrium` : null,
+                scene.outlet !== 'zero-gradient' ? `${scene.outlet} outlet ≠ zero-gradient` : null,
               ].filter((s): s is string => s !== null)
             : [];
           if (offSpec.length > 0) {

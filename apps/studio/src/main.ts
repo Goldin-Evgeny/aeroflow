@@ -173,6 +173,12 @@ const ROUTES: Record<string, Route> = {
     const { mountAhmedLateralAB } = await import('./dev/ahmedCpuGpuMatch');
     await mountAhmedLateralAB(gpu.device, app);
   },
+  // M9/V11 dev route: historical vs H11+H12+H14 BC-baseline A/B, body in — diagnostic smoke
+  // test only, never a way to pick which configuration V11 uses.
+  ahmedbaseline: async (app, gpu) => {
+    const { mountAhmedBaselineAB } = await import('./dev/ahmedCpuGpuMatch');
+    await mountAhmedBaselineAB(gpu.device, app);
+  },
 };
 
 /**

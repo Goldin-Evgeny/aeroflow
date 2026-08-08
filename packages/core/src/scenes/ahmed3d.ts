@@ -3,6 +3,7 @@ import { AHMED, ahmedBody, type AhmedBodyOptions } from '../geometry/ahmedBody.j
 import { validateFreeSlip } from '../cpu/freeslip.js';
 import { voxelizeSolid } from '../voxel/voxelize.js';
 import type { TriangleMesh } from '../geometry/icosphere.js';
+import type { Outlet3D } from '../cpu/outlet3d.js';
 
 /**
  * Ahmed-body run setup (M9 step 2): voxelized body + boundary flags + lattice parameters,
@@ -132,6 +133,15 @@ export interface AhmedSceneOptions extends AhmedBodyOptions {
    * the phase-3b experiment opts IN; the historical configuration is what you get by default.
    */
   inletBC?: AhmedInletBC;
+  /**
+   * Outlet formulation on x=nx−1. Default `'zero-gradient'` (H4) — every Ahmed number on
+   * record, including every prior Cd, was measured with it, so it stays the default exactly
+   * like `lateralBC`/`inletBC`. `'pressure'` opts into H14's D3Q19 fixed-density outlet
+   * (`docs/handoff/H14-pressure-outlet.md`), validated so far only on the empty tunnel
+   * (Gate 3, 2M cells) — this is what lets that validated outlet reach a body-present run at
+   * all; it does not itself decide which configuration V11 accepts.
+   */
+  outlet?: Outlet3D;
 }
 
 export interface AhmedScene {
@@ -172,6 +182,12 @@ export interface AhmedScene {
    * off `CellType.VelocityInlet` in the flags directly.)
    */
   inletBC: AhmedInletBC;
+  /**
+   * The outlet formulation this scene was BUILT with. Consumers pass
+   * `outlet: scene.outlet` to the solver from this — never a separately-typed literal — so a
+   * scene built for H4 can never be silently run through H14 or vice versa.
+   */
+  outlet: Outlet3D;
   /** The body mesh in lattice coordinates (preview / GPU-voxelizer parity). */
   mesh: TriangleMesh;
 }
@@ -242,6 +258,7 @@ export function ahmedScene(opts: AhmedSceneOptions = {}): AhmedScene {
   const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
   const lateralBC = opts.lateralBC ?? 'freestream';
   const inletBC = opts.inletBC ?? 'equilibrium';
+  const outlet = opts.outlet ?? 'zero-gradient';
   // Both branches share the same precedence, which is what keeps the two arms comparable:
   // lateral faces first, then the no-slip ground (it wins every shared edge — the experiment's
   // floor is not negotiable), then the inlet/outlet x faces for y ≥ 1 so the ground row stays
@@ -354,6 +371,7 @@ export function ahmedScene(opts: AhmedSceneOptions = {}): AhmedScene {
     noseX,
     lateralBC,
     inletBC,
+    outlet,
     mesh: { positions: domainMesh, indices: bodyMm.indices },
   };
 }

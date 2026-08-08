@@ -1,8 +1,10 @@
 import type {
+  AhmedInletBC,
   AhmedLateralBC,
   AhmedSceneOptions,
   FieldStats,
   LateralFlux,
+  Outlet3D,
   TauLayer,
   TauStats,
   WakeProbe,
@@ -73,6 +75,18 @@ export interface AhmedSceneSummary {
    * Cd band was measured against, so a run under it reports its number without a verdict.
    */
   lateralBC: AhmedLateralBC;
+  /**
+   * The inlet formulation the scene was BUILT with (M9 phase 3b) — read off the scene, same
+   * audit property as `lateralBC`: a run must be classifiable from what it actually built,
+   * not from what its caller asked for.
+   */
+  inletBC: AhmedInletBC;
+  /**
+   * The outlet formulation the scene was BUILT with. `'zero-gradient'` (H4) is every Ahmed
+   * number on record; `'pressure'` (H14) is new and validated so far only on the empty
+   * tunnel — read off the built scene so a run is classifiable without trusting its inputs.
+   */
+  outlet: Outlet3D;
 }
 
 /**

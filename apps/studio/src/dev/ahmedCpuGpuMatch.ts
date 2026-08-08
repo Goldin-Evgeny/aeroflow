@@ -11,10 +11,12 @@ import {
   upstreamStations,
   validateFreeSlip,
   wakeProbe,
+  type AhmedInletBC,
   type AhmedLateralBC,
   type AhmedScene,
   type FieldStats,
   type LateralFlux,
+  type Outlet3D,
   type WakeProbe,
 } from '@aeroflow/core';
 import { Lbm3D } from '../sim/lbm3d';
@@ -113,6 +115,11 @@ export interface AhmedMatchConfig {
   horizons: number[];
   /** Far field under test (phase 3). Default `'freestream'` — the historical configuration. */
   lateralBC: AhmedLateralBC;
+  /** Inlet formulation under test (phase 3b). Default `'equilibrium'` — historical. */
+  inletBC: AhmedInletBC;
+  /** Outlet formulation under test (M9/V11). Default `'zero-gradient'` (H4) — historical;
+   *  `'pressure'` opts into H14, validated so far only on the empty tunnel. */
+  outlet: Outlet3D;
 }
 
 export interface TrajectoryPoint {
@@ -216,6 +223,8 @@ export interface AhmedMatchReport {
     convectiveTimeSteps: number;
   };
   lateralBC: AhmedLateralBC;
+  inletBC: AhmedInletBC;
+  outlet: Outlet3D;
   /** Every solver knob, both sides, so "matched" is checkable rather than claimed. */
   solver: Record<string, string>;
   trajectory: TrajectoryPoint[];
@@ -308,6 +317,9 @@ function buildCpu(scene: AhmedScene): EsotericPull3D {
     freeSlip: facesFor(scene), // the constructor runs validateFreeSlip on these
     // No `forceMask`: `isMeasured` already selects CellType.BodySolid, which is exactly the
     // mask the kernel applies. Passing one would be a second, redundant definition.
+    // No `velocityInlet` opt-in needed: the CPU solver keys off CellType.VelocityInlet in the
+    // flags directly (ahmed3d.ts:170-172).
+    outlet: scene.outlet,
   });
   cpu.reset(1, 0, 0, 0); // rest, matching the worker — NOT the uniform-flow init the old test used
   return cpu;
@@ -327,6 +339,8 @@ function buildGpu(device: GPUDevice, scene: AhmedScene): Lbm3D {
     conserveMass: true,
     forces: true,
     freeSlip,
+    velocityInlet: scene.inletBC === 'velocity',
+    outlet: scene.outlet,
     // fp32, NOT the acceptance tier's fp16: this run is asking whether the two
     // implementations agree, and fp16 storage noise would answer a different question.
     precision: 'fp32',
@@ -350,13 +364,17 @@ export async function runAhmedMatch(
   const maxCells = cfg.maxCells ?? 30_000;
   const Re = cfg.Re ?? 4.29e6;
   const lateralBC = cfg.lateralBC ?? 'freestream';
-  const scene = ahmedScene({ maxCells, Re, lateralBC });
+  const inletBC = cfg.inletBC ?? 'equilibrium';
+  const outlet = cfg.outlet ?? 'zero-gradient';
+  const scene = ahmedScene({ maxCells, Re, lateralBC, inletBC, outlet });
   const T = scene.convectiveTimeSteps;
 
   const config: AhmedMatchConfig = {
     maxCells,
     Re,
     lateralBC,
+    inletBC,
+    outlet,
     warmupSteps: cfg.warmupSteps ?? 8 * T,
     sampleInterval: cfg.sampleInterval ?? Math.max(2, 2 * Math.round(T / 20)),
     samples: cfg.samples ?? 20,
@@ -554,6 +572,8 @@ export async function runAhmedMatch(
           'Solid ground y=0 — identical flags array both sides'
         : 'Inlet x=0 + top/sides (hard Dirichlet), Outlet x=nx−1, Solid ground y=0 — identical flags array',
     'lateralBC': scene.lateralBC,
+    'inletBC': scene.inletBC,
+    'outlet': scene.outlet,
     'force mask': 'CellType.BodySolid both sides (CPU isMeasured, GPU cellForce mask)',
     'init': 'reset(1, 0, 0, 0) — rest, both sides',
     'T_conv': `${T} steps`,
@@ -604,6 +624,8 @@ export async function runAhmedMatch(
   return {
     config,
     lateralBC: scene.lateralBC,
+    inletBC: scene.inletBC,
+    outlet: scene.outlet,
     diagnostics: diagnostics!,
     scene: {
       nx: scene.nx,
@@ -732,6 +754,120 @@ export async function runAhmedLateralAB(
   ];
 
   return { freestream, freeslip, lines, reConfound, ms: performance.now() - t0 };
+}
+
+/**
+ * Both arms of the M9/V11 BC-baseline A/B (H11+H12+H14 vs the historical configuration),
+ * plus the comparison.
+ *
+ * **Diagnostic only — this A/B does not decide which configuration V11 uses.** H11+H12+H14
+ * is the physically validated boundary configuration independent of what this A/B shows; the
+ * historical arm exists only as the control every prior withdrawn Cd was measured against, and
+ * because it's a cheap way to catch a construction mistake (crash, non-finite, an H4 §10.9
+ * violation) before spending the expensive GPU tier — never as a way to pick a "winning" BC by
+ * which one reads closer to 0.285 (`ahmedRun.ts:372-388` documents exactly this trap on the
+ * sphere case: a lateral-BC switch alone moved Cd 0.55→0.263, 2.1x, on normalization alone).
+ */
+export interface AhmedBaselineAbReport {
+  historical: AhmedMatchReport;
+  validated: AhmedMatchReport;
+  lines: string[];
+  /** Same gate-2 meaning as `AhmedLateralAbReport.reConfound` — did the effective Reynolds
+   *  number move between arms, which would mean they are not comparable flows. */
+  reConfound: boolean;
+  ms: number;
+}
+
+export async function runAhmedBaselineAB(
+  device: GPUDevice,
+  cfg: Partial<Pick<AhmedMatchConfig, 'maxCells' | 'Re' | 'warmupSteps' | 'sampleInterval' | 'samples' | 'horizons'>> = {},
+): Promise<AhmedBaselineAbReport> {
+  const t0 = performance.now();
+  const historical = await runAhmedMatch(device, {
+    ...cfg,
+    lateralBC: 'freestream',
+    inletBC: 'equilibrium',
+    outlet: 'zero-gradient',
+  });
+  const validated = await runAhmedMatch(device, {
+    ...cfg,
+    lateralBC: 'freeslip',
+    inletBC: 'velocity',
+    outlet: 'pressure',
+  });
+
+  const a = historical.diagnostics;
+  const b = validated.diagnostics;
+  const coreShift = Math.abs(b.coreRatio - a.coreRatio) / Math.max(Math.abs(a.coreRatio), 1e-30);
+  const reConfound = coreShift > RE_CONFOUND_GATE;
+
+  const pct = (x: number) => `${(x * 100).toFixed(2)}%`;
+  const row = (label: string, x: number, y: number, digits = 4): string =>
+    `    ${label.padEnd(24)} historical ${x.toFixed(digits).padStart(12)}   ` +
+    `H11+H12+H14 ${y.toFixed(digits).padStart(12)}   ` +
+    `${(Math.abs(x) > 0 ? `${(y / x).toFixed(3)}x` : '—').padStart(9)}`;
+
+  const lines = [
+    '## M9/V11 baseline A/B — historical (freestream/equilibrium/H4) vs validated (H11+H12+H14)',
+    '',
+    'Diagnostic smoke test only (30-60k cells). Does NOT decide which configuration V11 uses —',
+    'H11+H12+H14 is the physically validated baseline regardless of what Cd this shows.',
+    '',
+    `grid ${historical.scene.nx}x${historical.scene.ny}x${historical.scene.nz} = ` +
+      `${historical.scene.cells} cells   body ${historical.scene.bodyVoxels} voxels / ` +
+      `frontal ${historical.scene.frontalCells} cells^2   blockage ` +
+      `${(historical.scene.blockage * 100).toFixed(2)}%   tau0 ${historical.scene.tau0.toFixed(9)}`,
+    '',
+    'EVERY Cd BELOW IS Cd_windowed — a fixed-window screening number, NOT converged. Not a',
+    'result; exists only to catch a construction mistake before the expensive GPU tier.',
+    '',
+    row('Cd_windowed (CPU)', historical.windowed.cpuCdWindowed, validated.windowed.cpuCdWindowed),
+    row('Cd_windowed (GPU)', historical.windowed.gpuCdWindowed, validated.windowed.gpuCdWindowed),
+    row('body Fx (CPU)', historical.windowed.cpuBodyFx, validated.windowed.cpuBodyFx, 8),
+    row('ground Fx (CPU)', historical.windowed.cpuGroundFx, validated.windowed.cpuGroundFx, 8),
+    '',
+    row('coreU / u_cmd', a.coreRatio, b.coreRatio),
+    `    ${'Re_effective'.padEnd(24)} historical ${a.reEffective.toExponential(3).padStart(12)}   ` +
+      `H11+H12+H14 ${b.reEffective.toExponential(3).padStart(12)}`,
+    row('flux mismatch', a.fluxMismatch, b.fluxMismatch, 6),
+    row('mass drift', a.field.massDriftRel, b.field.massDriftRel, 8),
+    row('Ma max', a.field.machMax, b.field.machMax),
+    `    ${'non-finite'.padEnd(24)} historical ${String(a.field.nonFiniteCells).padStart(12)}   ` +
+      `H11+H12+H14 ${String(b.field.nonFiniteCells).padStart(12)}`,
+    '',
+    reConfound
+      ? `*** GATE 2 TRIPPED: coreU/u_cmd moved ${pct(coreShift)} (> ${pct(RE_CONFOUND_GATE)}). ` +
+        `The two arms are running at different effective Reynolds numbers — expected, since ` +
+        `this A/B changes three BCs at once; it is a smoke test, not an isolating experiment. ***`
+      : `GATE 2 CLEAR: coreU/u_cmd moved ${pct(coreShift)} (<= ${pct(RE_CONFOUND_GATE)}).`,
+    '',
+    `historical: ${historical.gpuErrors.length === 0 ? 'no GPU errors' : historical.gpuErrors.join('; ')}`,
+    `H11+H12+H14: ${validated.gpuErrors.length === 0 ? 'no GPU errors' : validated.gpuErrors.join('; ')}`,
+  ];
+
+  return { historical, validated, lines, reConfound, ms: performance.now() - t0 };
+}
+
+export async function mountAhmedBaselineAB(device: GPUDevice, root: HTMLElement): Promise<void> {
+  root.innerHTML = '<p>Running the Ahmed BC-baseline A/B (M9/V11, smoke test)…</p>';
+  try {
+    const r = await runAhmedBaselineAB(device);
+    hooks().ahmedBaselineAB = r;
+    root.innerHTML = `
+      <h2>Ahmed BC-baseline A/B <small>(M9/V11 — diagnostic smoke test)</small></h2>
+      <p style="font-size:1.2em;font-weight:bold;color:${r.reConfound ? '#c22' : '#2a2'}">
+        ${r.reConfound ? 'GATE 2 TRIPPED — effective Re moved between arms' : 'gate 2 clear'}
+        — ${(r.ms / 1000).toFixed(1)} s
+      </p>
+      <pre style="white-space:pre-wrap">${r.lines.join('\n')}</pre>
+      <h3>historical arm</h3>
+      <pre style="white-space:pre-wrap">${r.historical.lines.join('\n')}</pre>
+      <h3>H11+H12+H14 arm</h3>
+      <pre style="white-space:pre-wrap">${r.validated.lines.join('\n')}</pre>`;
+  } catch (e) {
+    hooks().ahmedBaselineAbError = String(e);
+    root.innerHTML = `<pre style="color:#c22">ahmed-baseline error:\n${String(e)}</pre>`;
+  }
 }
 
 export async function mountAhmedLateralAB(device: GPUDevice, root: HTMLElement): Promise<void> {

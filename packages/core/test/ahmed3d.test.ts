@@ -463,6 +463,67 @@ describe('ahmedScene', () => {
       });
     });
 
+    describe('outlet (H14 plumbing, M9/V11)', () => {
+      /**
+       * Unlike `lateralBC`/`inletBC`, `outlet` never touches the flag array — H4 and H14 both
+       * flag the x=nx−1 face `CellType.Outlet`; the difference is purely which reconstruction
+       * the SOLVER applies to those cells. So the regression lock here is that selecting H14
+       * changes the `outlet` field and nothing else about the built scene — no accidental
+       * geometry/BC coupling was introduced by threading the option through.
+       */
+      it("defaults to 'zero-gradient' and changes nothing when passed explicitly", () => {
+        expect(freestream.outlet).toBe('zero-gradient');
+        const explicit = ahmedScene({ maxCells: CELLS, outlet: 'zero-gradient' });
+        expect(explicit.outlet).toBe('zero-gradient');
+        expect(explicit.flags).toEqual(freestream.flags);
+      });
+
+      it("'pressure' (H14) changes ONLY the outlet field — identical grid, flags and body", () => {
+        const pressure = ahmedScene({ maxCells: CELLS, outlet: 'pressure' });
+        expect(pressure.outlet).toBe('pressure');
+        expect(pressure.flags).toEqual(freestream.flags);
+        expect([pressure.nx, pressure.ny, pressure.nz]).toEqual([
+          freestream.nx,
+          freestream.ny,
+          freestream.nz,
+        ]);
+        expect(pressure.bodyVoxels).toBe(freestream.bodyVoxels);
+        expect(pressure.frontalCells).toBe(freestream.frontalCells);
+        expect(pressure.omega).toBe(freestream.omega);
+        expect(pressure.uLattice).toBe(freestream.uLattice);
+      });
+
+      it('steps under EsotericPull3D on all four arms of the lateral x outlet 2x2', () => {
+        for (const lateral of ['freestream', 'freeslip'] as const)
+          for (const outlet of ['zero-gradient', 'pressure'] as const) {
+            const s = ahmedScene({
+              maxCells: CELLS,
+              lateralBC: lateral,
+              outlet,
+              omitBody: true,
+            });
+            const solver = new EsotericPull3D({
+              nx: s.nx,
+              ny: s.ny,
+              nz: s.nz,
+              omega: s.omega,
+              flags: s.flags,
+              inletVelocity: s.uLattice,
+              collision: 'trt',
+              regularize: true,
+              les: { cs: 0.1 },
+              freeSlip: lateral === 'freeslip' ? AHMED_FREESLIP_FACES : undefined,
+              outlet,
+            });
+            solver.step(2); // both parities
+            expect(
+              Number.isFinite(solver.totalMass()),
+              `${lateral}/${outlet} went non-finite`,
+            ).toBe(true);
+          }
+      });
+    });
+
     it('composes with omitBody: the empty free-slip tunnel is the same tunnel, bodyless', () => {
       const empty = ahmedScene({ maxCells: CELLS, lateralBC: 'freeslip', omitBody: true });
       expect(empty.lateralBC).toBe('freeslip');

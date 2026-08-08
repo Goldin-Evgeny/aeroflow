@@ -20,6 +20,7 @@ export { Solver3D } from './cpu/solver3d.js';
 export type { Solver3DOptions } from './cpu/solver3d.js';
 export { EsotericPull3D } from './cpu/esoteric.js';
 export type { EsotericPull3DOptions } from './cpu/esoteric.js';
+export type { Outlet3D } from './cpu/outlet3d.js';
 export { GHIA_U, GHIA_V, interpProfile } from './fixtures/ghia.js';
 export {
   fft,

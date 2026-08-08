@@ -215,8 +215,12 @@ describe('ddfLayout — addressable ceiling (cloud/hardware go-no-go)', () => {
  * A device offering only the default cannot run forces+ABL at any grid size.
  */
 describe('ddfLayout — storage binding count', () => {
-  it('needs 13 bindings in the worst case (4 DDF + forces + ABL)', () => {
+  it('counts production and opt-in diagnostic bindings independently', () => {
     expect(storageBindingsNeeded(MAX_DDF_BUFFERS, { forces: true, abl: true })).toBe(13);
+    expect(storageBindingsNeeded(MAX_DDF_BUFFERS, { abl: true, massLedger: true })).toBe(13);
+    expect(
+      storageBindingsNeeded(MAX_DDF_BUFFERS, { forces: true, abl: true, massLedger: true }),
+    ).toBe(14);
   });
 
   it('exceeds the WebGPU spec default of 8 for the M11 urban configuration', () => {

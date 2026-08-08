@@ -14,6 +14,8 @@
 //                  arithmetic. NEED_TENSOR is set by the driver when LES or REGULARIZE is on
 //   CONSERVE_MASS — restore the represented incoming zeroth moment through f0 after collision
 //                   (H13). Compile-time selected so the M6 benchmark path stays unchanged.
+//   PRESSURE_OUTLET — H14 fixed-rho non-equilibrium extrapolation from the existing H4
+//                     upstream snapshot. When undefined, H4 zero-gradient copy is unchanged.
 //                  (they share the one Π^neq reduction).
 //   MULTI_DDF    — the 19 DDF planes span ${NUM_DDF_BUFFERS} storage buffers (${PER_BUFFER}
 //                  planes each) so every binding stays under the device cap (iOS ~1 GiB, #5).
@@ -134,6 +136,11 @@ struct Params {
 @group(0) @binding(${B_MACRO_UZ}) var<storage, read_write> macroUz: array<f32>;
 // outlet zero-gradient snapshot: q values per (y,z) column on the +x face.
 @group(0) @binding(${B_OUTLET}) var<storage, read_write> outletSnap: array<f32>;
+//#ifdef MASS_LEDGER
+// H14 diagnostics: one signed fluid-mass contribution per shell cell, followed by
+// compensated even/odd cumulative sums in the final four slots. Production variants omit it.
+@group(0) @binding(${B_MASS_LEDGER}) var<storage, read_write> boundaryMassLedger: array<f32>;
+//#endif
 //#ifdef FORCES
 // Per-cell momentum-exchange force (H2 §5), one vec3f per cell. Written only when
 // collectForces == 1; reduced by reduce_forces_3d.wgsl. Non-contributing cells write 0
@@ -457,6 +464,108 @@ fn snapshot_outlets(@builtin(global_invocation_id) gid: vec3u) {
 //#endif
 }
 
+//#ifdef MASS_LEDGER
+fn boundarySurfaceCells() -> u32 {
+  return 2u * P.ny * P.nz + 2u * (P.nx - 2u) * P.nz +
+    2u * (P.nx - 2u) * (P.ny - 2u);
+}
+
+fn canonicalLinkPopulation(dir: u32, cell: u32, destination: u32, even: bool) -> f32 {
+  return select(ld(OPP[dir], destination), ld(dir, cell), even);
+}
+
+// Visit every shell cell exactly once (x faces; then y faces without x edges; then z faces
+// without x/y edges). For each link into Fluid, record replacement-incoming minus the
+// canonical population leaving Fluid along the opposite direction. This is the exact
+// streaming contribution to fluid mass, including H11 redirects at face intersections.
+@compute @workgroup_size(256)
+fn snapshot_boundary_mass(@builtin(global_invocation_id) gid: vec3u) {
+  let slot = gid.x;
+  let surfaceCells = boundarySurfaceCells();
+  if (slot >= surfaceCells) { return; }
+
+  let xFaceCells = 2u * P.ny * P.nz;
+  let yFaceSpan = (P.nx - 2u) * P.nz;
+  let yFaceCells = 2u * yFaceSpan;
+  let zFaceSpan = (P.nx - 2u) * (P.ny - 2u);
+  var x = 0u;
+  var y = 0u;
+  var z = 0u;
+  if (slot < xFaceCells) {
+    let faceSpan = P.ny * P.nz;
+    let local = slot % faceSpan;
+    x = select(0u, P.nx - 1u, slot >= faceSpan);
+    y = local % P.ny;
+    z = local / P.ny;
+  } else if (slot < xFaceCells + yFaceCells) {
+    let localSlot = slot - xFaceCells;
+    let local = localSlot % yFaceSpan;
+    x = 1u + local % (P.nx - 2u);
+    y = select(0u, P.ny - 1u, localSlot >= yFaceSpan);
+    z = local / (P.nx - 2u);
+  } else {
+    let localSlot = slot - xFaceCells - yFaceCells;
+    let local = localSlot % zFaceSpan;
+    x = 1u + local % (P.nx - 2u);
+    y = 1u + local / (P.nx - 2u);
+    z = select(0u, P.nz - 1u, localSlot >= zFaceSpan);
+  }
+
+  let boundary = cellIndex(x, y, z);
+  let boundaryFlag = getFlag(boundary);
+  let even = P.parity == 0u;
+  var netMass = 0.0;
+  for (var i = 1u; i < 19u; i++) {
+    let fx = i32(x) + EX[i];
+    let fy = i32(y) + EY[i];
+    let fz = i32(z) + EZ[i];
+    if (fx < 0 || fx >= i32(P.nx) || fy < 0 || fy >= i32(P.ny) ||
+        fz < 0 || fz >= i32(P.nz)) { continue; }
+    let fluid = cellIndex(u32(fx), u32(fy), u32(fz));
+    if (getFlag(fluid) != FLUID) { continue; }
+    let outgoing = canonicalLinkPopulation(OPP[i], fluid, boundary, even);
+    var incoming = canonicalLinkPopulation(i, boundary, fluid, even);
+    if (isSolidFlag(boundaryFlag)) {
+      incoming = outgoing;
+    } else if (boundaryFlag == FREESLIP) {
+//#ifdef FREESLIP
+      incoming = freeSlipRead(u32(fx), u32(fy), u32(fz), i, even, fluid, boundary);
+//#else
+      incoming = outgoing;
+//#endif
+    }
+    netMass += incoming - outgoing;
+  }
+  boundaryMassLedger[slot] = netMass;
+}
+
+var<workgroup> boundaryMassWork: array<f32,256>;
+
+// One workgroup makes the accumulation order deterministic. Kahan compensation limits
+// roundoff while thousands of per-step face sums are held between harness readbacks.
+@compute @workgroup_size(256)
+fn reduce_boundary_mass(@builtin(local_invocation_id) lid: vec3u) {
+  let faceCells = boundarySurfaceCells();
+  var sum = 0.0;
+  for (var i = lid.x; i < faceCells; i += 256u) { sum += boundaryMassLedger[i]; }
+  boundaryMassWork[lid.x] = sum;
+  workgroupBarrier();
+  for (var stride = 128u; stride > 0u; stride >>= 1u) {
+    if (lid.x < stride) { boundaryMassWork[lid.x] += boundaryMassWork[lid.x + stride]; }
+    workgroupBarrier();
+  }
+  if (lid.x == 0u) {
+    let sumIdx = faceCells + 2u * P.parity;
+    let compensationIdx = faceCells + 1u + 2u * P.parity;
+    let corrected = boundaryMassWork[0] - boundaryMassLedger[compensationIdx];
+    let updated = boundaryMassLedger[sumIdx] + corrected;
+    boundaryMassLedger[compensationIdx] =
+      (updated - boundaryMassLedger[sumIdx]) - corrected;
+    boundaryMassLedger[sumIdx] = updated;
+  }
+}
+//#endif
+
 // ---- Pass 2: fused stream-collide, one thread per cell ----
 // dispatch (Nx/64, Ny, Nz) — a flat 1D dispatch of 256³ workgroups exceeds the 65535
 // per-dimension limit (H4 / M6 step 4).
@@ -495,6 +604,26 @@ fn stream_collide(@builtin(global_invocation_id) gid: vec3u) {
   if (flag == OUTLET) {
     let base = 19u * (y + P.ny * z);
     for (var i = 0u; i < 19u; i++) { f[i] = outletSnap[base + i]; }
+//#ifdef PRESSURE_OUTLET
+    var rho = 0.0;
+    var mx = 0.0;
+    var my = 0.0;
+    var mz = 0.0;
+    for (var i = 0u; i < 19u; i++) {
+      rho += f[i];
+      mx += f32(EX[i]) * f[i];
+      my += f32(EY[i]) * f[i];
+      mz += f32(EZ[i]) * f[i];
+    }
+    let ux = mx / rho;
+    let uy = my / rho;
+    let uz = mz / rho;
+    for (var i = 0u; i < 19u; i++) {
+      let equilibriumOut = equilibrium(i, 1.0, ux, uy, uz);
+      let equilibriumNeighbor = equilibrium(i, rho, ux, uy, uz);
+      f[i] = equilibriumOut + (f[i] - equilibriumNeighbor);
+    }
+//#endif
     scatter(idx, x, y, z, even, &f);
 //#ifdef FORCES
     if (P.collectForces == 1u) { cellForce[idx] = vec3f(0.0); }

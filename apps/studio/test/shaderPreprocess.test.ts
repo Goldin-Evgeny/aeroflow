@@ -126,4 +126,16 @@ describe('preprocessShader — the 3D kernel free-slip variant (M6 throughput)',
     expect(i).toBe(off.length); // every lean line matched, in order
     expect(off.length).toBeLessThan(on.length); // …and the full build has strictly more
   });
+
+  it('keeps pressure-outlet arithmetic compile-time opt-in', async () => {
+    const src = (await import('../src/sim/shaders/stream_collide_3d.wgsl?raw')).default;
+    const off = preprocessShader(src, { ...defines, PRESSURE_OUTLET: false }).split('\n');
+    const on = preprocessShader(src, { ...defines, PRESSURE_OUTLET: true }).split('\n');
+
+    expect(off.join('\n')).not.toContain('equilibriumNeighbor');
+    expect(on.join('\n')).toContain('equilibriumNeighbor');
+    let i = 0;
+    for (const line of on) if (i < off.length && off[i] === line) i++;
+    expect(i).toBe(off.length);
+  });
 });

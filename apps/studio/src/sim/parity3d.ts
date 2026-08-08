@@ -1,4 +1,4 @@
-import { CellType, D3Q19, EsotericPull3D } from '@aeroflow/core';
+import { CellType, D3Q19, EsotericPull3D, type Outlet3D } from '@aeroflow/core';
 import { Lbm3D } from './lbm3d';
 import { hooks } from '../dev/testHooks';
 import { runForceAveragedSemantics } from '../dev/forceAveragedCheck';
@@ -20,7 +20,7 @@ import { runForceAveragedSemantics } from '../dev/forceAveragedCheck';
 const PARITY_BAR = 5e-5;
 
 /** Bumped whenever this harness changes — confirms fresh code loaded past HMR. */
-export const PARITY3D_VERSION = 'v11-pair-averaged-force';
+export const PARITY3D_VERSION = 'v12-pressure-outlet';
 
 /**
  * Force parity bar: the GPU momentum-exchange sum differs from the fp64 CPU oracle only by
@@ -39,6 +39,14 @@ export interface Parity3DResult {
   /** ρ and |u| sampled at one interior fluid cell (diagnostic). */
   sampleGpuRho: number;
   sampleCpuRho: number;
+  massLedger?: {
+    deltaMass: number;
+    boundaryMass: number;
+    boundaryEven: number;
+    boundaryOdd: number;
+    closureRel: number;
+    pass: boolean;
+  };
   /** Momentum-exchange force parity (only when cfg.forces): GPU vs CPU total force. */
   force?: {
     gpu: { x: number; y: number; z: number };
@@ -135,6 +143,10 @@ export interface Parity3DConfig {
    * outlet, interior cube. Exercises every new WGSL gather/snapshot path.
    */
   abl?: boolean;
+  /** H14 fixed-density non-equilibrium-extrapolation outlet. */
+  outlet?: Outlet3D;
+  /** Exercise the H14 exact complete-shell fluid-mass ledger. */
+  boundaryMassLedger?: boolean;
 }
 
 /**
@@ -181,6 +193,8 @@ export async function runParity3D(
     maxBindingBytes,
     forces = false,
     abl = false,
+    outlet = 'zero-gradient',
+    boundaryMassLedger = false,
   } = cfg;
   const flags = abl ? ablFlags(N, N, N) : tunnelFlags(N, N, N);
   const profile = abl ? ablProfile(N) : undefined;
@@ -198,6 +212,7 @@ export async function runParity3D(
     regularize,
     conserveMass,
     les,
+    outlet,
   });
   cpu.reset(1, 0, 0, 0);
   cpu.step(STEPS);
@@ -251,6 +266,8 @@ export async function runParity3D(
     inletProfile: profile ? { axis: 'y', ux: profile } : undefined,
     freeSlip: abl ? ABL_FREESLIP : undefined,
     velocityInlet: abl,
+    outlet,
+    boundaryMassLedger,
   });
   gpu.flags.set(flags);
   gpu.uploadFlags();
@@ -266,6 +283,28 @@ export async function runParity3D(
     gpu.submitSteps(STEPS);
   }
   const macGpu = await gpu.readMacro();
+  let massLedger: Parity3DResult['massLedger'];
+  if (boundaryMassLedger) {
+    let finalMass = 0;
+    let initialMass = 0;
+    for (let idx = 0; idx < flags.length; idx++) {
+      if (flags[idx] !== CellType.Fluid) continue;
+      initialMass += 1;
+      finalMass += macGpu[4 * idx];
+    }
+    const boundary = await gpu.drainBoundaryMassLedger();
+    const boundaryMass = boundary.net;
+    const deltaMass = finalMass - initialMass;
+    const closureRel = Math.abs(deltaMass - boundaryMass) / initialMass;
+    massLedger = {
+      deltaMass,
+      boundaryMass,
+      boundaryEven: boundary.even,
+      boundaryOdd: boundary.odd,
+      closureRel,
+      pass: closureRel <= PARITY_BAR,
+    };
+  }
 
   // Pair-averaged gate. The macro readback above is already done, so advancing two more
   // steps here cannot affect it. `forceAveraged(2)` runs steps STEPS+1 and STEPS+2 and
@@ -325,12 +364,17 @@ export async function runParity3D(
     maxRelRho,
     maxRelU,
     fluidCells,
-    pass: parityPass && (force ? force.pass : true) && (forcePair ? forcePair.pass : true),
+    pass:
+      parityPass &&
+      (force ? force.pass : true) &&
+      (forcePair ? forcePair.pass : true) &&
+      (massLedger ? massLedger.pass : true),
     gpuErrors,
     sampleGpuRho,
     sampleCpuRho,
     force,
     forcePair,
+    massLedger,
   };
 }
 
@@ -385,6 +429,13 @@ export async function mountParity3D(
         forces: true,
         conserveMass: true,
       },
+      {
+        label: 'TRT + ABL BCs + CONSERVE_MASS + pressure outlet (H14)',
+        abl: true,
+        conserveMass: true,
+        outlet: 'pressure',
+        boundaryMassLedger: true,
+      },
     ];
     const section = (label: string, r: Parity3DResult): string => {
       const errs = r.gpuErrors.length
@@ -428,6 +479,8 @@ export async function mountParity3D(
         maxBindingBytes: cfg.maxBindingBytes,
         forces: cfg.forces,
         abl: cfg.abl,
+        outlet: cfg.outlet,
+        boundaryMassLedger: cfg.boundaryMassLedger,
       });
       allPass = allPass && r.pass;
       parts.push(section(cfg.label, r));
@@ -439,6 +492,11 @@ export async function mountParity3D(
             ? ` force=${r.force.maxRelForce.toExponential(2)} (bar ${FORCE_BAR.toExponential(0)})`
             : '') +
           (r.forcePair ? ` pairForce=${r.forcePair.maxRelForce.toExponential(2)}` : '') +
+          (r.massLedger
+            ? ` massClosure=${r.massLedger.closureRel.toExponential(2)} ` +
+              `(dM=${r.massLedger.deltaMass.toExponential(3)} flux=${r.massLedger.boundaryMass.toExponential(3)})` +
+              ` parity=${r.massLedger.boundaryEven.toExponential(2)}/${r.massLedger.boundaryOdd.toExponential(2)}`
+            : '') +
           (r.gpuErrors.length ? ` gpuErrors=${r.gpuErrors.length}` : ''),
       );
     }

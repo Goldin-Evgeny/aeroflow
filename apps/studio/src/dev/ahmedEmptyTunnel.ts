@@ -9,6 +9,7 @@ import {
   type AhmedLateralBC,
   type FieldStats,
   type LateralFlux,
+  type Outlet3D,
 } from '@aeroflow/core';
 import { Lbm3D } from '../sim/lbm3d';
 import { hooks } from './testHooks';
@@ -111,6 +112,13 @@ export interface TunnelSample {
    * two track each other in the freestream arm and both collapse in the free-slip arm.
    */
   lateralNetOverInflow: number;
+  /** Exact signed shell-link mass input accumulated since the run began (H14). */
+  cumulativeBoundaryMass: number;
+  /** (fluid mass change − cumulative boundary input) / initial fluid mass. */
+  massLedgerClosureRel: number;
+  /** Center-plane density/velocity used for the impulsive-start acoustic pulse report. */
+  centerRho: number;
+  centerUx: number;
 }
 
 export interface StreamwiseStation {
@@ -185,11 +193,22 @@ export interface TransientDecay {
   massDriftSlopePerTConv: number;
 }
 
+export interface AcousticPulse {
+  baselineRho: number;
+  incidentAmplitude: number;
+  reflectedAmplitude: number;
+  lateAmplitude: number;
+  reflectionRatio: number;
+  decay: number;
+}
+
 export interface EmptyTunnelRun {
   /** Which far field this arm ran (phase 3). */
   lateralBC: AhmedLateralBC;
   /** Which inlet formulation this arm ran (phase 3b). */
   inletBC: AhmedInletBC;
+  /** H4 historical copy or H14 fixed-density reconstruction. */
+  outlet: Outlet3D;
   cells: number;
   nx: number;
   ny: number;
@@ -209,6 +228,7 @@ export interface EmptyTunnelRun {
   streamwise: StreamwiseStation[];
   stagger: StaggerProbe;
   transient: TransientDecay;
+  acoustic: AcousticPulse;
   /** Worst values over the POST-TRANSIENT samples only — see `TransientDecay`. */
   worst: {
     absMassDrift: number;
@@ -227,12 +247,14 @@ export interface EmptyTunnelRun {
     coreVelocityRatio: number;
     /** Worst |lateral.net| / |inFlux| over the post-transient samples (phase 3, ungated). */
     lateralNetOverInflow: number;
+    massLedgerClosureRel: number;
   };
   ms: number;
 }
 
 export interface EmptyTunnelReport {
   runs: EmptyTunnelRun[];
+  verdicts: Array<{ outlet: Outlet3D; ok: boolean; why: string[] }>;
   pass: boolean;
   lines: string[];
   gpuErrors: string[];
@@ -263,6 +285,8 @@ const BOUNDS = {
    *  (M10 measured 0.660 in a frictionless duct), so it is REPORTED prominently and bounded
    *  only against outright divergence. It is a headline finding, not a pass/fail. */
   coreVelocity: 1.0,
+  /** Same relative FP32 scale as the H6 parity bar; H14 parity measured 4.07e-7. */
+  massLedgerClosure: 5e-5,
 } as const;
 
 const INV_CS = Math.sqrt(3);
@@ -293,6 +317,7 @@ async function runOne(
   gpuErrors: string[],
   lateralBC: AhmedLateralBC,
   inletBC: AhmedInletBC,
+  outlet: Outlet3D,
 ): Promise<EmptyTunnelRun> {
   const t0 = performance.now();
   const scene = ahmedScene({ maxCells, Re, omitBody: true, lateralBC, inletBC });
@@ -318,6 +343,8 @@ async function runOne(
     les: { cs: 0.1 },
     regularize: true,
     conserveMass: true,
+    outlet,
+    boundaryMassLedger: true,
     precision: 'fp32',
     freeSlip,
     // H12: compiles the ABL kernel variant that carries the per-cell ρ snapshot the
@@ -334,12 +361,18 @@ async function runOne(
 
     const xIn = 1;
     const xOut = nx - 2;
+    const xCenter = Math.floor(nx / 2);
     const samples: TunnelSample[] = [];
+    let initialMass: number | undefined;
+    let cumulativeBoundaryMass = 0;
     const sampleNow = async (): Promise<void> => {
+      cumulativeBoundaryMass += (await sim.drainBoundaryMassLedger()).net;
       const macro = await sim.readMacro();
       const field = fieldStats(macro, flags, nx, ny, nz);
       const a = sectionStats(macro, flags, nx, ny, nz, xIn);
       const b = sectionStats(macro, flags, nx, ny, nz, xOut);
+      const center = sectionStats(macro, flags, nx, ny, nz, xCenter);
+      initialMass ??= field.totalMass;
       // Same readback as the section stats — the lateral budget must describe the same instant
       // as the streamwise one it is meant to close, or the two cannot be added.
       const lateral = lateralFlux(macro, flags, nx, ny, nz);
@@ -353,6 +386,11 @@ async function runOne(
         fluxMismatch: Math.abs(b.massFlux - a.massFlux) / inScale,
         lateral,
         lateralNetOverInflow: lateral.net / inScale,
+        cumulativeBoundaryMass,
+        massLedgerClosureRel:
+          (field.totalMass - initialMass - cumulativeBoundaryMass) / initialMass,
+        centerRho: center.meanRho,
+        centerUx: center.coreMeanUx,
       });
     };
 
@@ -427,10 +465,26 @@ async function runOne(
       transient.massDriftSlopePerTConv =
         dt > 0 ? (transient.steadyMassDriftLast - transient.steadyMassDriftFirst) / dt : 0;
     }
-    transient.massDriftDecay =
-      transient.peakMassDrift / Math.max(transient.steadyMassDrift, 1e-30);
+    transient.massDriftDecay = transient.peakMassDrift / Math.max(transient.steadyMassDrift, 1e-30);
     transient.fluxMismatchDecay =
       transient.peakFluxMismatch / Math.max(transient.steadyFluxMismatch, 1e-30);
+
+    const baselineRho = meanOf(samples.slice(-3).map((s) => s.centerRho));
+    const amplitude = (window: TunnelSample[]): number =>
+      Math.max(...window.map((s) => Math.abs(s.centerRho - baselineRho)), 0);
+    const incidentAmplitude = amplitude(samples.filter((s) => s.tConv <= 1));
+    const reflectedAmplitude = amplitude(
+      samples.filter((s) => s.tConv > 1 && s.tConv < TRANSIENT_TCONV),
+    );
+    const lateAmplitude = amplitude(samples.filter((s) => s.tConv >= TRANSIENT_TCONV));
+    const acoustic: AcousticPulse = {
+      baselineRho,
+      incidentAmplitude,
+      reflectedAmplitude,
+      lateAmplitude,
+      reflectionRatio: reflectedAmplitude / Math.max(incidentAmplitude, 1e-30),
+      decay: reflectedAmplitude / Math.max(lateAmplitude, 1e-30),
+    };
 
     const worst = {
       absMassDrift: Math.max(...steady.map((s) => Math.abs(s.field.massDriftRel))),
@@ -443,16 +497,18 @@ async function runOne(
       nonFiniteCells: Math.max(...samples.map((s) => s.field.nonFiniteCells)),
       rhoDeviation: Math.max(...streamwise.map((s) => Math.abs(s.meanRho - 1))),
       rhoGradient:
-        Math.max(...streamwise.map((s) => s.meanRho)) - Math.min(...streamwise.map((s) => s.meanRho)),
-      coreVelocityRatio:
-        Math.max(...streamwise.map((s) => s.coreMeanUx)) / scene.uLattice - 1,
+        Math.max(...streamwise.map((s) => s.meanRho)) -
+        Math.min(...streamwise.map((s) => s.meanRho)),
+      coreVelocityRatio: Math.max(...streamwise.map((s) => s.coreMeanUx)) / scene.uLattice - 1,
       lateralNetOverInflow: Math.max(...steady.map((s) => Math.abs(s.lateralNetOverInflow))),
+      massLedgerClosureRel: Math.max(...samples.map((s) => Math.abs(s.massLedgerClosureRel))),
     };
     worst.rhoSpan = worst.rhoMax - worst.rhoMin;
 
     return {
       lateralBC: scene.lateralBC,
       inletBC: scene.inletBC,
+      outlet,
       cells: nx * ny * nz,
       nx,
       ny,
@@ -471,6 +527,7 @@ async function runOne(
       samples,
       streamwise,
       transient,
+      acoustic,
       stagger: {
         totalMass,
         rhoMean,
@@ -495,6 +552,7 @@ async function runOne(
 export interface TunnelArm {
   lateralBC: AhmedLateralBC;
   inletBC: AhmedInletBC;
+  outlet?: Outlet3D;
 }
 
 /**
@@ -514,6 +572,11 @@ export const TUNNEL_2X2: TunnelArm[] = [
   { lateralBC: 'freeslip', inletBC: 'velocity' },
 ];
 
+export const PRESSURE_OUTLET_AB: TunnelArm[] = [
+  { lateralBC: 'freeslip', inletBC: 'velocity', outlet: 'zero-gradient' },
+  { lateralBC: 'freeslip', inletBC: 'velocity', outlet: 'pressure' },
+];
+
 export async function runEmptyTunnel(
   device: GPUDevice,
   tiers: number[] = [250_000, 2_000_000],
@@ -531,7 +594,16 @@ export async function runEmptyTunnel(
     for (const cells of tiers) {
       for (const arm of arms) {
         runs.push(
-          await runOne(device, cells, 4.29e6, tConvTotal, gpuErrors, arm.lateralBC, arm.inletBC),
+          await runOne(
+            device,
+            cells,
+            4.29e6,
+            tConvTotal,
+            gpuErrors,
+            arm.lateralBC,
+            arm.inletBC,
+            arm.outlet ?? 'zero-gradient',
+          ),
         );
       }
     }
@@ -543,13 +615,15 @@ export async function runEmptyTunnel(
 
   const lines: string[] = [];
   let pass = gpuErrors.length === 0;
+  const verdicts: EmptyTunnelReport['verdicts'] = [];
   for (const r of runs) {
     const v = verdict(r);
+    verdicts.push({ outlet: r.outlet, ...v });
     pass = pass && v.ok;
     lines.push(...perRunLines(r, v));
   }
   lines.push(...abLines(runs));
-  return { runs, pass, lines, gpuErrors };
+  return { runs, verdicts, pass, lines, gpuErrors };
 }
 
 /**
@@ -568,9 +642,16 @@ function verdictOf(r: EmptyTunnelRun): { ok: boolean; why: string[] } {
     if (r.worst.rhoDeviation > BOUNDS.rhoDeviation)
       why.push(`|rho-1| ${r.worst.rhoDeviation.toExponential(2)} > ${BOUNDS.rhoDeviation}`);
     if (r.worst.rhoGradient > BOUNDS.rhoGradient)
-      why.push(`streamwise rho span ${r.worst.rhoGradient.toExponential(2)} > ${BOUNDS.rhoGradient}`);
+      why.push(
+        `streamwise rho span ${r.worst.rhoGradient.toExponential(2)} > ${BOUNDS.rhoGradient}`,
+      );
     if (r.worst.machMax > BOUNDS.machMax)
       why.push(`Ma ${r.worst.machMax.toFixed(3)} > ${BOUNDS.machMax}`);
+    if (r.worst.massLedgerClosureRel > BOUNDS.massLedgerClosure)
+      why.push(
+        `mass-ledger closure ${r.worst.massLedgerClosureRel.toExponential(2)} > ` +
+          `${BOUNDS.massLedgerClosure}`,
+      );
     if (Math.abs(r.worst.coreVelocityRatio) > BOUNDS.coreVelocity)
       why.push(`core u/u_in−1 = ${r.worst.coreVelocityRatio.toFixed(3)}`);
     // The startup wave must have decayed. WHY it did not is two different diagnoses, and
@@ -631,6 +712,11 @@ function perRunLines(r: EmptyTunnelRun, v: { ok: boolean; why: string[] }): stri
     `     period-2: mass=${r.stagger.staggerTotalMass.toExponential(2)} rhoMean=${r.stagger.staggerRhoMean.toExponential(2)} ` +
       `uMax=${r.stagger.staggerUMax.toExponential(2)} | cv: mass=${r.stagger.cvTotalMass.toExponential(2)} ` +
       `rhoMean=${r.stagger.cvRhoMean.toExponential(2)} uMax=${r.stagger.cvUMax.toExponential(2)}`,
+    `     acoustic center-rho: incident=${r.acoustic.incidentAmplitude.toExponential(2)} ` +
+      `reflected=${r.acoustic.reflectedAmplitude.toExponential(2)} ` +
+      `late=${r.acoustic.lateAmplitude.toExponential(2)} ` +
+      `reflection=${r.acoustic.reflectionRatio.toExponential(2)} ` +
+      `decay=${r.acoustic.decay.toFixed(2)}x (REPORTED, UNGATED)`,
     `     lateral flux (outward, last sample): top=${fmtE(last?.lateral.top)} ` +
       `zMin=${fmtE(last?.lateral.zMin)} zMax=${fmtE(last?.lateral.zMax)} ` +
       `net=${fmtE(last?.lateral.net)} (ground EXCLUDED — not a through-wall flux; ` +
@@ -641,6 +727,9 @@ function perRunLines(r: EmptyTunnelRun, v: { ok: boolean; why: string[] }): stri
       `| steady massDrift ${r.transient.steadyMassDriftFirst.toExponential(2)}→` +
       `${r.transient.steadyMassDriftLast.toExponential(2)} ` +
       `(slope ${r.transient.massDriftSlopePerTConv.toExponential(2)}/T_conv)`,
+    `     exact mass ledger: cumulative boundary=${fmtE(last?.cumulativeBoundaryMass)} ` +
+      `closure/initial=${fmtE(last?.massLedgerClosureRel)} ` +
+      `worst=${r.worst.massLedgerClosureRel.toExponential(2)}`,
     `     nonFinite=${r.worst.nonFiniteCells}`,
   ];
 }
@@ -650,7 +739,8 @@ const fmtE = (x: number | undefined): string =>
 
 /** `freeslip/velocity` — short enough for a row label, unambiguous about both variables. */
 export const armLabel = (r: { lateralBC: AhmedLateralBC; inletBC: AhmedInletBC }): string =>
-  `${r.lateralBC}/${r.inletBC === 'velocity' ? 'velocity' : 'equilib'}`;
+  `${r.lateralBC}/${r.inletBC === 'velocity' ? 'velocity' : 'equilib'}` +
+  (`outlet` in r && r.outlet === 'pressure' ? '/pressure' : '/zero-grad');
 
 /**
  * The phase-3 comparison: the two arms of each tier, side by side.
@@ -666,6 +756,7 @@ export const armLabel = (r: { lateralBC: AhmedLateralBC; inletBC: AhmedInletBC }
  * no longer the same flow. See the module docstring.
  */
 function abLines(runs: EmptyTunnelRun[]): string[] {
+  if (runs.some((r) => r.outlet === 'pressure')) return pressureOutletAbLines(runs);
   const tiers = [...new Set(runs.map((r) => r.cells))];
   const out: string[] = [
     '',
@@ -745,6 +836,43 @@ function abLines(runs: EmptyTunnelRun[]): string[] {
   return out;
 }
 
+function pressureOutletAbLines(runs: EmptyTunnelRun[]): string[] {
+  const out = [
+    '',
+    '## Phase 3c — H4 zero-gradient vs H14 pressure outlet',
+    '',
+    'Held identical: free-slip top/sides, VelocityInlet, no-slip ground, grid, tau0, nu,',
+    'u_in, Cs, FP32, initial condition, and sampling. Acoustic quantities are reported only.',
+    '',
+  ];
+  for (const cells of [...new Set(runs.map((r) => r.cells))]) {
+    const tier = runs.filter((r) => r.cells === cells);
+    if (tier.length === 0) continue;
+    const row = (label: string, get: (r: EmptyTunnelRun) => number, fixed = false): string =>
+      `    ${label.padEnd(23)}` +
+      tier.map((r) => (fixed ? get(r).toFixed(6) : get(r).toExponential(3)).padStart(16)).join('');
+    out.push(
+      `  ${tier[0].nx}x${tier[0].ny}x${tier[0].nz} (${cells} cells)`,
+      `    ${''.padEnd(23)}${tier.map((r) => r.outlet.padStart(16)).join('')}`,
+      `    ${'VERDICT'.padEnd(23)}${tier
+        .map((r) => (verdictOf(r).ok ? 'PASS' : 'FAIL').padStart(16))
+        .join('')}`,
+      row('rhoMean last', (r) => r.samples.at(-1)?.field.rhoMean ?? Number.NaN, true),
+      row('mass slope / Tconv', (r) => r.transient.massDriftSlopePerTConv),
+      row('mass-ledger closure', (r) => r.worst.massLedgerClosureRel),
+      row('coreU / u_in', (r) => r.worst.coreVelocityRatio + 1, true),
+      row('rho min', (r) => r.worst.rhoMin, true),
+      row('rho max', (r) => r.worst.rhoMax, true),
+      row('Ma max', (r) => r.worst.machMax, true),
+      row('acoustic reflected', (r) => r.acoustic.reflectedAmplitude),
+      row('acoustic late', (r) => r.acoustic.lateAmplitude),
+      row('acoustic decay', (r) => r.acoustic.decay, true),
+      '',
+    );
+  }
+  return out;
+}
+
 /**
  * `?lateralBC=` and `?inletBC=` narrow the 2×2; absent means run all four, because the
  * deliverable is the COMPARISON — a single arm produces numbers with nothing to read them
@@ -753,12 +881,14 @@ function abLines(runs: EmptyTunnelRun[]): string[] {
  */
 function armsFromUrl(): TunnelArm[] {
   const q = new URLSearchParams(location.search);
+  if (q.has('phase3c')) {
+    const outlet = q.get('outlet');
+    return PRESSURE_OUTLET_AB.filter((arm) => outlet === null || arm.outlet === outlet);
+  }
   const lat = q.get('lateralBC');
   const inl = q.get('inletBC');
   return TUNNEL_2X2.filter(
-    (a) =>
-      (lat === null || lat === a.lateralBC) &&
-      (inl === null || inl === a.inletBC),
+    (a) => (lat === null || lat === a.lateralBC) && (inl === null || inl === a.inletBC),
   );
 }
 

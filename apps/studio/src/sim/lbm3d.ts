@@ -1,4 +1,4 @@
-import { CellType, D3Q19 } from '@aeroflow/core';
+import { CellType, D3Q19, type Outlet3D } from '@aeroflow/core';
 import shader3d from './shaders/stream_collide_3d.wgsl?raw';
 import reduceForces3dWgsl from './shaders/reduce_forces_3d.wgsl?raw';
 import { preprocessShader } from './shaderPreprocess';
@@ -36,6 +36,10 @@ export interface Lbm3DOptions {
   regularize?: boolean;
   /** Restore the incoming zeroth moment after finite-precision collision (H13). */
   conserveMass?: boolean;
+  /** Outlet treatment; H4 zero-gradient copy remains the historical default. */
+  outlet?: Outlet3D;
+  /** Opt-in H14 diagnostic: accumulate the exact signed fluid-mass effect of shell links. */
+  boundaryMassLedger?: boolean;
   /** Smagorinsky LES; off when undefined. Cs≈0.1 (M7). */
   les?: { cs: number };
   /**
@@ -121,8 +125,10 @@ export class Lbm3D {
   private readonly outletSnapBuf: GPUBuffer;
   private readonly paramsBufs: [GPUBuffer, GPUBuffer]; // [even, odd]
   private readonly snapshotPipeline: GPUComputePipeline;
+  private readonly snapshotBoundaryMassPipeline: GPUComputePipeline | undefined;
   private readonly streamPipeline: GPUComputePipeline;
   private readonly macroPipeline: GPUComputePipeline;
+  private readonly boundaryMassPipeline: GPUComputePipeline | undefined;
   private readonly bindGroups: [GPUBindGroup, GPUBindGroup]; // by parity (collectForces=0)
   // Momentum-exchange force pass (M7, H2 §5); all undefined unless opts.forces is set.
   private readonly forcesEnabled: boolean;
@@ -146,6 +152,9 @@ export class Lbm3D {
   private readonly velInletRhoBuf: GPUBuffer | undefined;
   private readonly freeSlipMask: number;
   private readonly profileAxis: number;
+  private readonly boundaryMassLedgerEnabled: boolean;
+  private readonly boundaryMassSurfaceCells: number;
+  private readonly boundaryMassLedgerBuf: GPUBuffer | undefined;
   private readonly opts: Required<
     Omit<
       Lbm3DOptions,
@@ -160,6 +169,7 @@ export class Lbm3D {
       | 'freeSlip'
       | 'inletProfile'
       | 'velocityInlet'
+      | 'boundaryMassLedger'
     >
   >;
   /** Smagorinsky LES config; undefined = off. Kept off the Required opts (LES-off is valid). */
@@ -178,6 +188,9 @@ export class Lbm3D {
     this.precision = o.precision ?? 'fp32';
     this.les = o.les;
     this.forcesEnabled = o.forces ?? false;
+    this.boundaryMassLedgerEnabled = o.boundaryMassLedger ?? false;
+    this.boundaryMassSurfaceCells =
+      2 * o.ny * o.nz + 2 * (o.nx - 2) * o.nz + 2 * (o.nx - 2) * (o.ny - 2);
     const fs = o.freeSlip ?? {};
     this.freeSlipMask =
       (fs.yMin ? 1 : 0) | (fs.yMax ? 2 : 0) | (fs.zMin ? 4 : 0) | (fs.zMax ? 8 : 0);
@@ -207,6 +220,7 @@ export class Lbm3D {
       lambda: o.lambda ?? 3 / 16,
       regularize: o.regularize ?? false,
       conserveMass: o.conserveMass ?? false,
+      outlet: o.outlet ?? 'zero-gradient',
     };
 
     const layout = planDdfLayout(o.nx, o.ny, o.nz, this.precision, o.maxBindingBytes);
@@ -246,12 +260,14 @@ export class Lbm3D {
     const bindingsNeeded = storageBindingsNeeded(numBufs, {
       forces: this.forcesEnabled,
       abl: this.ablEnabled,
+      massLedger: this.boundaryMassLedgerEnabled,
     });
     if (o.maxStorageBuffersPerStage !== undefined && bindingsNeeded > o.maxStorageBuffersPerStage) {
       throw new Error(
         `Lbm3D: this configuration needs ${bindingsNeeded} storage bindings ` +
           `(${numBufs} DDF + flags/macro×4/outlet` +
-          `${this.forcesEnabled ? ' + cellForce' : ''}${this.ablEnabled ? ' + ABL ×2' : ''}), ` +
+          `${this.forcesEnabled ? ' + cellForce' : ''}${this.ablEnabled ? ' + ABL ×2' : ''}` +
+          `${this.boundaryMassLedgerEnabled ? ' + massLedger' : ''}), ` +
           `but the device grants maxStorageBuffersPerShaderStage = ` +
           `${o.maxStorageBuffersPerStage}.`,
       );
@@ -280,6 +296,13 @@ export class Lbm3D {
       );
     this.macroBufs = [macroBuffer('rho'), macroBuffer('ux'), macroBuffer('uy'), macroBuffer('uz')];
     this.outletSnapBuf = mk('outletSnap', D3Q19.q * o.ny * o.nz * 4, GPUBufferUsage.STORAGE);
+    if (this.boundaryMassLedgerEnabled) {
+      this.boundaryMassLedgerBuf = mk(
+        'boundaryMassLedger3d',
+        (this.boundaryMassSurfaceCells + 4) * 4,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
+      );
+    }
     this.paramsBufs = [
       mk('params-even', PARAMS_SIZE, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST),
       mk('params-odd', PARAMS_SIZE, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST),
@@ -328,11 +351,13 @@ export class Lbm3D {
     const outletBinding = macroBase + this.macroBufs.length;
     const forceBinding = outletBinding + 1;
     const ablBase = forceBinding + (this.forcesEnabled ? 1 : 0);
+    const boundaryMassBinding = ablBase + (this.ablEnabled ? 2 : 0);
     const code = preprocessShader(shader3d, {
       STORAGE_FP16: this.precision === 'fp16',
       TRT: this.opts.collision === 'trt',
       REGULARIZE: this.opts.regularize ?? false,
       CONSERVE_MASS: this.opts.conserveMass ?? false,
+      PRESSURE_OUTLET: this.opts.outlet === 'pressure',
       LES: this.les !== undefined,
       // Both LES (τ_t) and REGULARIZE (projection) read the one Π^neq reduction.
       NEED_TENSOR: this.les !== undefined || (this.opts.regularize ?? false),
@@ -359,6 +384,8 @@ export class Lbm3D {
       ABL: this.ablEnabled,
       B_PROFILE: ablBase,
       B_VELRHO: ablBase + 1,
+      MASS_LEDGER: this.boundaryMassLedgerEnabled,
+      B_MASS_LEDGER: boundaryMassBinding,
     });
     const module = device.createShaderModule({ label: 'stream_collide_3d', code });
     // Explicit shared layout: the three entry points touch different resource subsets, so
@@ -384,6 +411,7 @@ export class Lbm3D {
         ...(this.ablEnabled
           ? [bglEntry(ablBase, 'read-only-storage'), bglEntry(ablBase + 1, 'storage')] // ABL
           : []),
+        ...(this.boundaryMassLedgerEnabled ? [bglEntry(boundaryMassBinding, 'storage')] : []),
       ],
     });
     const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [bgLayout] });
@@ -394,8 +422,14 @@ export class Lbm3D {
         compute: { module, entryPoint },
       });
     this.snapshotPipeline = mkPipeline('snapshot_outlets');
+    this.snapshotBoundaryMassPipeline = this.boundaryMassLedgerEnabled
+      ? mkPipeline('snapshot_boundary_mass')
+      : undefined;
     this.streamPipeline = mkPipeline('stream_collide');
     this.macroPipeline = mkPipeline('write_macro');
+    this.boundaryMassPipeline = this.boundaryMassLedgerEnabled
+      ? mkPipeline('reduce_boundary_mass')
+      : undefined;
 
     const mkGroup = (params: GPUBuffer) =>
       device.createBindGroup({
@@ -416,6 +450,14 @@ export class Lbm3D {
             ? [
                 { binding: ablBase, resource: { buffer: this.inletProfileBuf! } },
                 { binding: ablBase + 1, resource: { buffer: this.velInletRhoBuf! } },
+              ]
+            : []),
+          ...(this.boundaryMassLedgerEnabled
+            ? [
+                {
+                  binding: boundaryMassBinding,
+                  resource: { buffer: this.boundaryMassLedgerBuf! },
+                },
               ]
             : []),
         ],
@@ -600,6 +642,13 @@ export class Lbm3D {
         }
       }
     }
+    if (this.boundaryMassLedgerBuf) {
+      this.device.queue.writeBuffer(
+        this.boundaryMassLedgerBuf,
+        this.boundaryMassSurfaceCells * 4,
+        new Float32Array(4),
+      );
+    }
     this.parity = 0;
     this.totalSteps = 0;
   }
@@ -610,6 +659,12 @@ export class Lbm3D {
     pass.setPipeline(this.snapshotPipeline);
     pass.setBindGroup(0, group);
     pass.dispatchWorkgroups(Math.ceil(this.ny / 64), this.nz, 1);
+    if (this.snapshotBoundaryMassPipeline && this.boundaryMassPipeline) {
+      pass.setPipeline(this.snapshotBoundaryMassPipeline);
+      pass.dispatchWorkgroups(Math.ceil(this.boundaryMassSurfaceCells / 256));
+      pass.setPipeline(this.boundaryMassPipeline);
+      pass.dispatchWorkgroups(1);
+    }
     // Pass 2: fused stream-collide, one thread per cell. 3D dispatch (Nx/64, Ny, Nz).
     pass.setPipeline(this.streamPipeline);
     pass.setBindGroup(0, group);
@@ -666,6 +721,12 @@ export class Lbm3D {
       pass.setPipeline(this.snapshotPipeline);
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(Math.ceil(this.ny / 64), this.nz, 1);
+      if (this.snapshotBoundaryMassPipeline && this.boundaryMassPipeline) {
+        pass.setPipeline(this.snapshotBoundaryMassPipeline);
+        pass.dispatchWorkgroups(Math.ceil(this.boundaryMassSurfaceCells / 256));
+        pass.setPipeline(this.boundaryMassPipeline);
+        pass.dispatchWorkgroups(1);
+      }
       pass.setPipeline(this.streamPipeline);
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(Math.ceil(this.nx / 64), this.ny, this.nz);
@@ -734,6 +795,12 @@ export class Lbm3D {
       pass.setPipeline(this.snapshotPipeline);
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(Math.ceil(this.ny / 64), this.nz, 1);
+      if (this.snapshotBoundaryMassPipeline && this.boundaryMassPipeline) {
+        pass.setPipeline(this.snapshotBoundaryMassPipeline);
+        pass.dispatchWorkgroups(Math.ceil(this.boundaryMassSurfaceCells / 256));
+        pass.setPipeline(this.boundaryMassPipeline);
+        pass.dispatchWorkgroups(1);
+      }
       pass.setPipeline(this.streamPipeline);
       pass.setBindGroup(0, group);
       pass.dispatchWorkgroups(Math.ceil(this.nx / 64), this.ny, this.nz);
@@ -800,6 +867,34 @@ export class Lbm3D {
   /** Step parity of the CURRENT layout (0 = canonical). Part of the checkpoint state. */
   get currentParity(): 0 | 1 {
     return this.parity;
+  }
+
+  /** Read and reset the exact H14 complete-shell mass ledger since the previous drain. */
+  async drainBoundaryMassLedger(): Promise<{ net: number; even: number; odd: number }> {
+    if (!this.boundaryMassLedgerBuf) {
+      throw new Error('Lbm3D.drainBoundaryMassLedger: boundaryMassLedger was not enabled');
+    }
+    const staging = this.device.createBuffer({
+      label: 'boundary-mass-ledger-staging',
+      size: 16,
+      usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    const offset = this.boundaryMassSurfaceCells * 4;
+    try {
+      const encoder = this.device.createCommandEncoder();
+      encoder.copyBufferToBuffer(this.boundaryMassLedgerBuf, offset, staging, 0, 16);
+      this.device.queue.submit([encoder.finish()]);
+      await staging.mapAsync(GPUMapMode.READ);
+      const values = new Float32Array(staging.getMappedRange());
+      const even = values[0];
+      const odd = values[2];
+      staging.unmap();
+      this.device.queue.writeBuffer(this.boundaryMassLedgerBuf, offset, new Float32Array(4));
+      return { net: even + odd, even, odd };
+    } finally {
+      if (staging.mapState === 'mapped') staging.unmap();
+      staging.destroy();
+    }
   }
 
   /** Byte size of each DDF split buffer — the checkpoint chunking plan runs over these. */
@@ -1002,6 +1097,7 @@ export class Lbm3D {
     this.flagsBuf.destroy();
     for (const b of this.macroBufs) b.destroy();
     this.outletSnapBuf.destroy();
+    this.boundaryMassLedgerBuf?.destroy();
     this.paramsBufs[0].destroy();
     this.paramsBufs[1].destroy();
     this.paramsCollectBufs?.[0].destroy();

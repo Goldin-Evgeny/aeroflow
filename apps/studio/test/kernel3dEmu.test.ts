@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CellType, D3Q19, EsotericPull3D, isSolid } from '@aeroflow/core';
+import { CellType, D3Q19, EsotericPull3D, isSolid, type Outlet3D } from '@aeroflow/core';
 
 /**
  * Faithful TypeScript emulation of stream_collide_3d.wgsl — same single-array layout,
@@ -23,6 +23,7 @@ interface EmuFreeSlip {
 interface EmuOpts {
   freeSlip?: EmuFreeSlip;
   inletProfile?: { axis: 'y' | 'z'; ux: Float64Array };
+  outlet?: Outlet3D;
 }
 
 function equilibrium(i: number, rho: number, ux: number, uy: number, uz: number): number {
@@ -159,6 +160,26 @@ class KernelEmu {
           if (flag === CellType.Outlet) {
             const base = q * (y + ny * z);
             for (let i = 0; i < q; i++) f[i] = this.outletSnap[base + i];
+            if (this.opts.outlet === 'pressure') {
+              let rho = 0;
+              let mx = 0;
+              let my = 0;
+              let mz = 0;
+              for (let i = 0; i < q; i++) {
+                rho += f[i];
+                mx += ex[i] * f[i];
+                my += ey[i] * f[i];
+                mz += ez[i] * f[i];
+              }
+              const ux = mx / rho;
+              const uy = my / rho;
+              const uz = mz / rho;
+              for (let i = 0; i < q; i++) {
+                const equilibriumOut = equilibrium(i, 1, ux, uy, uz);
+                const equilibriumNeighbor = equilibrium(i, rho, ux, uy, uz);
+                f[i] = equilibriumOut + (f[i] - equilibriumNeighbor);
+              }
+            }
             this.scatter(idx, x, y, z, even, f, A);
             continue;
           }
@@ -377,58 +398,62 @@ describe('WGSL kernel emulation vs EsotericPull3D (isolates ?parity3d)', () => {
     expect(maxU, `u diff ${maxU}`).toBeLessThan(1e-6);
   });
 
-  it('matches CPU on the M10 ABL scene (free-slip H11 + VelocityInlet H12) on 16³ after 50 steps', () => {
-    const N = 16;
-    const flags = ablFlags(N, N, N);
-    const freeSlip = { yMax: true, zMin: true, zMax: true };
-    // Sheared profile with f32-representable values (Math.fround) so the future GPU
-    // parity run feeds bit-equal inputs; y=0 is the solid ground (value unused).
-    const ux = new Float64Array(N);
-    for (let y = 0; y < N; y++) ux[y] = Math.fround(0.05 * (0.4 + (0.6 * y) / (N - 1)));
-    const inletProfile = { axis: 'y' as const, ux };
-    const cpu = new EsotericPull3D({
-      nx: N,
-      ny: N,
-      nz: N,
-      omega: 1 / TAU,
-      flags,
-      inletVelocity: INLET,
-      inletProfile,
-      freeSlip,
-      collision: 'trt',
-    });
-    cpu.reset(1, 0, 0, 0);
-    const emu = new KernelEmu(N, N, N, flags, { freeSlip, inletProfile });
-    for (let s = 0; s < 50; s++) {
-      cpu.step(1);
-      emu.step();
-    }
-    const snap = cpu.snapshotCanonical();
-    const emuMac = emu.macro();
-    let maxRho = 0;
-    let maxU = 0;
-    for (let idx = 0; idx < N * N * N; idx++) {
-      if (flags[idx] !== CellType.Fluid) continue;
-      let rho = 0;
-      let mx = 0;
-      let my = 0;
-      let mz = 0;
-      for (let i = 0; i < q; i++) {
-        const fi = snap[i * emu.n + idx];
-        rho += fi;
-        mx += ex[i] * fi;
-        my += ey[i] * fi;
-        mz += ez[i] * fi;
+  it.each<Outlet3D>(['zero-gradient', 'pressure'])(
+    'matches CPU on the M10 ABL scene with %s outlet on 16³ after 50 steps',
+    (outlet) => {
+      const N = 16;
+      const flags = ablFlags(N, N, N);
+      const freeSlip = { yMax: true, zMin: true, zMax: true };
+      // Sheared profile with f32-representable values (Math.fround) so the future GPU
+      // parity run feeds bit-equal inputs; y=0 is the solid ground (value unused).
+      const ux = new Float64Array(N);
+      for (let y = 0; y < N; y++) ux[y] = Math.fround(0.05 * (0.4 + (0.6 * y) / (N - 1)));
+      const inletProfile = { axis: 'y' as const, ux };
+      const cpu = new EsotericPull3D({
+        nx: N,
+        ny: N,
+        nz: N,
+        omega: 1 / TAU,
+        flags,
+        inletVelocity: INLET,
+        inletProfile,
+        freeSlip,
+        collision: 'trt',
+        outlet,
+      });
+      cpu.reset(1, 0, 0, 0);
+      const emu = new KernelEmu(N, N, N, flags, { freeSlip, inletProfile, outlet });
+      for (let s = 0; s < 50; s++) {
+        cpu.step(1);
+        emu.step();
       }
-      maxRho = Math.max(maxRho, Math.abs(emuMac[4 * idx] - rho));
-      maxU = Math.max(
-        maxU,
-        Math.abs(emuMac[4 * idx + 1] - mx / rho),
-        Math.abs(emuMac[4 * idx + 2] - my / rho),
-        Math.abs(emuMac[4 * idx + 3] - mz / rho),
-      );
-    }
-    expect(maxRho, `rho diff ${maxRho}`).toBeLessThan(1e-6);
-    expect(maxU, `u diff ${maxU}`).toBeLessThan(1e-6);
-  });
+      const snap = cpu.snapshotCanonical();
+      const emuMac = emu.macro();
+      let maxRho = 0;
+      let maxU = 0;
+      for (let idx = 0; idx < N * N * N; idx++) {
+        if (flags[idx] !== CellType.Fluid) continue;
+        let rho = 0;
+        let mx = 0;
+        let my = 0;
+        let mz = 0;
+        for (let i = 0; i < q; i++) {
+          const fi = snap[i * emu.n + idx];
+          rho += fi;
+          mx += ex[i] * fi;
+          my += ey[i] * fi;
+          mz += ez[i] * fi;
+        }
+        maxRho = Math.max(maxRho, Math.abs(emuMac[4 * idx] - rho));
+        maxU = Math.max(
+          maxU,
+          Math.abs(emuMac[4 * idx + 1] - mx / rho),
+          Math.abs(emuMac[4 * idx + 2] - my / rho),
+          Math.abs(emuMac[4 * idx + 3] - mz / rho),
+        );
+      }
+      expect(maxRho, `rho diff ${maxRho}`).toBeLessThan(1e-6);
+      expect(maxU, `u diff ${maxU}`).toBeLessThan(1e-6);
+    },
+  );
 });

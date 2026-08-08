@@ -83,6 +83,8 @@ export interface KernelBindings {
   forces?: boolean;
   /** ABL inlet adds `inletProfile` + `velInletRho` — two small, non-per-cell bindings. */
   abl?: boolean;
+  /** H14 diagnostics add one small per-face boundary-mass ledger binding. */
+  massLedger?: boolean;
 }
 
 /**
@@ -93,7 +95,13 @@ export interface KernelBindings {
  * at all. `Lbm3D` checks this up front rather than failing opaquely at pipeline creation.
  */
 export function storageBindingsNeeded(numDdfBuffers: number, k: KernelBindings = {}): number {
-  return numDdfBuffers + FIXED_STORAGE_BINDINGS + (k.forces ? 1 : 0) + (k.abl ? 2 : 0);
+  return (
+    numDdfBuffers +
+    FIXED_STORAGE_BINDINGS +
+    (k.forces ? 1 : 0) +
+    (k.abl ? 2 : 0) +
+    (k.massLedger ? 1 : 0)
+  );
 }
 
 /** Round a byte count up to a 4-byte boundary (WebGPU buffer size alignment). */

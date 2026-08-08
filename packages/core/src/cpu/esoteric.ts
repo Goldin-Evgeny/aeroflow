@@ -10,6 +10,7 @@ import {
   type Forcing,
 } from './collide.js';
 import { resolveFreeSlipPull, validateFreeSlip, type FreeSlipFaces } from './freeslip.js';
+import { reconstructPressureOutlet3D, type Outlet3D } from './outlet3d.js';
 
 /**
  * Esoteric-Pull in-place streaming, D3Q19 — the CPU reference for the M6 GPU kernel.
@@ -39,6 +40,8 @@ export interface EsotericPull3DOptions {
   regularize?: boolean;
   /** Restore the incoming zeroth moment after collision roundoff — H13. */
   conserveMass?: boolean;
+  /** Outlet treatment; H4 zero-gradient copy remains the historical default. */
+  outlet?: Outlet3D;
   forcing?: Exclude<Forcing, 'none'>;
   gravity?: readonly [number, number, number];
   forceMask?: Uint8Array;
@@ -74,6 +77,7 @@ export class EsotericPull3D {
   tauEffRecord: Float64Array | undefined;
   private readonly inletProfile: { axis: 'y' | 'z'; ux: Float64Array } | undefined;
   private readonly freeSlip: FreeSlipFaces;
+  private readonly outlet: Outlet3D;
   private readonly forceMask: Uint8Array | undefined;
   /** THE single DDF array (the point of the scheme). */
   private readonly A: Float64Array;
@@ -105,6 +109,7 @@ export class EsotericPull3D {
       }
     }
     this.freeSlip = opts.freeSlip ?? {};
+    this.outlet = opts.outlet ?? 'zero-gradient';
     validateFreeSlip(this.flags, this.nx, this.ny, this.nz, this.freeSlip);
     this.forceMask = opts.forceMask;
     this.ctx = makeCollideContext(D3Q19_SPEC, {
@@ -257,6 +262,7 @@ export class EsotericPull3D {
             const snap = this.outletSnap;
             const base = q * outletCursor++;
             for (let i = 0; i < q; i++) f[i] = snap[base + i];
+            if (this.outlet === 'pressure') reconstructPressureOutlet3D(f, ctx);
             this.scatter(idx, x, y, z, even, f);
             continue;
           }

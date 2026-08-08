@@ -10,6 +10,7 @@ import {
   type Forcing,
 } from './collide.js';
 import { resolveFreeSlipPull, validateFreeSlip, type FreeSlipFaces } from './freeslip.js';
+import { reconstructPressureOutlet3D, type Outlet3D } from './outlet3d.js';
 
 /**
  * CPU reference D3Q19 solver — naive two-array pull streaming, deliberately readable
@@ -43,6 +44,8 @@ export interface Solver3DOptions {
   regularize?: boolean;
   /** Restore the incoming zeroth moment after collision roundoff — H13. */
   conserveMass?: boolean;
+  /** Outlet treatment; H4 zero-gradient copy remains the historical default. */
+  outlet?: Outlet3D;
   forcing?: Exclude<Forcing, 'none'>;
   forceMask?: Uint8Array;
   /**
@@ -72,6 +75,7 @@ export class Solver3D {
   readonly ctx: CollideContext;
   private readonly inletProfile: { axis: 'y' | 'z'; ux: Float64Array } | undefined;
   private readonly freeSlip: FreeSlipFaces;
+  private readonly outlet: Outlet3D;
   private readonly forceMask: Uint8Array | undefined;
   private readonly periodicX: boolean;
   private readonly periodicY: boolean;
@@ -103,6 +107,7 @@ export class Solver3D {
     this.periodicY = opts.periodicY ?? false;
     this.periodicZ = opts.periodicZ ?? false;
     this.freeSlip = opts.freeSlip ?? {};
+    this.outlet = opts.outlet ?? 'zero-gradient';
     this.flags = opts.flags ?? new Uint8Array(this.n);
     if (this.flags.length !== this.n) throw new Error('flags length must be nx·ny·nz');
     validateFreeSlip(this.flags, this.nx, this.ny, this.nz, this.freeSlip);
@@ -246,7 +251,13 @@ export class Solver3D {
 
           if (flag === CellType.Outlet) {
             const src = idx - 1; // upstream in x (outlets live on the +x face)
-            for (let i = 0; i < q; i++) fDst[i * n + idx] = fSrc[i * n + src];
+            if (this.outlet === 'zero-gradient') {
+              for (let i = 0; i < q; i++) fDst[i * n + idx] = fSrc[i * n + src];
+              continue;
+            }
+            for (let i = 0; i < q; i++) f[i] = fSrc[i * n + src];
+            reconstructPressureOutlet3D(f, ctx);
+            for (let i = 0; i < q; i++) fDst[i * n + idx] = f[i];
             continue;
           }
 

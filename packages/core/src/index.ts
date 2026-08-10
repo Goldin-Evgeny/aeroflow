@@ -202,6 +202,40 @@ export { relSpread, blocksAgree } from './analysis/blockConvergence.js';
 export type { BlockAgreementOptions } from './analysis/blockConvergence.js';
 export { tauStats, tauLayersAt, ahmedTauRegions, TAU_PERCENTILES } from './analysis/tauStats.js';
 export type { TauStats, TauRegion, TauLayer } from './analysis/tauStats.js';
+export { compareStrain } from './analysis/strainComparison.js';
+export type {
+  StrainComparison,
+  StrainComparisonInput,
+  StrainResidualBin,
+  StrainSummary,
+} from './analysis/strainComparison.js';
+export { compareStressTensors, STRESS_COMPONENTS } from './analysis/stressComparison.js';
+export type {
+  StressComponent,
+  StressLinearComparison,
+  StressResidualBin,
+  StressTensorComparison,
+  StressTensorComparisonInput,
+} from './analysis/stressComparison.js';
+export {
+  analyzeStrainScales,
+  STRAIN_GRADIENT_CONTRIBUTIONS,
+  STRAIN_SCALE_COMPONENTS,
+  STRAIN_WAVELENGTH_BANDS,
+} from './analysis/strainScaleAnalysis.js';
+export type {
+  StrainComponentScale,
+  StrainContributionSpectrum,
+  StrainGradientContribution,
+  StrainScaleAnalysis,
+  StrainScaleAnalysisInput,
+  StrainScaleComponent,
+  StrainScaleSignal,
+  StrainSpectralBand,
+  StrainSpectralMode,
+  StrainStencilScale,
+  StrainWavelengthBand,
+} from './analysis/strainScaleAnalysis.js';
 export type { SphereDragStats, SphereDragStatsOptions } from './analysis/sphereDrag.js';
 export {
   triBoxOverlap,

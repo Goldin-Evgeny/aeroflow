@@ -1,6 +1,8 @@
 import { ForcePlot } from './forcePlot';
 import {
+  AHMED_ACCEPTANCE_INLET_BC,
   AHMED_ACCEPTANCE_LATERAL_BC,
+  AHMED_ACCEPTANCE_OUTLET,
   AHMED_ACCEPTANCE_PRECISION,
   AHMED_CD_BAND,
   AHMED_CD_STRETCH,
@@ -10,7 +12,7 @@ import {
   type AhmedWorkerCommand,
   type AhmedWorkerEvent,
 } from '../sim/ahmedRun';
-import { AHMED_EXPERIMENTAL_RE } from '@aeroflow/core';
+import { AHMED_EXPERIMENTAL_RE, STRESS_COMPONENTS } from '@aeroflow/core';
 import {
   applyCellsOverride,
   fieldEveryOverride,
@@ -28,8 +30,8 @@ import {
  * runs entirely in a dedicated worker (background-tab-safe stepping — worker timers are
  * not throttled); this page renders the progress panel, holds the screen wake lock, asks
  * the worker to checkpoint when the tab hides, and exposes the acceptance-4 chaos button
- * ("Simulate device loss"). Verdict line compares mean Cd against 0.285 ± 15% (stretch
- * ± 10%) once forceHistory reports convergence (20 T_conv within 3%).
+ * ("Simulate device loss"). The live running-mean trigger is diagnostic; the M9 closure
+ * harness owns the terminal budget plus independent-block acceptance verdict.
  */
 
 const BUDGETS: Record<string, number> = {
@@ -268,12 +270,16 @@ export function mountAhmed(root: HTMLElement): void {
           `far field: ${scene.lateralBC} top/sides` +
             (scene.lateralBC === AHMED_ACCEPTANCE_LATERAL_BC
               ? ''
-              : `  ← phase-3 A/B arm, NOT the acceptance configuration`) +
+              : `  ← NOT the frozen acceptance configuration`) +
             `   no-slip ground`,
           `inlet: ${scene.inletBC}` +
-            (scene.inletBC === 'equilibrium' ? '' : '  ← NOT the acceptance configuration') +
+            (scene.inletBC === AHMED_ACCEPTANCE_INLET_BC
+              ? ''
+              : '  ← NOT the frozen acceptance configuration') +
             `   outlet: ${scene.outlet}` +
-            (scene.outlet === 'zero-gradient' ? '' : '  ← NOT the acceptance configuration'),
+            (scene.outlet === AHMED_ACCEPTANCE_OUTLET
+              ? ''
+              : '  ← NOT the frozen acceptance configuration'),
           `T_conv = ${scene.convectiveTimeSteps} steps   band Cd ${AHMED_CD_TARGET} ±15% [${AHMED_CD_BAND[0]}, ${AHMED_CD_BAND[1]}]`,
         ].join('\n');
         logLine('run ready');
@@ -289,26 +295,9 @@ export function mountAhmed(root: HTMLElement): void {
           `converged: ${m.converged ? 'YES' : 'not yet'}   checkpoints: last ${lastCheckpoint}   recoveries: ${recoveries}`,
         ].join('\n');
         if (m.converged) {
-          // Cd 0.285 was measured at Re 4.29e6 with the M7 LES recipe and FP16 storage. A run
-          // at any other Re, Cs or precision is a diagnostic, so it reports its number without
-          // a verdict rather than a misleading pass/fail — the same suppression discipline the
-          // urban runner applies to under-resolved grids. Every value read here is what the
-          // solver actually BUILT with, not what was typed.
-          //
-          // Cs and precision joined this test for the M9 step-7 sweep, and the reason is
-          // structural rather than cosmetic: that sweep varies Cs looking for a MECHANISM, and
-          // a lowered-Cs rung could plausibly land near 0.285 by coincidence. If the page could
-          // print PASS for it, the sweep would have become a tuning exercise the moment it
-          // succeeded. It cannot.
-          //
-          // `lateralBC` joined for exactly the same reason in M9 phase 3, and it is the case
-          // where the discipline matters most. Free-slip removes the hard-Dirichlet cells that
-          // hold the core at u_in, so it can lower Cd_commanded through a velocity deficit
-          // rather than through physics — the sphere Re=10⁴ case moved 0.55 → 0.263 on this
-          // one change. A free-slip rung landing in [0.242, 0.328] would look exactly like
-          // success and would be unearned until the A/B has shown WHY it moved. Free-slip
-          // becomes an acceptance configuration only by an explicit decision recorded in
-          // docs/VALIDATION.md, never by a page printing PASS for it first.
+          // Off-spec runs remain diagnostic. Even a matching run cannot be decided by this
+          // cumulative running-mean flag: the final M9 contract has a fixed terminal budget
+          // and post-trigger independent blocks, evaluated by m9-closure.gpu.spec.ts.
           const offSpec = scene
             ? [
                 scene.Re !== AHMED_EXPERIMENTAL_RE
@@ -319,14 +308,14 @@ export function mountAhmed(root: HTMLElement): void {
                   ? `${scene.precision} storage ≠ ${AHMED_ACCEPTANCE_PRECISION}`
                   : null,
                 scene.lateralBC !== AHMED_ACCEPTANCE_LATERAL_BC
-                  ? `${scene.lateralBC} far field ≠ ${AHMED_ACCEPTANCE_LATERAL_BC} (phase-3 A/B arm)`
+                  ? `${scene.lateralBC} far field ≠ ${AHMED_ACCEPTANCE_LATERAL_BC}`
                   : null,
-                // Same discipline for H12/H14 (M9/V11): selecting the validated BC baseline is
-                // itself an explicit, deliberate choice this run reports honestly, never a
-                // silent promotion to "the" acceptance configuration — that promotion belongs
-                // in docs/VALIDATION.md, informed by evidence, not printed here first.
-                scene.inletBC !== 'equilibrium' ? `${scene.inletBC} inlet ≠ equilibrium` : null,
-                scene.outlet !== 'zero-gradient' ? `${scene.outlet} outlet ≠ zero-gradient` : null,
+                scene.inletBC !== AHMED_ACCEPTANCE_INLET_BC
+                  ? `${scene.inletBC} inlet ≠ ${AHMED_ACCEPTANCE_INLET_BC}`
+                  : null,
+                scene.outlet !== AHMED_ACCEPTANCE_OUTLET
+                  ? `${scene.outlet} outlet ≠ ${AHMED_ACCEPTANCE_OUTLET}`
+                  : null,
               ].filter((s): s is string => s !== null)
             : [];
           if (offSpec.length > 0) {
@@ -336,12 +325,21 @@ export function mountAhmed(root: HTMLElement): void {
               'warn',
             );
           } else {
+            // The band position is REPORTED, never asserted here. This flag is a cumulative
+            // running mean over the whole run, so it still carries the startup transient; the
+            // acceptance verdict belongs to m9-closure.gpu.spec.ts, which owns the terminal
+            // budget and the independent post-trigger blocks.
             const inBand = m.meanCd >= AHMED_CD_BAND[0] && m.meanCd <= AHMED_CD_BAND[1];
-            const inStretch = m.meanCd >= AHMED_CD_STRETCH[0] && m.meanCd <= AHMED_CD_STRETCH[1];
+            const inStretch =
+              m.meanCd >= AHMED_CD_STRETCH[0] && m.meanCd <= AHMED_CD_STRETCH[1];
             setVerdict(
-              `${inBand ? (inStretch ? 'PASS (stretch ±10%)' : 'PASS (±15%)') : 'OUT OF BAND'}  ` +
-                `mean Cd ${m.meanCd.toFixed(4)} vs ${AHMED_CD_TARGET} [${AHMED_CD_BAND[0]}, ${AHMED_CD_BAND[1]}]`,
-              inBand ? 'ok' : 'bad',
+              `ACCEPTANCE CONFIGURATION — live running-mean trigger reached at ` +
+                `Cd ${m.meanCd.toFixed(4)} (${
+                  inBand ? (inStretch ? 'in stretch ±10%' : 'in band ±15%') : 'outside ±15%'
+                } [${AHMED_CD_BAND[0]}, ${AHMED_CD_BAND[1]}]). Reported, not a verdict: ` +
+                `final PASS/FAIL requires the predeclared m9-closure terminal budget and ` +
+                `independent blocks`,
+              'warn',
             );
           }
         }
@@ -412,6 +410,44 @@ export function mountAhmed(root: HTMLElement): void {
               `overwhelm ${pct(s.lesOverwhelmingFraction)}`
             );
           }),
+          `  approach strain n=${t.approachStrain.stencilCells.toLocaleString()}  ` +
+            `FD p50 ${t.approachStrain.finiteDifference.p50.toExponential(3)} ` +
+            `p95 ${t.approachStrain.finiteDifference.p95.toExponential(3)} ` +
+            `p99 ${t.approachStrain.finiteDifference.p99.toExponential(3)}  ` +
+            `Pi p50 ${t.approachStrain.piImplied.p50.toExponential(3)} ` +
+            `p95 ${t.approachStrain.piImplied.p95.toExponential(3)} ` +
+            `p99 ${t.approachStrain.piImplied.p99.toExponential(3)}`,
+          `  approach agreement Pearson ${t.approachStrain.pearsonCorrelation.toFixed(4)}  ` +
+            `Spearman ${t.approachStrain.spearmanRankCorrelation.toFixed(4)}  ` +
+            `median(Pi/FD) ${t.approachStrain.medianRatioSlope.toFixed(4)}  ` +
+            `relative L1 residual ${t.approachStrain.relativeL1Residual.toFixed(4)}  ` +
+            `rejected(stencil) ${t.approachStrain.rejectedIncompleteStencil.toLocaleString()}  ` +
+            `invalid ${t.approachStrain.invalidCells.toLocaleString()}`,
+          `  density-weighted FD p50 ${t.approachStrain.densityWeighted.finiteDifference.p50.toExponential(3)}  ` +
+            `Pearson ${t.approachStrain.densityWeighted.pearsonCorrelation.toFixed(4)}  ` +
+            `Spearman ${t.approachStrain.densityWeighted.spearmanRankCorrelation.toFixed(4)}  ` +
+            `median(Pi/FD-rho) ${t.approachStrain.densityWeighted.medianRatioSlope.toFixed(4)}  ` +
+            `relative L1 ${t.approachStrain.densityWeighted.relativeL1Residual.toFixed(4)}`,
+          ...STRESS_COMPONENTS.map((component) => {
+            const s = t.approachTensor.components[component];
+            return (
+              `  Pi tensor ${component}: Pearson ${s.pearsonCorrelation.toFixed(4)}  ` +
+              `Spearman ${s.spearmanRankCorrelation.toFixed(4)}  ` +
+              `alpha0 ${s.throughOriginSlope.toFixed(4)}  ` +
+              `OLS ${s.unconstrainedSlope.toFixed(4)} + ${s.unconstrainedIntercept.toExponential(3)}  ` +
+              `nRMS ${s.normalizedRmsResidual.toFixed(4)}  sign ${pct(s.signAgreementRate)}`
+            );
+          }),
+          `  Pi tensor global alpha ${t.approachTensor.global.throughOriginSlope.toFixed(4)}  ` +
+            `nRMS ${t.approachTensor.global.normalizedRmsResidual.toFixed(4)}  ` +
+            `deviatoric alpha ${t.approachTensor.deviatoric.throughOriginSlope.toFixed(4)}  ` +
+            `Pearson ${t.approachTensor.deviatoric.pearsonCorrelation.toFixed(4)}  ` +
+            `Spearman ${t.approachTensor.deviatoric.spearmanRankCorrelation.toFixed(4)}  ` +
+            `nRMS ${t.approachTensor.deviatoric.normalizedRmsResidual.toFixed(4)}`,
+          `  Pi trace alpha ${t.approachTensor.trace.hydrodynamic.throughOriginSlope.toFixed(4)}  ` +
+            `Pearson ${t.approachTensor.trace.hydrodynamic.pearsonCorrelation.toFixed(4)}  ` +
+            `Spearman ${t.approachTensor.trace.hydrodynamic.spearmanRankCorrelation.toFixed(4)}  ` +
+            `nRMS ${t.approachTensor.trace.hydrodynamic.normalizedRmsResidual.toFixed(4)}`,
         ].join('\n');
         logLine(
           `τ_eff @ ${t.convectiveTimes.toFixed(1)} T_conv: whole-domain ν_LES/ν_mol p50 ` +

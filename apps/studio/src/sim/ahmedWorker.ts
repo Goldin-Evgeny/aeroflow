@@ -2,8 +2,12 @@ import {
   AIR_KINEMATIC_VISCOSITY,
   AHMED,
   AHMED_FREESLIP_FACES,
+  D3Q19,
   ForceHistory,
   ahmedScene,
+  analyzeStrainScales,
+  compareStrain,
+  compareStressTensors,
   forceToNewtons,
   lateralFlux,
   sectionStats,
@@ -231,6 +235,46 @@ async function collectTau(r: RunState): Promise<AhmedTauReport> {
   // How far up to profile: enough to contain the 43-cell δ99 seen at Re 1e5 with headroom,
   // capped at the domain height.
   const layerTop = Math.min(scene.ny, Math.max(4 * bodyHeight, 64));
+  const approach = regions.find((region) => region.name === 'approach freestream');
+  if (!approach) throw new Error('collectTau: approach freestream region is missing');
+  const approachStrain = compareStrain({
+    nx: scene.nx,
+    ny: scene.ny,
+    nz: scene.nz,
+    tauEff: field.tauEff,
+    evaluated: field.evaluated,
+    ux: field.ux,
+    uy: field.uy,
+    uz: field.uz,
+    rho: field.rho,
+    tau0: field.tau0,
+    lesK: field.lesK,
+    select: approach.select,
+  });
+  const approachTensor = compareStressTensors({
+    nx: scene.nx,
+    ny: scene.ny,
+    nz: scene.nz,
+    evaluated: field.evaluated,
+    rho: field.rho,
+    ux: field.ux,
+    uy: field.uy,
+    uz: field.uz,
+    tauEff: field.tauEff,
+    piNeq: field.piNeq,
+    cs2: D3Q19.cs2,
+    select: approach.select,
+  });
+  const approachScales = analyzeStrainScales({
+    nx: scene.nx,
+    ny: scene.ny,
+    nz: scene.nz,
+    evaluated: field.evaluated,
+    ux: field.ux,
+    uy: field.uy,
+    uz: field.uz,
+    select: approach.select,
+  });
 
   return {
     totalSteps: field.totalSteps,
@@ -266,6 +310,9 @@ async function collectTau(r: RunState): Promise<AhmedTauReport> {
         isFluid,
       ),
     })),
+    approachStrain,
+    approachTensor,
+    approachScales,
   };
 }
 

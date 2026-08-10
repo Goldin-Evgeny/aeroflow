@@ -5,6 +5,9 @@ import type {
   FieldStats,
   LateralFlux,
   Outlet3D,
+  StrainScaleAnalysis,
+  StressTensorComparison,
+  StrainComparison,
   TauLayer,
   TauStats,
   WakeProbe,
@@ -191,6 +194,12 @@ export interface AhmedTauReport {
   slantStartX: number;
   regions: { name: string; stats: TauStats }[];
   layers: { x: number; layers: TauLayer[] }[];
+  /** Same-time-level centered-difference versus Pi-implied strain in the approach interior. */
+  approachStrain: StrainComparison;
+  /** Component-level pre-collision Pi_neq versus hydrodynamic stress in the same cells. */
+  approachTensor: StressTensorComparison;
+  /** Directional spectra and common-mask h/2h/4h strain sensitivity for the approach field. */
+  approachScales: StrainScaleAnalysis;
 }
 
 export type AhmedWorkerCommand =

@@ -131,6 +131,8 @@ export interface TauFieldResult {
   ux: Float32Array;
   uy: Float32Array;
   uz: Float32Array;
+  /** Pre-collision Pi_neq, interleaved `[xx, yy, zz, xy, xz, yz]` per evaluated cell. */
+  piNeq: Float32Array;
   /** Cells actually evaluated. */
   fluidCells: number;
   /**
@@ -186,6 +188,7 @@ export async function computeTauField(sim: Lbm3D): Promise<TauFieldResult> {
   const uxOut = new Float32Array(n);
   const uyOut = new Float32Array(n);
   const uzOut = new Float32Array(n);
+  const piNeqOut = new Float32Array(6 * n);
   const f = new Float64Array(q);
   const feq = new Float64Array(q);
   const p = new Float64Array(6);
@@ -262,6 +265,10 @@ export async function computeTauField(sim: Lbm3D): Promise<TauFieldResult> {
         uxOut[idx] = ux;
         uyOut[idx] = uy;
         uzOut[idx] = uz;
+        const piBase = 6 * idx;
+        for (let component = 0; component < 6; component++) {
+          piNeqOut[piBase + component] = p[component];
+        }
         evaluated[idx] = 1;
         fluidCells++;
       }
@@ -275,6 +282,7 @@ export async function computeTauField(sim: Lbm3D): Promise<TauFieldResult> {
     ux: uxOut,
     uy: uyOut,
     uz: uzOut,
+    piNeq: piNeqOut,
     fluidCells,
     freeSlipAdjacentSkipped,
     tau0,

@@ -15,15 +15,16 @@ import type { Page, TestInfo } from '@playwright/test';
  * the M7 status log, not gated here (docs/VALIDATION.md rule 3;
  * CLAUDE.md hard rule 3 — never weaken a tolerance, and never fake a green either).
  *
- * The 2026-07-24 first run established the honest numbers this suite records:
+ * The 2026-08-10 consecutive-step force rebaseline established the honest numbers this
+ * suite records. It supersedes the single-parity force samples published on 2026-07-24:
  *   - Re=100 (steady wake): Cd 1.153 (in band); fp16 A/B 2.25% — a real, converged
  *     shifted-fp16 storage bias sitting just over the 2% acceptance-4 bar.
- *   - Re=1000: converged (drift 0.5%, tc=120) Cd 0.569 — ~21% over literature 0.47, OUT
+ *   - Re=1000: converged (drift 0.499%, tc=120) Cd 0.5692 — ~21% over literature 0.47, OUT
  *     of band. The earlier recorded "PASS (0.509)" was premature: read off a running mean
  *     at 4.8% drift while still climbing. This suite's tc=120 run is what caught it.
- *   - Re=10⁴: freestream Cd 0.55 (over band); H11 free-slip Cd 0.263 (UNDER band). Neither
- *     lateral BC brackets [0.38, 0.5] — the error is unresolved boundary layer (uniform
- *     grid), not confinement. Free-slip is a tried-and-rejected far-field, not a fix.
+ *   - Re=10⁴: freestream Cd 0.6047 (over band); H11 free-slip Cd 0.2727 (UNDER band).
+ *     Neither configuration is accepted. FP16/FP32 is 0.6047/0.6066 (0.320%, PASS).
+ *     These runs establish the numerical verdicts, not a unique physical cause.
  *
  * Each run is tens of thousands of steps (A/B doubles it); the gpu project timeout is 30m.
  */
@@ -147,11 +148,31 @@ test('Re=100 FP16 A/B (tc=100) — relΔ recorded (steady wake, converged)', asy
   await recordAb(page, testInfo, 'sphere-re100-ab', '/?spheredrag&tc=100', 'sphere-ab-Re100');
 });
 
+test('Re=10⁴ FP16 vs FP32 A/B — pair-averaged relΔ recorded', async ({
+  gpuPage: page,
+}, testInfo) => {
+  test.setTimeout(30 * 60_000);
+  await recordAb(page, testInfo, 'sphere-re10000-ab', '/?spheredrag', 'sphere-ab-Re10000');
+});
+
 test('Re=1000 converged run (tc=120) — Cd + drift recorded', async ({
   gpuPage: page,
 }, testInfo) => {
   test.setTimeout(30 * 60_000);
   await recordRun(page, testInfo, 'sphere-re1000-run', '/?spheredrag&tc=120', 'sphere-run-Re1000');
+});
+
+test('Re=10⁴ with historical freestream far field — pair-averaged Cd recorded', async ({
+  gpuPage: page,
+}, testInfo) => {
+  test.setTimeout(30 * 60_000);
+  await recordRun(
+    page,
+    testInfo,
+    'sphere-re10000-freestream',
+    '/?spheredrag',
+    'sphere-run-Re10000',
+  );
 });
 
 test('Re=10⁴ with H11 free-slip far field — Cd/band verdict recorded', async ({
@@ -168,10 +189,9 @@ test('Re=10⁴ with H11 free-slip far field — Cd/band verdict recorded', async
   await testInfo.attach('sphere-re10000-freeslip-verdict', {
     body:
       `Re=10⁴ free-slip: mean Cd ${s.meanCd?.toFixed(4)}, band [${s.band?.[0]}, ${s.band?.[1]}], ` +
-      `inBand ${s.inBand}. Freestream baseline is Cd≈0.55 (over the top); free-slip lands ` +
-      `${s.inBand ? 'in band' : 'under the bottom'} — the two lateral BCs bracket the band ` +
-      `from opposite sides, so the residual error is unresolved boundary layer (uniform ` +
-      `grid), not confinement. Free-slip is a tried-and-rejected far field, not a fix.`,
+      `inBand ${s.inBand}. The corrected freestream baseline is Cd≈0.6047 (over the top); ` +
+      `free-slip lands ${s.inBand ? 'in band' : 'under the bottom'}. Both verdicts are ` +
+      `recorded without assigning a unique physical cause.`,
     contentType: 'text/plain',
   });
 });

@@ -154,7 +154,12 @@ export async function runSphereCase(
 
     for (let i = 0; i < nSamples; i++) {
       if (opts.shouldStop?.()) break;
-      const f = await sim.sampleForce(sampleInterval);
+      // H2 §4a / M9 force audit: the momentum-exchange force carries a period-2
+      // staggered-momentum component whose amplitude grows as tau approaches 0.5.  A
+      // single-parity sample is therefore not a physical force at the Re=1000/1e4 M7
+      // operating points.  Keep the cadence and total-step accounting unchanged while
+      // reporting the required two-consecutive-step average, exactly as the Ahmed path.
+      const f = await sim.forceAveraged(sampleInterval);
       const cd = sphereDragCoefficient(f.fx, scene.uLattice, scene.radius);
       lastStep = (i + 1) * sampleInterval;
       // Non-finite Cd ⇒ the solver blew up (near-floor τ Mach instability). Abort now rather

@@ -386,20 +386,33 @@ export const AHMED_ACCEPTANCE_PRECISION: Precision = 'fp16';
  * The far field the acceptance verdict is DEFINED against — the hard-Dirichlet `Inlet` top and
  * sides that every Ahmed Cd on record was measured with.
  *
- * Deliberately NOT `'freeslip'`, even though the M9 specification asks for free-slip and phase 3
- * is testing it. The band Cd = 0.285 ± 15% is a claim about numbers this project has produced in
- * a specific configuration; changing which tunnel counts as "the" tunnel is a decision that
- * belongs in docs/VALIDATION.md after the A/B has explained what the change did, not something
- * a constant quietly reclassifies. Until then a free-slip rung reports its Cd without a verdict,
- * exactly like an off-Re or reduced-Cs rung.
+ * Deliberately NOT `'freeslip'`, even though the M9 specification asks for free-slip. The band
+ * Cd = 0.285 ± 15% is a claim about numbers this project has produced in a specific
+ * configuration; changing which tunnel counts as "the" tunnel is a decision that belongs in
+ * docs/VALIDATION.md after the A/B has explained what the change did, not something a constant
+ * quietly reclassifies. Until then a free-slip rung reports its Cd without a verdict, exactly
+ * like an off-Re or reduced-Cs rung.
  *
- * This matters more here than for the other three suppressed knobs. Free-slip removes the cells
- * that hold the core at u_in, so it can lower Cd through a velocity deficit rather than through
+ * This matters more here than for the other suppressed knobs. Free-slip removes the cells that
+ * hold the core at u_in, so it can lower Cd through a velocity deficit rather than through
  * physics — and the sphere Re=10⁴ case moved 0.55 → 0.263 on this single change. A free-slip
  * rung landing inside the band would look precisely like success while possibly being an
  * artifact of its own normalization.
+ *
+ * The 2026-08-10 closure run set this to `'freeslip'` and produced a stationary pair-averaged
+ * Cd ≈ 0.889 — nowhere near the band, so the trap did not spring — but the promotion was made
+ * without the A/B this comment requires, and is reverted here. Free-slip becomes the acceptance
+ * far field only by an explicit decision recorded in docs/VALIDATION.md.
  */
 export const AHMED_ACCEPTANCE_LATERAL_BC: AhmedLateralBC = 'freestream';
+
+/**
+ * Inlet and outlet, by contrast, ARE promoted: H12's velocity inlet and H14's pressure outlet
+ * each landed with their own validation (public `ef72aeb` Gate 3, `c58a0d5` with a body in the
+ * tunnel), and that promotion is recorded in docs/VALIDATION.md V11 rather than only here.
+ */
+export const AHMED_ACCEPTANCE_INLET_BC: AhmedInletBC = 'velocity';
+export const AHMED_ACCEPTANCE_OUTLET: Outlet3D = 'pressure';
 
 /** Ahmed 25° literature band (M9 acceptance 1): Cd = 0.285 ± 15% (stretch ± 10%). */
 export const AHMED_CD_TARGET = 0.285;

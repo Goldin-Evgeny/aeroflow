@@ -24,7 +24,7 @@ import type {
  *
  *  - one fresh 15.7M-cell target-tier scene;
  *  - the acceptance configuration (freestream far field + H12 + H14, D3Q19 production);
- *  - the declared independent-block rule and 30-minute production budget;
+ *  - the declared independent-block rule, with the block sized to resolve its own gate;
  *  - the four-hour/background/device-loss acceptance on that same run; and
  *  - wake diagnostics AND the tau_eff / approach-strain readback from the final field.
  *
@@ -32,8 +32,9 @@ import type {
  * an M9 disposition.  Infrastructure invariants remain assertions because a harness failure
  * is not an Ahmed result.
  *
- * Three defects in the 2026-08-10 first run are fixed here.  All three made the harness
- * report something other than what the solver did; none of them move a physics tolerance.
+ * Five defects in the 2026-08-10 first run are fixed here.  Every one of them made the
+ * harness report something other than what the solver did; none moves a physics tolerance.
+ * The band stays [0.242, 0.328] and the block spread gate stays 3%.
  *
  * 1. BLOCK LENGTH.  The 20-T_conv block was declared before the force signal's variance was
  *    known.  That run measured sigma(Cd) = 1.212 against a stationary mean of 0.889 at ~10
@@ -62,10 +63,40 @@ import type {
  *    the classification now requires a measured recirculation length and a base reverse
  *    fraction consistent with a separation bubble, and reports TOPOLOGY_RECORDED when the
  *    features are present but too weak to call.
+ *
+ * 4. ACCEPTANCE TERMINAL.  The 30-minute product budget was also used as the acceptance
+ *    terminal, and the two are incompatible for this signal -- see PRODUCT_BUDGET_MS below.
+ *    They are separated: the product budget is recorded as an observation, the acceptance
+ *    terminal uses the endurance window less a readback reserve.
+ *
+ * 5. AGED RESILIENCE, and its ordering.  The checkpoint/loss/recovery cycle ran at step 726
+ *    of 3,338,390 -- a field seconds old.  It now also runs on the aged field.  Because that
+ *    cycle destroys the device on purpose and must precede the readbacks (which need a
+ *    stopped run), the readback guards key off whether an error existed BEFORE it, so an
+ *    error it provoked cannot suppress the tau snapshot this re-run exists to collect.
  */
 const TARGET_CELLS = 15_700_000;
-const ACCEPTANCE_BUDGET_MS = 30 * 60_000;
+/**
+ * The 30-minute figure is a PRODUCT budget — what a user waiting on the page would have —
+ * and it is recorded as an observation, not used as the acceptance terminal.
+ *
+ * Replaying the 2026-08-10 samples through the corrected block rule shows why the two cannot
+ * be the same number.  That run's live trigger opened at 184.88 T_conv, nine T_conv after the
+ * 30-minute terminal expired at 176.07 — which is the entire reason it was recorded as having
+ * no trigger.  Completing the four-plus blocks the contract requires, at the derived
+ * 202-T_conv block length and ~10.4 s per T_conv, needs about three hours.  A 30-minute
+ * acceptance terminal therefore cannot produce a verdict for this signal no matter what the
+ * solver does, and its expiry says nothing about the flow.
+ *
+ * No physics tolerance moves here: the band and the 3% spread gate are untouched, and the
+ * result this unblocks is still a FAIL (0.888 against [0.242, 0.328]).  What changes is that
+ * the failure becomes a statement about the drag instead of a statement about the clock.
+ */
+const PRODUCT_BUDGET_MS = 30 * 60_000;
 const ENDURANCE_MS = 4 * 60 * 60_000;
+/** Reserve at the end of the endurance window for the aged-resilience cycle and readbacks. */
+const READBACK_RESERVE_MS = 25 * 60_000;
+const ACCEPTANCE_BUDGET_MS = ENDURANCE_MS - READBACK_RESERVE_MS;
 const BACKGROUND_MS = 60 * 60_000;
 const MIN_BLOCKS = 4;
 const BLOCK_GATE = 0.03;
@@ -271,6 +302,12 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
         error?: string;
       }
     | undefined;
+  /**
+   * What a user watching the page would have had when the 30-minute product budget elapsed.
+   * Recorded as an observation about the product, never as an acceptance verdict.
+   */
+  let productBudgetSnapshot:
+    { tConv: number; totalSteps: number; meanCd: number; converged: boolean } | undefined;
   let backgroundEndedAt: number | undefined;
   let backgroundEndStep = -1;
   let hiddenAtEnd = false;
@@ -345,6 +382,15 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
       }
     }
 
+    if (!productBudgetSnapshot && Date.now() - acceptanceStartedAt >= PRODUCT_BUDGET_MS && final) {
+      productBudgetSnapshot = {
+        tConv: final.convectiveTimes,
+        totalSteps: final.totalSteps,
+        meanCd: final.meanCd,
+        converged: final.converged,
+      };
+    }
+
     if (!backgroundEndedAt && Date.now() - backgroundStartedAt >= BACKGROUND_MS) {
       hiddenAtEnd = await page.evaluate(() => document.visibilityState === 'hidden');
       backgroundEndStep = final?.totalSteps ?? -1;
@@ -373,6 +419,13 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
   // here, on the aged state, so criterion 4 covers what it claims to cover.  Failures are
   // recorded rather than thrown: an aged-recovery failure is a real finding, not a reason to
   // discard the acceptance evidence the run already produced.
+  //
+  // This cycle deliberately destroys the GPU device, and it runs BEFORE the diagnostics and
+  // tau readbacks because those need a stopped field and stopping ends the run.  So the
+  // readback guards below key off whether an error existed BEFORE this cycle: an error the
+  // aged cycle itself provoked must not suppress the tau snapshot, which is the measurement
+  // this whole re-run exists to collect.
+  const erroredBeforeAged = lastEvent(h, 'error') !== undefined;
   const agedStartStep = lastEvent(h, 'sample')?.totalSteps ?? -1;
   let agedResilience:
     | {
@@ -384,7 +437,7 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
         error?: string;
       }
     | undefined;
-  if (!lastEvent(h, 'error') && (await page.getByTestId('ahmed-ckpt').isEnabled())) {
+  if (!erroredBeforeAged && (await page.getByTestId('ahmed-ckpt').isEnabled())) {
     const before = lastEvent(h, 'checkpoint-saved')?.savedAt ?? 0;
     const recoveriesBefore = lastEvent(h, 'recovered')?.recoveries ?? 0;
     try {
@@ -453,15 +506,20 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
 
   h = await readHooks(page);
   let diagnostics: AhmedDiagnostics | undefined;
-  if (!lastEvent(h, 'error')) {
-    await page.getByTestId('ahmed-diag').click();
-    await expect
-      .poll(async () => lastEvent(await readHooks(page), 'diagnostics') !== undefined, {
-        timeout: 900_000,
-      })
-      .toBe(true);
-    h = await readHooks(page);
-    diagnostics = lastEvent(h, 'diagnostics')?.diagnostics;
+  let diagnosticsError: string | undefined;
+  if (!erroredBeforeAged) {
+    try {
+      await page.getByTestId('ahmed-diag').click({ timeout: 30_000 });
+      await expect
+        .poll(async () => lastEvent(await readHooks(page), 'diagnostics') !== undefined, {
+          timeout: 900_000,
+        })
+        .toBe(true);
+      h = await readHooks(page);
+      diagnostics = lastEvent(h, 'diagnostics')?.diagnostics;
+    } catch (cause) {
+      diagnosticsError = cause instanceof Error ? cause.message : String(cause);
+    }
   }
 
   // The tau_eff / approach-strain readback, on the same stopped field as the diagnostics.
@@ -470,16 +528,21 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
   // resolved strain or to grid-scale content.  The first closure run omitted it.
   const tauStartedAt = Date.now();
   let tau: AhmedTauReport | undefined;
-  if (!lastEvent(h, 'error')) {
-    await page.getByTestId('ahmed-tau').click({ timeout: 30_000 });
-    await expect
-      .poll(async () => lastEvent(await readHooks(page), 'tau') !== undefined, {
-        timeout: 1_800_000,
-        intervals: [5_000],
-      })
-      .toBe(true);
-    h = await readHooks(page);
-    tau = lastEvent(h, 'tau')?.tau;
+  let tauError: string | undefined;
+  if (!erroredBeforeAged) {
+    try {
+      await page.getByTestId('ahmed-tau').click({ timeout: 30_000 });
+      await expect
+        .poll(async () => lastEvent(await readHooks(page), 'tau') !== undefined, {
+          timeout: 1_800_000,
+          intervals: [5_000],
+        })
+        .toBe(true);
+      h = await readHooks(page);
+      tau = lastEvent(h, 'tau')?.tau;
+    } catch (cause) {
+      tauError = cause instanceof Error ? cause.message : String(cause);
+    }
   }
   const tauMs = Date.now() - tauStartedAt;
 
@@ -547,6 +610,7 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
         `gate, clamped to [${BLOCK_TCONV_MIN}, ${BLOCK_TCONV_MAX}] T_conv ` +
         `(actual: ${acceptance?.blockTConv ?? 'n/a'}).`,
       acceptanceBudgetMs: ACCEPTANCE_BUDGET_MS,
+      productBudgetMs: PRODUCT_BUDGET_MS,
       acceptanceStartedAt,
       requestedCells: TARGET_CELLS,
       // Reported from what the worker actually BUILT, never from what this file expects.
@@ -558,6 +622,7 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
     gpu: ready.gpu,
     scene,
     acceptance,
+    productBudgetSnapshot,
     acceptanceBand: CD_BAND,
     topology,
     resilience: {
@@ -583,8 +648,10 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
     },
     finalSample: final,
     diagnostics,
+    diagnosticsError,
     tau,
     tauMs,
+    tauError,
     eventCounts: Object.fromEntries(
       [...new Set(events(h).map((e) => e.type))].map((type) => [
         type,
@@ -617,5 +684,12 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
   expect(monotonicAfterRecovery).toBe(true);
   expect(Date.now() - wallStartedAt).toBeGreaterThanOrEqual(ENDURANCE_MS);
   expect(diagnostics?.field.nonFiniteCells ?? 1).toBe(0);
-  expect(lastEvent(h, 'error')).toBeUndefined();
+  // The tau snapshot is the reason this run exists (private b2b7fd9): without it there is no
+  // basis for quoting the Cd against its nominal Re, so a run that loses it is a failed run
+  // even though its Cd is recorded.  Everything above is already on disk either way.
+  expect(tauError, 'tau readback failed').toBeUndefined();
+  expect(tau, 'no tau report was captured').toBeDefined();
+  // Scoped to errors that predate the deliberate aged device loss — that cycle provokes one
+  // on purpose, and its own outcome is recorded in resilience.aged rather than asserted.
+  expect(erroredBeforeAged, 'the solver errored during the acceptance window').toBe(false);
 });

@@ -110,6 +110,72 @@ Sanity checks an implementation must pass: $\sum_i w_i = 1$;
 $\sum_i w_i e_{i\alpha} e_{i\beta} = c_s^2 \delta_{\alpha\beta}$;
 $\mathbf{e}_{\bar{i}} = -\mathbf{e}_i$ for every $i$.
 
+#### Production-envelope limitation established in M9
+
+The production 3D operator remains **D3Q19 with the quadratic equilibrium, projected
+second-order regularization, TRT Λ=3/16, and Smagorinsky Cs=0.1**. M9 established a bounded
+limitation of that operator at its high-Re operating point. Two distinct effects were
+found; the first is fixed, the second bounds what the solver can currently validate.
+
+**1. Single-parity force sampling (fixed).** The momentum-exchange force carries a period-2
+staggered-momentum component damped by the TRT anti-symmetric rate
+
+$$\omega^- = \frac{1}{\tfrac{1}{2} + \Lambda/(\tau_{\text{eff}} - \tfrac{1}{2})}$$
+
+which collapses as $\tau_0 \to \tfrac{1}{2}$. Its contribution to a single-timestep force
+reading is 1.04×10⁻³ at τ₀=0.8 — small enough that it was measured once and treated as a
+constant — but **0.519 at τ₀=0.500144 and 0.604 at τ₀=0.500003**, where consecutive steps
+differ by 4.05×. A single-parity sample at those τ is not a force at all: it can go negative,
+i.e. report a body in a uniform stream being pushed upstream, with a sign that depends on
+which parity the sampling grid happens to land on. **All reported forces are therefore the
+mean of two consecutive steps** (`Lbm3D.forceAveraged`). Every Cd recorded before this
+correction is withdrawn.
+
+**2. Anti-dissipative projected regularization at τ₀ → ½ (open).** With the force corrected,
+an exact von-Neumann analysis of the transverse block — guarded against the shipping
+`collideCell` Jacobian to 3.07×10⁻¹¹ — shows the operator **amplifies** high-wavenumber
+transverse shear once τ₀ approaches ½ _and a mean flow is present_: gain 1.004405 per step
+at λ ≈ 2.65 cells at τ₀ = 0.5000021, u = 0.05, and still 1.001925 at the measured approach
+τ_eff p50 of 0.500989, so the eddy viscosity the model supplies does not stabilize the band.
+At u = 0 the same τ₀ is stable everywhere; at τ = 0.8 the band is strongly damped. A
+nonlinear periodic A/B isolates the cause — at λ = 3.2 the regularized operator grows
+(1.00249) where plain TRT without regularization decays (0.98398) — so the mechanism is
+mean-flow-dependent high-k anti-dissipation once the projection discards third-order shear
+transport.
+
+This couples into the subgrid model. Π^neq over-reports the hydrodynamic strain in the same
+band (1.0012 at λ = 19.7 cells, 1.27 at 4, 2.06 at 2.67), classified as a finite-resolution
+plus finite-Knudsen constitutive departure. Smagorinsky reads Π^neq, so it responds to
+grid-scale content as though it were resolved strain and fires on undisturbed freestream —
+directly measured at 6.47× molecular with 97.6% of approach cells LES-dominant at Re 1e5.
+Because the model then backfills whatever τ₀ gives up, ν_eff falls only 1.46× while nominal
+Re rises 10×: **no Cd at or above nominal Re 1×10⁵ may be quoted against its nominal Re.**
+
+Consequences: a run can stay finite and conserve mass while its force signal is dominated by
+grid-scale noise, and V11 fails at ≈3.1× the band. Dropping regularization is not the remedy
+— it buys stability with a much worse constitutive ratio (Π/Π_hydro 6.09 against 1.53) and a
+higher τ_eff, damping by making the LES fire harder on a noisier Π. **RR3**, the third-order
+recursive regularization the mechanism points at, was implemented and failed both of its
+predeclared gates. FP16 storage is not implicated (0.12% effect).
+
+What this does **not** establish: that D3Q19 as a lattice is at fault — every case above is
+the regularized-TRT collision measured on D3Q19, and no D3Q27 comparison at the same τ₀ is
+in this evidence set — nor that all near-τ₀=½ configurations fail, nor that M10/M11 urban
+mean velocities are contaminated. The urban cases must establish the production operating
+envelope using their own mean-velocity gates.
+
+A **D3Q27 central-moment** operator is preserved as research, not production, because it
+damps the same mode (gain 0.99731 at λ = 3.2) at a comparable constitutive ratio (1.504
+against 1.527). Its CPU authority and its GPU transliteration agree to 3.8×10⁻⁶ relative on
+populations, but its periodic momentum gate fails at λ = 16: 7.678×10⁻⁵ against 5×10⁻⁵,
+concentrated in P_z. Streaming contributes exactly zero (it is a permutation) and collision
+contributes all of it. That gate is **unnormalized** on a 64-cell 1-D harness with |p| = 3.2,
+so it is a 1.6×10⁻⁵ relative bar for an f32 kernel over 120 steps, and P_z is identically
+zero by symmetry there — f32 reconstruction summing mirror directions in different orders is
+the natural explanation. **Q27 PRODUCTION MIGRATION: DEFERRED**, recorded as not yet
+demonstrated correct rather than demonstrated broken; before it is reopened the gate should
+be normalized and the drift tested for linear-in-steps growth against superlinear.
+
 ---
 
 ## 3. BGK collision and equilibrium

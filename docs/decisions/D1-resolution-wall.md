@@ -1,8 +1,31 @@
 # D1 — The uniform-grid resolution wall
 
-**Status:** accepted, 2026-07-25; amended 2026-07-27 and 2026-07-28
+**Status:** accepted, 2026-07-25; amended 2026-07-27, 2026-07-28, and 2026-08-10
 **Supersedes:** the deferred scheduling of grid refinement in roadmap Risk #2
 **Affects:** M7 (criteria 2–4), M9 (grid choice), M10 (probe height), M11 (Case C **and** E), M12 (by inheritance), M15 (visitor-re-runnability)
+
+> **M7 force-audit amendment (2026-08-10):** the table below preserves the evidence that
+> originally motivated this decision, but its M7 force values and its **unique-cause
+> attribution to boundary-layer under-resolution are withdrawn**.
+>
+> Every force in that table was read from a single timestep on an even sample interval,
+> pinning every sample to one parity of a period-2 staggered-momentum mode. That mode is
+> damped by ω⁻ = 1/(½ + Λ/(τ_eff−½)), which collapses as τ₀ → ½, so the contamination is
+> 1.04×10⁻³ at τ₀=0.8 but 0.519 and 0.604 at the Re 1e5 and Re 4.29e6 rungs. The failing
+> M7 cases sit at ω⁻ = 0.019 (Re=1000) and 1.9×10⁻³ (Re=10⁴) — squarely in that regime.
+>
+> Re-run with consecutive-step force averaging: Re=1000 Cd **0.5692**, Re=10⁴
+> freestream/free-slip **0.6047/0.2727**, FP16/FP32 deltas **2.702%/0.320%** at
+> Re=1000/Re=10⁴. Same pass/fail outcomes, but they are now measurements of a drag, and
+> nothing in them isolates boundary-layer resolution as the cause. M9 subsequently measured
+> a competing mechanism at the same operating points — the projected second-order
+> regularization is anti-dissipative at high wavenumber once τ₀ → ½ with a mean flow present,
+> which also drives the subgrid model to fire on undisturbed freestream. See
+> [VALIDATION](../VALIDATION.md#v11-disposition--2026-08-10) and
+> [PHYSICS §2](../PHYSICS.md).
+>
+> The cell-count ceiling this ADR decides is unaffected: it is a hardware/binding limit, not
+> a physics attribution. Only the explanation offered for the M7 sphere failures changes.
 
 > **Current outcome (2026-07-28):** the four-way `macro` split is implemented and
 > validated. At the measured 2 GiB cap the base FP16 ceiling is now **214,748,364 cells**,

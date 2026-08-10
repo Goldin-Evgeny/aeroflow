@@ -142,6 +142,11 @@ const ROUTES: Record<string, Route> = {
     const { mountParity3D } = await import('./sim/parity3d');
     await mountParity3D(gpu.device, app, gpu.caps.hasTimestamp);
   },
+  // Bounded Q27 dev route: standalone CM collision + periodic ping-pong parity only.
+  q27gpu: async (app, gpu) => {
+    const { mountQ27GpuAuthority } = await import('./sim/q27GpuAuthority');
+    await mountQ27GpuAuthority(gpu.device, gpu.caps, gpu.description, app);
+  },
   // M9 dev route: raw-FP16 checkpoint restore + density-field bit identity.
   checkpointparity: async (app, gpu) => {
     const { mountCheckpointParity } = await import('./sim/checkpointParity');

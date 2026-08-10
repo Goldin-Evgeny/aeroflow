@@ -44,3 +44,39 @@ export const D3Q19 = {
   reflectZ: [0, 1, 2, 3, 4, 6, 5, 7, 8, 9, 10, 13, 14, 11, 12, 17, 18, 15, 16] as const,
   cs2: 1 / 3,
 } as const;
+
+/**
+ * D3Q27 tensor-product lattice for the central-moment CPU authority.
+ *
+ * This ordering is intentionally different from the pair-adjacent D3Q19 ordering above:
+ * direction = (cx + 1) * 9 + (cy + 1) * 3 + (cz + 1), with each component in {-1,0,1}.
+ * It is the frozen ordering audited by the M9 Q27 eigen and nonlinear periodic proofs. The
+ * browser/GPU solver remains D3Q19 until its own bounded migration and parity gate.
+ */
+const d3q27Velocities = Object.freeze(
+  Array.from({ length: 27 }, (_, direction) => {
+    const x = Math.floor(direction / 9) - 1;
+    const y = Math.floor((direction % 9) / 3) - 1;
+    const z = (direction % 3) - 1;
+    return [x, y, z] as const;
+  }),
+);
+
+const oneDimensionalD3Q27Weight = (component: number): number => (component === 0 ? 2 / 3 : 1 / 6);
+
+export const D3Q27 = {
+  q: 27,
+  rest: 13,
+  velocities: d3q27Velocities,
+  ex: Object.freeze(d3q27Velocities.map((velocity) => velocity[0])),
+  ey: Object.freeze(d3q27Velocities.map((velocity) => velocity[1])),
+  ez: Object.freeze(d3q27Velocities.map((velocity) => velocity[2])),
+  w: Object.freeze(
+    d3q27Velocities.map(
+      ([x, y, z]) =>
+        oneDimensionalD3Q27Weight(x) * oneDimensionalD3Q27Weight(y) * oneDimensionalD3Q27Weight(z),
+    ),
+  ),
+  opp: Object.freeze(Array.from({ length: 27 }, (_, direction) => 26 - direction)),
+  cs2: 1 / 3,
+} as const;

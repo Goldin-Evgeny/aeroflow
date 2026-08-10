@@ -1,5 +1,5 @@
 export { D2Q9, CellType, equilibrium, isSolid, hasMacroscopics } from './lattice.js';
-export { D3Q19 } from './lattice3d.js';
+export { D3Q19, D3Q27 } from './lattice3d.js';
 export { latticeUnits, forceToNewtons, AIR_KINEMATIC_VISCOSITY, AIR_DENSITY } from './units.js';
 export type { UnitMapping, UnitMappingInput } from './units.js';
 export {
@@ -14,6 +14,23 @@ export {
   viscosityFromTau,
 } from './cpu/collide.js';
 export type { CollideContext, LatticeSpec, Collision, Forcing } from './cpu/collide.js';
+export {
+  D3Q27_CENTRAL_EXPONENTS,
+  d3q27CentralMomentIndex,
+  centralMomentMatrixD3Q27,
+  centralMomentAttractorsD3Q27,
+  populationsFromCentralMomentsD3Q27,
+  equilibriumD3Q27Central,
+  conservedD3Q27,
+  collideD3Q27Central,
+  streamCollidePeriodicD3Q27,
+} from './cpu/centralMomentD3Q27.js';
+export type {
+  D3Q27CentralCollisionOptions,
+  D3Q27CentralCollisionResult,
+  D3Q27PeriodicGrid,
+  D3Q27PeriodicObserver,
+} from './cpu/centralMomentD3Q27.js';
 export { Solver2D } from './cpu/solver2d.js';
 export type { Solver2DOptions, Macroscopics } from './cpu/solver2d.js';
 export { Solver3D } from './cpu/solver3d.js';

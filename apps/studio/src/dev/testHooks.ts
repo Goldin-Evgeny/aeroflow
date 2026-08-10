@@ -4,8 +4,16 @@ import type { AhmedWorkerEvent } from '../sim/ahmedRun';
 import type { SphereCaseName, LateralBC } from '@aeroflow/core';
 import type { CheckpointParityResult } from '../sim/checkpointParity';
 import type { TauOracleCheckResult } from '../sim/tauOracleCheck';
-import type { AhmedBaselineAbReport, AhmedLateralAbReport, AhmedMatchReport } from './ahmedCpuGpuMatch';
+import type {
+  AhmedBaselineAbReport,
+  AhmedLateralAbReport,
+  AhmedMatchReport,
+} from './ahmedCpuGpuMatch';
 import type { EmptyTunnelReport } from './ahmedEmptyTunnel';
+import type {
+  Q27GpuAuthorityArtifact,
+  Q27GpuConservationAuditArtifact,
+} from '../sim/q27GpuAuthority';
 
 /**
  * Write-only observation hooks for the Playwright e2e suite (docs/E2E.md). Pages mirror
@@ -62,6 +70,10 @@ export interface AeroflowHooks {
   m4?: { summary: string; pass: boolean };
   /** ?parity3d panel: per-config one-line summaries (the rule-0 parity-panel lines). */
   parity3d?: { version: string; allPass: boolean; lines: string[] };
+  /** ?q27gpu: bounded D3Q27 CM collision + periodic f32 CPU/GPU authority proof. */
+  q27GpuAuthority?: Q27GpuAuthorityArtifact;
+  q27GpuAuthorityError?: string;
+  q27GpuConservationAudit?: Q27GpuConservationAuditArtifact;
   /** ?checkpointparity: M9 raw-fp16 restore and density-field bit-identity result. */
   checkpointParity?: CheckpointParityResult;
   checkpointParityError?: string;

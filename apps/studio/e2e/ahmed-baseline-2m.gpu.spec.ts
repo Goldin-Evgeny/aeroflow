@@ -10,7 +10,7 @@ import type {
   AhmedTauReport,
   AhmedWorkerEvent,
 } from '../src/sim/ahmedRun';
-import { blocksAgree, relSpread } from '@aeroflow/core';
+import { blocksAgree, relSpread, STRESS_COMPONENTS } from '@aeroflow/core';
 
 /**
  * M9/V11, Stage 1 primary experiment — the H11+H12+H14 boundary configuration, body present,
@@ -31,15 +31,24 @@ import { blocksAgree, relSpread } from '@aeroflow/core';
  * window and is known to fire on noise (see that file's module docstring).
  */
 const RUN_BUDGET_MS = Number(process.env.AHMED_2M_BUDGET_MS ?? 30 * 60_000);
+const DIAGNOSTIC_CELLS = Number(process.env.AHMED_DIAGNOSTIC_CELLS ?? 2_000_000);
+const TARGET_TCONV = process.env.AHMED_TARGET_TCONV
+  ? Number(process.env.AHMED_TARGET_TCONV)
+  : undefined;
 const BLOCK_TCONV = Number(process.env.AHMED_2M_BLOCK_TCONV ?? 20);
 const MIN_BLOCKS = Number(process.env.AHMED_2M_MIN_BLOCKS ?? 4);
 const BLOCK_GATE = 0.03;
 
+// Playwright deletes apps/studio/test-results at the start of every invocation. Diagnostic
+// evidence belongs in the repository-level ignored directory so a later unrelated E2E run
+// cannot erase the only scale-resolved snapshot.
 const OUT_DIR = resolve(
   dirname(fileURLToPath(import.meta.url)),
   '..',
+  '..',
+  '..',
   'test-results',
-  'phase3c',
+  'ahmed-scale',
 );
 
 type Sample = Extract<AhmedWorkerEvent, { type: 'sample' }>;
@@ -84,7 +93,7 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
 }, testInfo) => {
   test.setTimeout(60 * 60_000);
   await page.goto(
-    `${BASE_URL}/?ahmed&cells=2000000&Re=4.29e6&lesCs=0.1&precision=fp16` +
+    `${BASE_URL}/?ahmed&cells=${DIAGNOSTIC_CELLS}&Re=4.29e6&lesCs=0.1&precision=fp16` +
       `&lateralBC=freeslip&inletBC=velocity&outlet=pressure&fieldEvery=20`,
   );
   const startedAt = Date.now();
@@ -102,8 +111,12 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
   expect(scene.lateralBC, 'scene did not build H11 free-slip').toBe('freeslip');
   expect(scene.inletBC, 'scene did not build H12 velocity inlet').toBe('velocity');
   expect(scene.outlet, 'scene did not build H14 pressure outlet').toBe('pressure');
-  expect(scene.totalCells, 'grid materially off the ~2M tier').toBeGreaterThan(1_500_000);
-  expect(scene.totalCells).toBeLessThan(2_500_000);
+  expect(scene.totalCells, 'grid materially below the requested diagnostic tier').toBeGreaterThan(
+    0.75 * DIAGNOSTIC_CELLS,
+  );
+  expect(scene.totalCells, 'grid materially above the requested diagnostic tier').toBeLessThan(
+    1.25 * DIAGNOSTIC_CELLS,
+  );
   expect(scene.Re, 'scene did not build the nominal experimental Re').toBeCloseTo(4.29e6, -3);
   expect(
     events(h).some((e) => e.type === 'resumed'),
@@ -113,13 +126,11 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
   // ── Run until independent blocks agree, or the budget runs out ─────────────────────────
   const errored = () =>
     events(h).find((e) => e.type === 'error') as
-      | Extract<AhmedWorkerEvent, { type: 'error' }>
-      | undefined;
-  const triggerOf = (hh: AeroflowHooks): Sample | undefined =>
-    samples(hh).find((s) => s.converged);
+      Extract<AhmedWorkerEvent, { type: 'error' }> | undefined;
+  const triggerOf = (hh: AeroflowHooks): Sample | undefined => samples(hh).find((s) => s.converged);
 
   const deadline = startedAt + RUN_BUDGET_MS;
-  let stopReason: 'agreed' | 'budget' | 'budget-no-trigger' | 'diverged';
+  let stopReason: 'target' | 'agreed' | 'budget' | 'budget-no-trigger' | 'diverged';
   for (;;) {
     h = await readHooks(page);
     if (errored()) {
@@ -127,6 +138,10 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
       break;
     }
     const all = samples(h);
+    if (TARGET_TCONV !== undefined && (all.at(-1)?.convectiveTimes ?? 0) >= TARGET_TCONV) {
+      stopReason = 'target';
+      break;
+    }
     const trig = triggerOf(h);
     if (trig) {
       const post = all.filter((s) => s.convectiveTimes > trig.convectiveTimes);
@@ -140,7 +155,7 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
       stopReason = trig ? 'budget' : 'budget-no-trigger';
       break;
     }
-    await page.waitForTimeout(5_000);
+    await page.waitForTimeout(TARGET_TCONV === undefined ? 5_000 : 1_000);
   }
   const simMs = Date.now() - startedAt;
 
@@ -158,23 +173,25 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
 
   // Diagnostics (Cd normalization, approach flow, wake) and τ_eff (Re-credibility gate),
   // both on the SAME settled field — the run is stopped before either readback.
+  const diagnosticsStartedAt = Date.now();
   let diagnostics: AhmedDiagnostics | undefined;
   if (!errored()) {
     await page.getByTestId('ahmed-diag').click({ timeout: 30_000 });
     await expect
-      .poll(
-        async () => events(await readHooks(page)).some((e) => e.type === 'diagnostics'),
-        { timeout: 300_000, intervals: [2_000] },
-      )
+      .poll(async () => events(await readHooks(page)).some((e) => e.type === 'diagnostics'), {
+        timeout: 300_000,
+        intervals: [2_000],
+      })
       .toBe(true);
     h = await readHooks(page);
     diagnostics = (
       [...events(h)].reverse().find((e) => e.type === 'diagnostics') as
-        | Extract<AhmedWorkerEvent, { type: 'diagnostics' }>
-        | undefined
+        Extract<AhmedWorkerEvent, { type: 'diagnostics' }> | undefined
     )?.diagnostics;
   }
+  const diagnosticsMs = Date.now() - diagnosticsStartedAt;
 
+  const tauStartedAt = Date.now();
   let tau: AhmedTauReport | undefined;
   if (!errored()) {
     await page.getByTestId('ahmed-tau').click({ timeout: 30_000 });
@@ -187,24 +204,35 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
     h = await readHooks(page);
     tau = (
       [...events(h)].reverse().find((e) => e.type === 'tau') as
-        | Extract<AhmedWorkerEvent, { type: 'tau' }>
-        | undefined
+        Extract<AhmedWorkerEvent, { type: 'tau' }> | undefined
     )?.tau;
   }
+  const tauMs = Date.now() - tauStartedAt;
 
   const all = samples(h);
   const trig = triggerOf(h);
   const post = trig ? all.filter((s) => s.convectiveTimes > trig.convectiveTimes) : [];
   const { blocks } = blockMeans(post, BLOCK_TCONV);
   const blockVals = blocks.map((b) => b.mean);
-  const finalCd = blockVals.length > 0 ? blockVals.reduce((a, b) => a + b, 0) / blockVals.length : NaN;
+  const finalCd =
+    blockVals.length > 0 ? blockVals.reduce((a, b) => a + b, 0) / blockVals.length : NaN;
   const spread = blockVals.length >= 2 ? relSpread(blockVals) : NaN;
   const lastTConv = all.at(-1)?.convectiveTimes ?? 0;
+  const tier = `${Math.round(DIAGNOSTIC_CELLS / 1_000_000)}m`;
+  const artifactStem =
+    TARGET_TCONV !== undefined || RUN_BUDGET_MS < 30 * 60_000 || DIAGNOSTIC_CELLS !== 2_000_000
+      ? `ahmed-strain-scale-${tier}-tconv${lastTConv.toFixed(1)}`
+      : 'ahmed-baseline-2m';
 
   const summary = {
+    artifactSchema: 'aeroflow-ahmed-strain-scale-v2',
     scene,
     stopReason,
     simMs,
+    diagnosticsMs,
+    tauMs,
+    wallMs: Date.now() - startedAt,
+    targetTConv: TARGET_TCONV,
     lastTConv,
     sampleCount: all.length,
     blockTConv: BLOCK_TCONV,
@@ -217,12 +245,12 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
   };
 
   mkdirSync(OUT_DIR, { recursive: true });
-  writeFileSync(resolve(OUT_DIR, 'ahmed-baseline-2m.txt'), JSON.stringify(summary, null, 1));
+  writeFileSync(resolve(OUT_DIR, `${artifactStem}.json`), JSON.stringify(summary, null, 1));
   writeFileSync(
-    resolve(OUT_DIR, 'ahmed-baseline-2m-samples.json'),
+    resolve(OUT_DIR, `${artifactStem}-samples.json`),
     JSON.stringify({ samples: all }, null, 1),
   );
-  await testInfo.attach('ahmed-baseline-2m', {
+  await testInfo.attach(artifactStem, {
     body: JSON.stringify(summary, null, 1),
     contentType: 'application/json',
   });
@@ -231,6 +259,7 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
     `V11 Stage 1: H11+H12+H14, body present, grid ${scene.nx}x${scene.ny}x${scene.nz} = ${scene.totalCells} cells`,
     `Re nominal ${scene.Re.toExponential(3)}   tau ${scene.tau.toFixed(9)}   precision ${scene.precision}   Cs ${scene.lesCs}`,
     `stop: ${stopReason}   sim time ${(simMs / 60000).toFixed(1)} min   last T_conv ${lastTConv.toFixed(1)}   samples ${all.length}`,
+    `post-stop: diagnostics ${(diagnosticsMs / 60000).toFixed(1)} min   tau/scale ${(tauMs / 60000).toFixed(1)} min`,
     `blocks (${BLOCK_TCONV} T_conv each): ${blockVals.map((v) => v.toFixed(4)).join(' ')}`,
     `final Cd (mean of blocks) = ${finalCd.toFixed(4)}   block spread = ${(spread * 100).toFixed(2)}%   agree@stop=${agrees(blockVals)}`,
     diagnostics
@@ -253,6 +282,65 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
             `atFloor=${(r.stats.atFloorFraction * 100).toFixed(1)}% lesDominant=${(r.stats.lesDominantFraction * 100).toFixed(1)}%`,
         )
       : []),
+    tau
+      ? `approach strain: n=${tau.approachStrain.stencilCells} ` +
+        `FD[p50,p95,p99]=${tau.approachStrain.finiteDifference.p50.toExponential(3)},${tau.approachStrain.finiteDifference.p95.toExponential(3)},${tau.approachStrain.finiteDifference.p99.toExponential(3)} ` +
+        `Pi[p50,p95,p99]=${tau.approachStrain.piImplied.p50.toExponential(3)},${tau.approachStrain.piImplied.p95.toExponential(3)},${tau.approachStrain.piImplied.p99.toExponential(3)} ` +
+        `pearson=${tau.approachStrain.pearsonCorrelation.toFixed(4)} ` +
+        `spearman=${tau.approachStrain.spearmanRankCorrelation.toFixed(4)} ` +
+        `medianRatio=${tau.approachStrain.medianRatioSlope.toFixed(4)} ` +
+        `relL1=${tau.approachStrain.relativeL1Residual.toFixed(4)} ` +
+        `densityFDp50=${tau.approachStrain.densityWeighted.finiteDifference.p50.toExponential(3)} ` +
+        `densityPearson=${tau.approachStrain.densityWeighted.pearsonCorrelation.toFixed(4)} ` +
+        `densitySpearman=${tau.approachStrain.densityWeighted.spearmanRankCorrelation.toFixed(4)} ` +
+        `rejected=${tau.approachStrain.rejectedIncompleteStencil} invalid=${tau.approachStrain.invalidCells}`
+      : '',
+    ...(tau
+      ? STRESS_COMPONENTS.map((component) => {
+          const s = tau.approachTensor.components[component];
+          return (
+            `  Pi ${component}: pearson=${s.pearsonCorrelation.toFixed(4)} ` +
+            `spearman=${s.spearmanRankCorrelation.toFixed(4)} ` +
+            `alpha0=${s.throughOriginSlope.toFixed(4)} ` +
+            `olsSlope=${s.unconstrainedSlope.toFixed(4)} ` +
+            `intercept=${s.unconstrainedIntercept.toExponential(3)} ` +
+            `nRMS=${s.normalizedRmsResidual.toFixed(4)} ` +
+            `sign=${(100 * s.signAgreementRate).toFixed(2)}%`
+          );
+        })
+      : []),
+    tau
+      ? `  Pi global: alpha=${tau.approachTensor.global.throughOriginSlope.toFixed(4)} ` +
+        `nRMS=${tau.approachTensor.global.normalizedRmsResidual.toFixed(4)}; ` +
+        `deviatoric alpha=${tau.approachTensor.deviatoric.throughOriginSlope.toFixed(4)} ` +
+        `pearson=${tau.approachTensor.deviatoric.pearsonCorrelation.toFixed(4)} ` +
+        `spearman=${tau.approachTensor.deviatoric.spearmanRankCorrelation.toFixed(4)} ` +
+        `nRMS=${tau.approachTensor.deviatoric.normalizedRmsResidual.toFixed(4)}; ` +
+        `trace alpha=${tau.approachTensor.trace.hydrodynamic.throughOriginSlope.toFixed(4)} ` +
+        `pearson=${tau.approachTensor.trace.hydrodynamic.pearsonCorrelation.toFixed(4)} ` +
+        `spearman=${tau.approachTensor.trace.hydrodynamic.spearmanRankCorrelation.toFixed(4)} ` +
+        `nRMS=${tau.approachTensor.trace.hydrodynamic.normalizedRmsResidual.toFixed(4)}`
+      : '',
+    ...(tau
+      ? (['xy', 'xz', 'yz'] as const).map((component) => {
+          const scale = tau.approachScales.components[component];
+          const h = scale.stencils[0];
+          const h2 = scale.stencils[1];
+          const h4 = scale.stencils[2];
+          const bands = scale.contributionEnergySpectrum;
+          return (
+            `  scale ${component}: contribution-energy bands ` +
+            `>16=${(100 * bands['>16'].fraction).toFixed(2)}% ` +
+            `8-16=${(100 * bands['8-16'].fraction).toFixed(2)}% ` +
+            `4-8=${(100 * bands['4-8'].fraction).toFixed(2)}% ` +
+            `2-4=${(100 * bands['2-4'].fraction).toFixed(2)}%; ` +
+            `RMS[h,2h,4h]=${h.rms.toExponential(3)},${h2.rms.toExponential(3)},${h4.rms.toExponential(3)} ` +
+            `slope[2h/h,4h/h]=${h2.throughOriginSlopeVsH.toFixed(4)},${h4.throughOriginSlopeVsH.toFixed(4)} ` +
+            `cross=${(100 * scale.crossTermFraction).toFixed(2)}%`
+          );
+        })
+      : []),
+    `artifact: ${resolve(OUT_DIR, `${artifactStem}.json`)}`,
   ]
     .filter(Boolean)
     .join('\n');

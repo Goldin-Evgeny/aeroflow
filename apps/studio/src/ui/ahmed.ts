@@ -330,8 +330,7 @@ export function mountAhmed(root: HTMLElement): void {
             // acceptance verdict belongs to m9-closure.gpu.spec.ts, which owns the terminal
             // budget and the independent post-trigger blocks.
             const inBand = m.meanCd >= AHMED_CD_BAND[0] && m.meanCd <= AHMED_CD_BAND[1];
-            const inStretch =
-              m.meanCd >= AHMED_CD_STRETCH[0] && m.meanCd <= AHMED_CD_STRETCH[1];
+            const inStretch = m.meanCd >= AHMED_CD_STRETCH[0] && m.meanCd <= AHMED_CD_STRETCH[1];
             setVerdict(
               `ACCEPTANCE CONFIGURATION — live running-mean trigger reached at ` +
                 `Cd ${m.meanCd.toFixed(4)} (${

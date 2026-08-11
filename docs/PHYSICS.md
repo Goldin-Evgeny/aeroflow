@@ -146,13 +146,32 @@ transport.
 This couples into the subgrid model. Π^neq over-reports the hydrodynamic strain in the same
 band (1.0012 at λ = 19.7 cells, 1.27 at 4, 2.06 at 2.67), classified as a finite-resolution
 plus finite-Knudsen constitutive departure. Smagorinsky reads Π^neq, so it responds to
-grid-scale content as though it were resolved strain and fires on undisturbed freestream —
-directly measured at 6.47× molecular with 97.6% of approach cells LES-dominant at Re 1e5.
-Because the model then backfills whatever τ₀ gives up, ν_eff falls only 1.46× while nominal
-Re rises 10×: **no Cd at or above nominal Re 1×10⁵ may be quoted against its nominal Re.**
+grid-scale content as though it were resolved strain and fires on undisturbed freestream.
 
-Consequences: a run can stay finite and conserve mass while its force signal is dominated by
-grid-scale noise, and V11 fails at ≈3.1× the band. Dropping regularization is not the remedy
+Measured on the 15.7M-cell V11 acceptance field (2026-08-11, 842.8 T_conv, 2,656,675
+approach cells), the whole chain is visible at once. Median Π-implied over
+centered-difference |S| is **3.2194**, and the over-reporting tracks wavelength band exactly:
+
+| component | α₀ (Π vs hydrodynamic) | Pearson | share of contribution energy at 2–4 cells |
+| --------- | ---------------------- | ------- | ----------------------------------------- |
+| xy        | 3.3853                 | 0.9782  | 99.36%                                    |
+| xz        | 3.4340                 | 0.9780  | 99.42%                                    |
+| yz        | 1.1560                 | 0.9832  | 0.49%                                     |
+
+The two components whose strain content is essentially all at the grid scale are
+over-reported ~3.4×; the one whose content sits at 8–16+ cells is nearly unbiased. The
+resulting eddy viscosity in **undisturbed approach freestream** is **275.5× molecular**
+(whole domain 281.2×), with **100% of cells LES-dominant and none at the τ floor**.
+
+Because the model backfills whatever τ₀ gives up, ν_eff barely moves as nominal Re rises —
+1.46× against 10× on the 8M ladder — so **no Cd at or above nominal Re 1×10⁵ may be quoted
+against its nominal Re.** Read as a median-based diagnostic proxy and not as a global
+Reynolds number, the V11 acceptance run's effective Re is in the region of 10⁴ against a
+nominal 4.29×10⁶.
+
+Consequences: a run can stay finite and conserve mass while running at an effective Reynolds
+number two orders of magnitude below its nominal one, and V11 fails at ≈3.2× the band.
+Dropping regularization is not the remedy
 — it buys stability with a much worse constitutive ratio (Π/Π_hydro 6.09 against 1.53) and a
 higher τ_eff, damping by making the LES fire harder on a noisier Π. **RR3**, the third-order
 recursive regularization the mechanism points at, was implemented and failed both of its

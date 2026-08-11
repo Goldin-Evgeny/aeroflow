@@ -125,7 +125,7 @@ so a FAIL is read as a known limit rather than a regression.
   V12/V13 AIJ Case A at ≥24 cells/building — all measured in band.
 - **Not reached on the tested uniform grids:** sphere **Re=1000** (pair-averaged Cd 0.5692
   vs 0.47) and **Re=10⁴** (0.6047 freestream / 0.2727 free-slip vs [0.38, 0.50]), and
-  **V11 Ahmed** (pair-averaged Cd 0.889 vs [0.242, 0.328] at 15.7M cells). The corrected
+  **V11 Ahmed** (pair-averaged Cd 0.9011 vs [0.242, 0.328] at 15.7M cells). The corrected
   results do not establish a unique cause. V10's FP16-vs-FP32 gate passes at
   Re=10⁴ (**0.6047/0.6066, 0.320%**) and fails at Re=1000
   (**0.5692/0.5845, 2.702%**) and at the preserved Re=100 result (**2.253%**).
@@ -145,69 +145,98 @@ Published claims stay screening-grade (CLAUDE.md rule 5). Cases requiring
 more than a consumer GPU are published as reference results with hardware stated, in a tier
 visually distinct from the visitor-re-runnable set — never mixed into it.
 
-## V11 disposition — 2026-08-10
+## V11 disposition — 2026-08-11
 
-**V11 FAILS at ≈3.1× the band.** The 15.7M-cell run
-(484×136×239 = 15,731,936 cells, dx 8.63334 mm, 120.9265 cells on the body, 4.9247%
-blockage, nvidia ampere, 4 h, 3,338,390 steps, 1380 T_conv) gives a stationary
-pair-averaged **Cd ≈ 0.889** against the band **[0.242, 0.328]**. Four independent
-300-T_conv windows agree to 0.3%:
+**V11 FAILS at ≈3.2× the band: `AHMED_CD_FAIL`, Cd = 0.9011 against [0.242, 0.328].**
+Acceptance run on the acceptance configuration (484×136×239 = 15,731,936 cells, dx 8.63334
+mm, 120.9265 cells on the body, 4.9247% blockage, **freestream** far field + H12 velocity
+inlet + H14 pressure outlet, FP16, Cs=0.1, nvidia ampere, 4.04 h, 2,038,850 steps, 842.8
+T_conv). The live trigger opened at 64.9 T_conv and five independent 20-T_conv blocks agreed
+to **0.525%** against the 3% gate:
 
-| T_conv window | mean Cd                    |
-| ------------- | -------------------------- |
-| 0–100         | 1.4231 — startup transient |
-| 100–200       | 0.9141                     |
-| 200–400       | 0.8864                     |
-| 400–700       | 0.8894                     |
-| 700–1000      | 0.8879                     |
-| 1000–1380     | 0.8911                     |
+| block (T_conv) | mean Cd |
+| -------------- | ------- |
+| 65.0–84.9      | 0.8963  |
+| 85.0–104.9     | 0.8984  |
+| 105.0–125.0    | 0.9008  |
+| 125.1–145.0    | 0.8965  |
+| 145.1–165.0    | 0.9011  |
 
-The whole-run cumulative mean of 0.8678 is the transient-contaminated figure and is not the
-result; the stationary value is 0.889. This is a **FAIL**, recorded as one (rule 5). The
-band does not move (rule 3).
+A converged, out-of-band result — a statement about the drag, recorded as a **FAIL** (rule
+5). The band does not move (rule 3). Acceptance was decided at 165 T_conv, inside the
+30-minute product budget (which reached 210.7 T_conv at mean Cd 0.8984).
 
-**Resolution is moving it.** The same scene and force definition give pair-averaged Cd
-≈1.19 at 2M cells and 0.889 at 15.7M — the first honest point of a resolution ladder, since
-every Cd recorded before the consecutive-step force correction measured a drag plus an
-eigenmode and is withdrawn. Extrapolation is not claimed: 0.889 is still ~3× the band and
-the ladder has two points.
+**Resolution is moving it, slowly.** Pair-averaged Cd ≈1.19 at 2M and 0.901 at 15.7M — the
+first honest ladder points, since every Cd from before the consecutive-step force correction
+measured a drag plus an eigenmode and is withdrawn. No extrapolation is claimed.
 
-**The Cd may not be quoted against Re 4.29×10⁶.** The τ_eff measurement on the 8M ladder
-showed the subgrid model backfills whatever τ₀ gives up, so ν_eff falls only 1.46× while
-nominal Re rises 10× and the solver does not run at the Reynolds number it is asked for. No
-Cd at or above nominal Re 1×10⁵ may be quoted against its nominal Re. **This run captured no
-τ_eff snapshot**, so that statement cannot yet be made specific to the 15.7M scene; the
-closure harness now takes the readback and it is outstanding evidence, not a settled number.
+**The far field was the noise source, not the drag error.** The 2026-08-10 run of the same
+scene with H11 free-slip lateral walls gave σ(Cd) = **1.212** with 25.4% of instantaneous
+samples negative, ρ ∈ [0.889, 1.148] and Ma_max 0.209. On freestream walls the same scene
+gives σ(Cd) = **0.0163**, ρ ∈ [0.9943, 1.0073], Ma_max 0.1445 and mass drift −5.08×10⁻⁶.
+That is a 74× reduction in force variance and a 20× reduction in density excursion. **Cd
+itself barely moves (0.889 → 0.901)**, so the ≈3× over-prediction is robust and is not a
+lateral-BC artifact — but free-slip was producing a badly polluted field, and this run is
+the A/B that the acceptance constant's guard comment had always demanded.
 
-**Convergence: the criterion failed, not the flow.** The run was recorded
-`AHMED_CONVERGENCE_FAIL` at the 30-minute terminal. That verdict is withdrawn as a statement
-about the flow. σ(Cd) = 1.212 at ~10 samples/T_conv, so a 20-T_conv block holds ~200 samples
-and its mean carries a standard error of ≈0.086 — about 10% of the mean, judged against a 3%
-spread gate. The gate was unreachable by construction. The 3% gate is unchanged; the block
-length is now derived from the run's own σ/mean so its standard error sits under the gate
-(≈210 T_conv for this signal), and the windows above are what that test sees.
+**The Cd may not be quoted against Re 4.29×10⁶ — now measured on this scene.** τ_eff
+readback on the settled field, τ₀ = 0.5000042, ν_mol = 1.4094×10⁻⁶:
 
-**Topology: RECORDED, not passed.** Slant reverse-flow fraction 0.426276 and opposite-signed
-C-pillar circulation +53.8151/−57.0557 are present, but the same field reports a
-recirculation length of exactly **0 cells** and a base reverse fraction of 0.047. The
-original gate (`slantReverse > 0` and `Γ_left·Γ_right < 0`) is satisfied by any turbulent
-field and its PASS is withdrawn. V11's qualitative criterion is not met on this run.
+| region                  | τ_eff p50 | ν_LES/ν_mol p50 | p90   | max  | LES-dominant |
+| ----------------------- | --------- | --------------- | ----- | ---- | ------------ |
+| whole domain            | 0.501193  | **281.2**       | 495.5 | 1583 | 100.0%       |
+| **approach freestream** | 0.501169  | **275.5**       | 462.8 | 1035 | 100.0%       |
+| around body             | 0.501298  | 305.9           | 544.2 | 1476 | 100.0%       |
+| slant                   | 0.501243  | 292.9           | 533.4 | 1340 | 100.0%       |
+| near wake (≤1 L aft)    | 0.501061  | 249.9           | 490.8 | 993  | 100.0%       |
+| station x=2 (inlet)     | 0.500312  | 72.8            | 128.3 | 1110 | 100.0%       |
 
-**Resilience: PASS, narrowly.** 4 h continuous, one device loss and recovery, monotonic
-advance to step 3,338,390, zero non-finite cells, mass drift 1.905×10⁻⁴. The
-checkpoint/recovery cycle ran at step **726** of 3,338,390 — a field a few seconds old — so
-it evidences the plumbing, not multi-hour state survival; the harness now repeats the cycle
-on the aged field. The >1 h background check used a foreground cover target plus standard
+The subgrid model supplies **~276× the molecular viscosity in undisturbed approach flow**,
+where Π^neq should be ≈0, with **100% of cells LES-dominant and none at the τ floor**. The
+8M/Re 1e5 measurement of 6.47× is not merely reproduced at the acceptance scene, it is ~40×
+larger. Read as a median-based diagnostic proxy only — ν_eff varies strongly in space and
+time under Smagorinsky, so this is not a global Reynolds number — it puts the effective Re in
+the region of **10⁴**, against a nominal 4.29×10⁶. The standing rule-5 constraint is now
+specific to this scene: **this Cd is not a Cd at Re 4.29×10⁶.**
+
+**And the sensor is reading the grid, not the flow.** Same field, approach region, 2,656,675
+cells: median(Π-implied |S| / centered-difference |S|) = **3.2194** (Pearson 0.9155). Per
+component, against the wavelength band holding its contribution energy:
+
+| component | α₀ (Π vs hydrodynamic) | Pearson | energy at 2–4 cells |
+| --------- | ---------------------- | ------- | ------------------- |
+| xy        | **3.3853**             | 0.9782  | **99.36%**          |
+| xz        | **3.4340**             | 0.9780  | **99.42%**          |
+| yz        | **1.1560**             | 0.9832  | **0.49%**           |
+
+The two shear components whose strain content lives almost entirely at 2–4 cells are
+over-reported by ~3.4×; the one component whose content sits at 8–16+ cells is nearly
+unbiased at 1.16×. Deviatoric α = 2.9703. This is the mechanism measured end to end at the
+acceptance point: the projected regularization leaves grid-scale transverse shear
+under-damped, Π^neq over-states it ~3.4×, Smagorinsky reads Π^neq and manufactures ~276×
+molecular eddy viscosity out of undisturbed freestream, and the run stops being a run at its
+nominal Reynolds number. It matches the eigenanalysis prediction (Π/Π_hydro 2.06 at 2.67
+cells) in sign, band and order of magnitude.
+
+**Topology: RECORDED, not passed.** Slant reverse-flow fraction 0.4127 and opposite-signed
+C-pillar circulation +48.592/−49.213 are present, but the field reports a recirculation
+length of exactly **0 cells** and a base reverse fraction of 0.0368. The original gate
+(`slantReverse > 0` and `Γ_left·Γ_right < 0`) is satisfied by any turbulent field and its
+earlier PASS is withdrawn. V11's qualitative criterion is not met.
+
+**Resilience: PASS.** 4.04 h continuous, monotonic to step 2,038,850, zero non-finite cells,
+mass drift −5.08×10⁻⁶. Two device-loss/recovery cycles: one at step 726 (fresh field) and one
+at step **2,037,882** — four hours in — which recovered and continued advancing, so the
+criterion now covers aged state rather than only the plumbing. Background advance 968 →
+1,009,382 over 1 h. The background check uses a foreground cover target plus standard
 hidden/`visibilitychange` emulation because automated Chromium reports all targets visible;
-this is a disclosed automation limitation, not native visibility telemetry.
+a disclosed automation limitation, not native visibility telemetry.
 
 **Acceptance configuration.** H12's velocity inlet and H14's pressure outlet are promoted to
 the acceptance configuration on the strength of their own validation. The lateral far field
-remains **freestream**: the closure run used free-slip, but free-slip removes the cells that
-hold the core at u_in and so can lower Cd through a velocity deficit rather than through
-physics (the sphere Re=10⁴ case moved 0.55→0.263 on that single change), and no A/B
-isolating it was run. Free-slip becomes the acceptance far field only by an explicit
-decision recorded here, informed by that A/B.
+is **freestream**: the 2026-08-10 run used free-slip, promoted without the A/B its own guard
+comment required. That A/B has now been run (above) and free-slip is rejected on the
+evidence, not merely on procedure.
 
 ### The mechanism, as measured
 

@@ -62,3 +62,55 @@ label is enough to locate the matching entry in `docs/VALIDATION.md` or `docs/ha
 1. Read the relevant `docs/handoff/H*.md` spec (goal, steps, acceptance criteria, pitfalls).
 2. Implement the CPU reference first, with tests, then the GPU kernel/UI.
 3. Run the acceptance checks and record the numbers (date, hardware, values).
+
+## Run history persistence (mandatory)
+
+Every execution of a validation/acceptance run, **of any duration**, is persisted to the
+repo before the result is reported to anyone. This is not optional and does not wait to be
+asked for.
+
+### Where
+
+- `docs/validation/runs/<YYYY-MM-DD>-<HHMM>-<short-run-id>.md` — one file per run, UTC.
+- `docs/validation/INDEX.md` — a single append-only table, newest row at the bottom.
+- Raw harness artifacts go in `docs/validation/runs/artifacts/<run-id>/`. `test-results/`
+  is gitignored, so anything left only there is lost.
+
+### Per-run file contents
+
+1. **Identity** — UTC timestamp, git commit SHA, dirty-tree flag (and, if dirty, the
+   `git diff HEAD` sha256 plus the file list), config hash, the command line used,
+   wall-clock duration, hardware.
+2. **Configuration** — grid dims + cell count, Re, Cs, precision, τ₀, collision operator,
+   every BC flag, body present/absent. Verbatim, not summarized.
+3. **Result** — every metric the harness produced. Never omit a metric because it looks
+   uninteresting. Where a metric is a large array, summarize in the file and commit the
+   raw artifact alongside it.
+4. **Verdicts, reported separately** — never collapsed into one PASS/FAIL:
+   - `INFRA` — non-finite cells, mass drift, ledger closure, checkpoint/recovery,
+     convergence achieved, block spread. Green = the harness is healthy.
+   - `PHYSICS_TARGET` — did the measured quantity land in the acceptance band. A miss is
+     `PHYSICS_TARGET_MISS`: a research outcome, never reported as an error or a bug.
+   - `TOPOLOGY` — `PASS` / `RECORDED` / `FAIL`.
+5. **Anomalies** — anything unexpected, stated plainly, with no attempt to diagnose or fix
+   it unless asked.
+
+### Immutability
+
+- Run files are append-only. Never edit or delete an existing run file.
+- A result later invalidated is **not** removed. Append a `## WITHDRAWN` section stating
+  the date, the reason, and the commit or analysis that invalidated it, and flag its INDEX
+  row `WITHDRAWN`. The original numbers stay readable forever.
+- INDEX rows are only appended or status-flagged, never rewritten.
+
+### Commit
+
+After writing the files, `git add` + `git commit` them:
+`validation: <run-id> <primary-metric>=<value> [INFRA=.. PHYSICS=..]`.
+This happens even if the run failed, diverged, or crashed — especially then. A crashed run
+gets a file too, with whatever partial data exists.
+
+### Reporting
+
+Report the physics result and the infra result as two separate statements, and give the
+path to the run file. Do not ask permission to write it.

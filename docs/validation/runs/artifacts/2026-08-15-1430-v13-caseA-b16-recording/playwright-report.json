@@ -1,0 +1,189 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "-c",
+      "apps/studio/playwright.config.ts",
+      "--project=gpu",
+      "apps/studio/e2e/aij.gpu.spec.ts",
+      "-g",
+      "16 cells/b",
+      "--reporter=json"
+    ],
+    "configFile": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\playwright.config.ts",
+    "rootDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+        "testIgnore": [
+          "/\\.gpu\\.spec\\.ts$/",
+          "/fallback\\.spec\\.ts$/"
+        ],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 120000
+      },
+      {
+        "outputDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "fallback",
+        "name": "fallback",
+        "testDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/fallback\\.spec\\.ts$/"
+        ],
+        "timeout": 120000
+      },
+      {
+        "outputDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "gpu",
+        "name": "gpu",
+        "testDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/\\.gpu\\.spec\\.ts$/"
+        ],
+        "timeout": 1800000
+      },
+      {
+        "outputDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "swiftshader",
+        "name": "swiftshader",
+        "testDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+        "testIgnore": [
+          "/\\.gpu\\.spec\\.ts$/",
+          "/fallback\\.spec\\.ts$/"
+        ],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 120000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "command": "npm run build && npm run preview -- --host --port 4173 --strictPort",
+      "url": "http://localhost:4173",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "aij.gpu.spec.ts",
+      "file": "aij.gpu.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "V13 Case A at 16 cells/b — recorded, not gated (resolution-convergence point)",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 1800000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "gpu",
+              "projectName": "gpu",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 316843,
+                  "errors": [],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-15T14:29:46.278Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "aij-score-b16-convergence",
+                      "contentType": "text/plain",
+                      "body": "d2luZG93ICAgc3RlcHMgICAgICAgIGRyaWZ0ICAgICAgICBkcmlmdFNjYWxlZCAgZHJpZnRJZHggIGZldGNoTWF4UmVsICAgcQoxICAgICAgICAyNDg1MiAgICAgICAg4oCUICAgICAgICAgICAg4oCUICAgICAgICAgICAgLTEgICAgICAgIOKAlCAgICAgICAgICAgICAwLjQ3NgoyICAgICAgICAzMTA2NSAgICAgICAgNS4zMzZlLTEgICAgIDUuNzQ4ZS0yICAgICAxMjIgICAgICAg4oCUICAgICAgICAgICAgIDAuNDg0CjMgICAgICAgIDM3Mjc4ICAgICAgICA2LjU2MGUtMSAgICAgMy4wMjllLTIgICAgIDI3ICAgICAgICDigJQgICAgICAgICAgICAgMC40NzYKNCAgICAgICAgNDM0OTEgICAgICAgIDIuOTc0ZS0xICAgICAyLjA4MmUtMiAgICAgMTIyICAgICAgIOKAlCAgICAgICAgICAgICAwLjQ3Ngo1ICAgICAgICA0OTcwNCAgICAgICAgMi41MTZlLTEgICAgIDEuOTYyZS0yICAgICA1MCAgICAgICAg4oCUICAgICAgICAgICAgIDAuNDc2CjYgICAgICAgIDU1OTE3ICAgICAgICA0LjQ1NmUtMSAgICAgMS4zNDNlLTIgICAgIDM2ICAgICAgICDigJQgICAgICAgICAgICAgMC40NzYKNyAgICAgICAgNjIxMzAgICAgICAgIDEuODU5ZS0xICAgICAxLjA5OGUtMiAgICAgMTAzICAgICAgIOKAlCAgICAgICAgICAgICAwLjQ3Ngo4ICAgICAgICA2ODM0MyAgICAgICAgMS43NDdlLTEgICAgIDEuNDMxZS0yICAgICAxMTIgICAgICAg4oCUICAgICAgICAgICAgIDAuNDc2CjkgICAgICAgIDc0NTU2ICAgICAgICAzLjA0NWUtMSAgICAgNy41NTBlLTMgICAgIDExMiAgICAgICDigJQgICAgICAgICAgICAgMC40NzY="
+                    },
+                    {
+                      "name": "aij-score-b16",
+                      "contentType": "text/plain",
+                      "body": "UkVDT1JERUQsIE5PVCBHQVRFRCDigJQgMTYgY2VsbHMvYiwgYmVsb3cgdGhlIHJlc29sdXRpb24gdGhlIFYxMyBiYW5kIGlzIGRlZmluZWQgYXQuCnEgMC40NzYxOTA0NzYxOTA0NzYxNjsgciAwLjc4MzU0MTYwMjA1NTAzMDI7IHN0ZWFkeSBkcmlmdFNjYWxlZCAwLjAwNzU1MDA4NDU2MTg5NDU3OCAocmF3IGRyaWZ0IDAuMzA0NTEyMDk0NjEwOTQyMSk7IHN5bnRoZXRpYyBmYWxzZTsgdW5kZXJSZXNvbHZlZCBmYWxzZTsgd2luZG93cyA5OyB0b3RhbFN0ZXBzIDc0NjEzCkNvbXBhcmUgYWdhaW5zdCB0aGUgcHJlLWZpeCByZWZlcmVuY2UgcSDiiYggMC41MzIgYXQgdGhpcyByZXNvbHV0aW9uLCBhbmQgYWdhaW5zdCB0aGUgYj0yNCBhY2NlcHRhbmNlIHJ1biBpbiB0aGUgc2FtZSBzZXNzaW9uLg=="
+                    }
+                  ]
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "9c7521e3643719a9a113-34e5379fff542b921784",
+          "file": "aij.gpu.spec.ts",
+          "line": 159,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-08-15T14:29:41.048Z",
+    "duration": 322810.06,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

@@ -158,3 +158,73 @@ control, which was **not** run: `packages/core/src/index.ts` entangles the heigh
 the acceptance-band ledger, the LES-norm work and the scene validators, so a parent-commit
 revert is a surgical partial revert across 7 files with 66 dirty files at risk, not a
 checkout. The cost of that control was misjudged as "5 minutes" when it was proposed.
+
+---
+
+## 6. Appended 2026-08-15 — CPU reconstruction of `ref`, closing §5.4 and §5.6
+
+Read-only analysis, no GPU and no tree modification. Appended rather than edited above; the
+original text and its open questions stay as recorded.
+
+### 6.1 §5.4 resolved — `ref` is the fixture, not an analytic profile
+
+The log-law fits in §5.4 failed because `ref` is not a log law. `scenes/aijCaseA.ts:159-161`
+builds it as `profile[k] = (inflow[k] / max) * uLattice`, where `inflow` is the **Meng & Hibi
+measured inflow** interpolated onto lattice rows by `interpolateInflowToLattice`. The page's
+`z0 = 0.5 m` belongs to the _demo_ profile and is not used by the acceptance run. Fixture
+units: `z = zOverB × bMeters (0.08 m)`, `u = U / uRefMps (4.491)`; lowest sample at
+z = 5 mm = exactly 1·dx, u = 0.6112.
+
+Reconstructing that pipeline on CPU with `latticeRowHeight(k) = (k−0.5)·dx` reproduces the
+observed `ref` **exactly at every gated row** (agreement < 0.2% throughout, y = 2…10):
+
+| y   | ref reconstructed | ref observed (GPU) |
+| --- | ----------------- | ------------------ |
+| 2   | 3.5222e-2         | 3.5222e-2          |
+| 3   | 3.7144e-2         | 3.7144e-2          |
+| 4   | 3.8633e-2         | 3.8633e-2          |
+| 5   | 3.9780e-2         | 3.9780e-2          |
+| 6   | 4.0586e-2         | 4.0586e-2          |
+
+`ref` is therefore fully accounted for. The §5.4 capture gap is closed by reconstruction.
+
+### 6.2 §5.6 answered without running the pre-repair control
+
+Running the same reconstruction under the **pre-repair** mapping `(k+0.5)·dx` gives the size
+of the repair's effect on `ref` directly:
+
+| y   | ref_new (repaired) | ref_old (pre-repair) | ratio old/new |
+| --- | ------------------ | -------------------- | ------------- |
+| 2   | 3.5222e-2          | 3.7001e-2            | **1.0505**    |
+| 3   | 3.7144e-2          | 3.8484e-2            | 1.0361        |
+| 5   | 3.9780e-2          | 4.0429e-2            | 1.0163        |
+| 10  | 4.3494e-2          | 4.3919e-2            | 1.0098        |
+
+**The height repair moves `ref` by at most 5.05%, at the worst row.** The observed deviation
+is 66.19%. The repair cannot account for it.
+
+Stronger: the gate value under the pre-repair mapping is computable without running it.
+`|sim − ref_old|/ref_old` at y = 2 is `1 − 0.3219 = 0.678`. So a pre-repair V12 would have
+reported **≈ 67.8%**, marginally _worse_ than the 66.19% recorded now.
+
+That disposes of the control this file's §5.6 said was outstanding. It was never going to be
+informative, and it would have cost a surgical partial revert across 7 files with 66 dirty
+files at risk. Recorded as a lesson about experimental design: the cost of the control was
+estimated before its expected information content was, and the information content turned
+out to be ~1.6 percentage points on a 66-point miss.
+
+### 6.3 H1 is dead for a second, independent reason
+
+§5.1 falsified H1 on the sign of `sim/ref`. §6.2 falsifies it again on magnitude: the
+mapping change is a 5% effect on a 66% miss. Both mappings give `sim/ref ≈ 0.32–0.34` at
+y = 2. **The near-wall deficit is a property of the measured flow, not of the height
+mapping**, and it survives any choice of mapping.
+
+### 6.4 What remains open
+
+Unchanged from §5.2: whether the near-wall deficit is physical — a boundary layer that has
+not recovered the fixture inflow over this fetch distance, which is what V12 exists to
+detect — or numerical, a bounce-back wall layer no pointwise comparison can match. The
+lowest fixture sample sits at exactly 1·dx, so rows y = 2…5 are interpolated between the two
+lowest measured points, where the fixture itself is sparsest. Recorded; mechanism not
+established.

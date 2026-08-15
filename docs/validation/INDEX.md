@@ -53,5 +53,6 @@ has five columns instead of one.
   where there should be none. `PASS` / `RECORDED` / `CONCERN` / `FAIL` / `N/A`. Subsumes
   v1's `TOPOLOGY`.
 
-| Run | UTC start | Case | Cells | Commit | Dirty | Primary metric | EXEC | NUM | CONV | TARGET | STRUCT | Status |
-| --- | --------- | ---- | ----- | ------ | ----- | -------------- | ---- | --- | ---- | ------ | ------ | ------ |
+| Run                                                                                      | UTC start         | Case                                        | Cells     | Commit    | Dirty | Primary metric                                                                     | EXEC  | NUM | CONV  | TARGET              | STRUCT  | Status   |
+| ---------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------- | --------- | --------- | ----- | ---------------------------------------------------------------------------------- | ----- | --- | ----- | ------------------- | ------- | -------- |
+| [2026-08-15-1620-v12-fetch-rows-control](runs/2026-08-15-1620-v12-fetch-rows-control.md) | 2026-08-15T18:30Z | V12 ABL fetch — per-row control, 16 cells/b | 8,473,344 | `9591433` | yes   | fetch deviation = 66.19% (band ≤ 5%); 6 of 32 rows over gate, max set by y=2 alone | GREEN | N/A | GREEN | PHYSICS_TARGET_MISS | CONCERN | RECORDED |

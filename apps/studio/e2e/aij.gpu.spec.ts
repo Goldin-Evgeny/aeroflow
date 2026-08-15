@@ -8,6 +8,9 @@ import type { Page, TestInfo } from '@playwright/test';
  *    grid, judged only once the steadiness criterion holds.
  *  - Acceptance 4: Case A q/r against the real Meng & Hibi fixture (landed 2026-07-20),
  *    judged only once the windowed means are steady.
+ *  - Case A at 16 cells/b: RECORDING ONLY, no verdict. The low-resolution half of the
+ *    resolution-convergence pair (fix-confirmed-physics-defects task 7.6). See its own
+ *    comment for why it asserts no band.
  *
  * Both gates are judged on TIME MEANS, so both wait for steadiness first. The
  * 2026-07-20 attempt at acceptance 3 timed out with the predicate still false: the gate
@@ -106,6 +109,13 @@ test('acceptance 3: empty-domain fetch gate ≤ 5% on the real grid', async ({
       `max profile deviation ${((a.fetchMaxRel ?? NaN) * 100).toFixed(2)}% (gate 5%)`,
     contentType: 'text/plain',
   });
+  // Per-row evidence, always attached — pass or fail. `fetchMaxRel` alone cannot say
+  // whether a miss lives in the measured flow, in the prescribed profile, or in the
+  // row-to-height mapping that produces `ref`; these rows can. Recording only, no gate.
+  await testInfo.attach('aij-fetch-rows', {
+    body: JSON.stringify(a.fetchRows ?? null, null, 2),
+    contentType: 'application/json',
+  });
   expect(a.fetchPass).toBe(true);
 });
 
@@ -131,4 +141,49 @@ test('acceptance 4: Case A hit rate q ≥ 0.66 and Pearson r ≥ 0.70 on the rea
   expect(a.underResolved).toBe(false);
   expect(a.q!).toBeGreaterThanOrEqual(0.66);
   expect(a.r!).toBeGreaterThanOrEqual(0.7);
+});
+
+/**
+ * Case A at 16 cells/b — RECORDING ONLY, deliberately asserting no acceptance band.
+ *
+ * This is the low-resolution half of the pair task 7.6 asks for ("rescore V13 Case A at 16
+ * and 24 cells/b with the corrected mapping"). It exists to answer one question: did the
+ * height-mapping fix move the resolution-convergence story, or only the acceptance point?
+ *
+ * **Why no band is asserted here, and why that is not a weakened gate (Hard rule 3).**
+ * V13's `q ≥ 0.66` / `r ≥ 0.70` is defined at the resolution that resolves the probe plane.
+ * At 16 cells/b the 2 m measurement plane sits below the third fluid node, so the grid
+ * scores ≈ 0.532 by construction — that number is the *evidence for* the acceptance
+ * resolution being 24, not a failure of the physics. Asserting the band here would gate a
+ * configuration the criterion was never written for. The acceptance gate is the test above,
+ * at b=24, and it is untouched.
+ *
+ * Note `underResolved` is false at exactly 16 (`MIN_CELLS_PER_B = 16`), so the page does
+ * produce q/r rather than suppressing the verdict — the plane is under-resolved, the *grid*
+ * is not. Both are still asserted below, because a recording is only worth keeping if it
+ * came from real fixture data on the grid it claims.
+ */
+test('V13 Case A at 16 cells/b — recorded, not gated (resolution-convergence point)', async ({
+  gpuPage: page,
+}, testInfo) => {
+  test.setTimeout(30 * 60_000);
+  await page.goto(`${BASE_URL}/?aij&b=16`);
+  await page.getByTestId('aij-score').click();
+  const a = await awaitSteady(page, testInfo, 'aij-score-b16', (x) => x.q !== undefined);
+  await testInfo.attach('aij-score-b16', {
+    body:
+      `RECORDED, NOT GATED — 16 cells/b, below the resolution the V13 band is defined at.\n` +
+      `q ${a.q}; r ${a.r}; steady driftScaled ${a.trace?.at(-1)?.driftScaled} ` +
+      `(raw drift ${a.drift}); synthetic ${a.synthetic}; underResolved ${a.underResolved}; ` +
+      `windows ${a.windows}; totalSteps ${a.totalSteps}\n` +
+      `Compare against the pre-fix reference q ≈ 0.532 at this resolution, and against the ` +
+      `b=24 acceptance run in the same session.`,
+    contentType: 'text/plain',
+  });
+  // Real data, real grid — the two things that would make the recording meaningless.
+  expect(a.synthetic).toBe(false);
+  expect(a.underResolved).toBe(false);
+  // No band assertion: see the comment above.
+  expect(a.q).toBeDefined();
+  expect(a.r).toBeDefined();
 });

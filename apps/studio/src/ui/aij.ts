@@ -325,6 +325,7 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
         r: r.score?.r,
         fetchMaxRel: r.fetch?.maxRel,
         fetchPass: r.fetch?.pass,
+        fetchRows: r.fetch?.rows,
         trace: r.trace,
       };
       if (m === 'score' && r.score) {
@@ -357,7 +358,10 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
             pass ? 'ok' : 'bad',
           );
         } else {
-          setVerdict(`q ${q.toFixed(3)}   r ${rr.toFixed(3)} (not steady yet — no verdict)`, 'muted');
+          setVerdict(
+            `q ${q.toFixed(3)}   r ${rr.toFixed(3)} (not steady yet — no verdict)`,
+            'muted',
+          );
         }
       } else if (m === 'fetch' && r.fetch) {
         table.textContent =
@@ -374,7 +378,10 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
             r.fetch.pass ? 'ok' : 'bad',
           );
         } else {
-          setVerdict(`max deviation ${(r.fetch.maxRel * 100).toFixed(2)}% (not steady yet)`, 'muted');
+          setVerdict(
+            `max deviation ${(r.fetch.maxRel * 100).toFixed(2)}% (not steady yet)`,
+            'muted',
+          );
         }
       }
       info.textContent = info.textContent.split('\n').slice(0, 4).join('\n') + '\n' + head;

@@ -113,6 +113,14 @@ export interface AeroflowHooks {
     r?: number;
     fetchMaxRel?: number;
     fetchPass?: boolean;
+    /**
+     * Per-row fetch evidence: measured mean (`sim`) against the prescribed inlet profile
+     * (`ref`) at each gated lattice row. `fetchMaxRel` is `max(|sim−ref|/ref)` over these,
+     * so publishing only the maximum makes the gate unfalsifiable — a miss cannot be
+     * attributed to the flow, to the profile, or to the row-to-height mapping without the
+     * rows themselves. Read-only diagnostic surface; the gate is unchanged.
+     */
+    fetchRows?: { y: number; sim: number; ref: number }[];
     previewUMax?: number;
     /** Convergence trace: one entry per completed averaging window. */
     trace?: {
@@ -308,6 +316,17 @@ export function lesCsOverride(): number | null {
   if (raw === null || raw.trim() === '') return null;
   const cs = Number(raw);
   return Number.isFinite(cs) && cs >= 0 ? cs : null;
+}
+
+/**
+ * Smagorinsky norm-convention override (`?lesNorm=spec|legacy`), fix-confirmed-physics-defects
+ * Phase 6: the closure fix's A/B (task 6.7) needs a way to pick the convention per run without
+ * flipping the solver-wide default. Returns null (== "use the solver default") for anything
+ * else, so a typo cannot silently select a convention.
+ */
+export function lesNormOverride(): 'spec' | 'legacy' | null {
+  const raw = new URLSearchParams(location.search).get('lesNorm');
+  return raw === 'spec' || raw === 'legacy' ? raw : null;
 }
 
 /**

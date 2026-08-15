@@ -1,0 +1,233 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "-c",
+      "apps/studio/playwright.config.ts",
+      "--project=gpu",
+      "apps/studio/e2e/aij.gpu.spec.ts",
+      "-g",
+      "acceptance 3",
+      "--reporter=json"
+    ],
+    "configFile": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\playwright.config.ts",
+    "rootDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+        "testIgnore": [
+          "/\\.gpu\\.spec\\.ts$/",
+          "/fallback\\.spec\\.ts$/"
+        ],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 120000
+      },
+      {
+        "outputDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "fallback",
+        "name": "fallback",
+        "testDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/fallback\\.spec\\.ts$/"
+        ],
+        "timeout": 120000
+      },
+      {
+        "outputDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "gpu",
+        "name": "gpu",
+        "testDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/\\.gpu\\.spec\\.ts$/"
+        ],
+        "timeout": 1800000
+      },
+      {
+        "outputDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "swiftshader",
+        "name": "swiftshader",
+        "testDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+        "testIgnore": [
+          "/\\.gpu\\.spec\\.ts$/",
+          "/fallback\\.spec\\.ts$/"
+        ],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 120000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "command": "npm run build && npm run preview -- --host --port 4173 --strictPort",
+      "url": "http://localhost:4173",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "aij.gpu.spec.ts",
+      "file": "aij.gpu.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "acceptance 3: empty-domain fetch gate ≤ 5% on the real grid",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 1800000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "gpu",
+              "projectName": "gpu",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 185451,
+                  "error": {
+                    "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m",
+                    "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m\n    at C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij.gpu.spec.ts:119:23",
+                    "location": {
+                      "file": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij.gpu.spec.ts",
+                      "column": 23,
+                      "line": 119
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 117 |\u001b[39m     contentType\u001b[33m:\u001b[39m \u001b[32m'application/json'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 118 |\u001b[39m   })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 119 |\u001b[39m   expect(a\u001b[33m.\u001b[39mfetchPass)\u001b[33m.\u001b[39mtoBe(\u001b[36mtrue\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m     |\u001b[39m                       \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 120 |\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m 121 |\u001b[39m\n \u001b[90m 122 |\u001b[39m test(\u001b[32m'acceptance 4: Case A hit rate q ≥ 0.66 and Pearson r ≥ 0.70 on the real grid'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m ({\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij.gpu.spec.ts",
+                        "column": 23,
+                        "line": 119
+                      },
+                      "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m\n\n  117 |     contentType: 'application/json',\n  118 |   });\n> 119 |   expect(a.fetchPass).toBe(true);\n      |                       ^\n  120 | });\n  121 |\n  122 | test('acceptance 4: Case A hit rate q ≥ 0.66 and Pearson r ≥ 0.70 on the real grid', async ({\n    at C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij.gpu.spec.ts:119:23"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-15T17:16:02.069Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "aij-fetch-convergence",
+                      "contentType": "text/plain",
+                      "body": "d2luZG93ICAgc3RlcHMgICAgICAgIGRyaWZ0ICAgICAgICBkcmlmdFNjYWxlZCAgZHJpZnRJZHggIGZldGNoTWF4UmVsICAgcQoxICAgICAgICAyNDg1MiAgICAgICAg4oCUICAgICAgICAgICAg4oCUICAgICAgICAgICAgLTEgICAgICAgIDc2Ljc1JSAgICAgICAg4oCUCjIgICAgICAgIDMxMDY1ICAgICAgICAyLjc2NmUtMSAgICAgNC40MTVlLTIgICAgIDAgICAgICAgICA3MC42MSUgICAgICAgIOKAlAozICAgICAgICAzNzI3OCAgICAgICAgMS4wMjdlLTEgICAgIDIuNjgxZS0yICAgICAxICAgICAgICAgNjcuNTklICAgICAgICDigJQKNCAgICAgICAgNDM0OTEgICAgICAgIDQuMzIxZS0yICAgICA5LjYxMWUtMyAgICAgMSAgICAgICAgIDY2LjE5JSAgICAgICAg4oCU"
+                    },
+                    {
+                      "name": "aij-fetch",
+                      "contentType": "text/plain",
+                      "body": "c3RlYWR5IGRyaWZ0U2NhbGVkIDAuMDA5NjEwNzQ5OTU0MzA4MjYgKHJhdyBkcmlmdCAwLjA0MzIwODkyMzY2MjU5NTEzNSk7IG1heCBwcm9maWxlIGRldmlhdGlvbiA2Ni4xOSUgKGdhdGUgNSUp"
+                    },
+                    {
+                      "name": "aij-fetch-rows",
+                      "contentType": "application/json",
+                      "body": "WwogIHsKICAgICJ5IjogMiwKICAgICJzaW0iOiAwLjAxMTkwODc5MTcxMDAzODQwMiwKICAgICJyZWYiOiAwLjAzNTIyMjA3NTgwODA3Njg5CiAgfSwKICB7CiAgICAieSI6IDMsCiAgICAic2ltIjogMC4wMjUwOTM2MjY1NjcxNDc2NTYsCiAgICAicmVmIjogMC4wMzcxNDQ0MDc0MTAyNzgyNzQKICB9LAogIHsKICAgICJ5IjogNCwKICAgICJzaW0iOiAwLjAzMjM1NDMyOTk3OTA4NTU0LAogICAgInJlZiI6IDAuMDM4NjMyNjY0MTM0NTYzMjEKICB9LAogIHsKICAgICJ5IjogNSwKICAgICJzaW0iOiAwLjAzNzAzNDkwMDIzNzc2MTM5LAogICAgInJlZiI6IDAuMDM5Nzc5ODYyMDI2MTk5NTE0CiAgfSwKICB7CiAgICAieSI6IDYsCiAgICAic2ltIjogMC4wNDA4MTQyMTA4OTUxODQ2NiwKICAgICJyZWYiOiAwLjA0MDU4NjAwMTA4NTE4NzE5CiAgfSwKICB7CiAgICAieSI6IDcsCiAgICAic2ltIjogMC4wNDMyMzAwNzgzMjM3NzE5NDUsCiAgICAicmVmIjogMC4wNDEzOTIxNDAxNDQxNzQ4NwogIH0sCiAgewogICAgInkiOiA4LAogICAgInNpbSI6IDAuMDQ0NTE0MDgyMDQzOTg3OTM1LAogICAgInJlZiI6IDAuMDQyMTk4Mjc5MjAzMTYyNTUKICB9LAogIHsKICAgICJ5IjogOSwKICAgICJzaW0iOiAwLjA0NTEyNzc3NDA4MzY3NTczLAogICAgInJlZiI6IDAuMDQyODk5MDAwMDc3NTEzMzcKICB9LAogIHsKICAgICJ5IjogMTAsCiAgICAic2ltIjogMC4wNDU2MTEzMDE3NjczNTIxMDUsCiAgICAicmVmIjogMC4wNDM0OTQzMDI3NjcyMjczNAogIH0sCiAgewogICAgInkiOiAxMSwKICAgICJzaW0iOiAwLjA0NjA1MTI0Njk5MjExODQzLAogICAgInJlZiI6IDAuMDQ0MDg5NjA1NDU2OTQxMzIKICB9LAogIHsKICAgICJ5IjogMTIsCiAgICAic2ltIjogMC4wNDY0NTM2MDg5OTA2MTkxOSwKICAgICJyZWYiOiAwLjA0NDY4NDkwODE0NjY1NTMKICB9LAogIHsKICAgICJ5IjogMTMsCiAgICAic2ltIjogMC4wNDY5MDE0NjgyMzg3MTg3MiwKICAgICJyZWYiOiAwLjA0NTI4Nzk2MjE3MzQ3NDkxNgogIH0sCiAgewogICAgInkiOiAxNCwKICAgICJzaW0iOiAwLjA0NzM4OTYyMjU2ODg0NTQ4LAogICAgInJlZiI6IDAuMDQ1ODk4NzY3NTM3NDAwMgogIH0sCiAgewogICAgInkiOiAxNSwKICAgICJzaW0iOiAwLjA0NzkxOTAyNzAzODQ0NzA5NiwKICAgICJyZWYiOiAwLjA0NjUwOTU3MjkwMTMyNTQ3CiAgfSwKICB7CiAgICAieSI6IDE2LAogICAgInNpbSI6IDAuMDQ4NDkwNDY0NzA0Mzk2Nzk1LAogICAgInJlZiI6IDAuMDQ3MTIwMzc4MjY1MjUwNzU2CiAgfSwKICB7CiAgICAieSI6IDE3LAogICAgInNpbSI6IDAuMDQ5MDQ0ODA3NDQzNjYzNzgsCiAgICAicmVmIjogMC4wNDc3MzExODM2MjkxNzYwMwogIH0sCiAgewogICAgInkiOiAxOCwKICAgICJzaW0iOiAwLjA0OTU0OTg3MDI2NzU5NTY2NCwKICAgICJyZWYiOiAwLjA0ODM0MTk4ODk5MzEwMTMxCiAgfSwKICB7CiAgICAieSI6IDE5LAogICAgInNpbSI6IDAuMDUwMDI3NDkyODgyMzcyNzIsCiAgICAicmVmIjogMC4wNDg5NTI3OTQzNTcwMjY1OAogIH0sCiAgewogICAgInkiOiAyMCwKICAgICJzaW0iOiAwLjA1MDUwNTc1MTIxNzUxMjk4LAogICAgInJlZiI6IDAuMDQ5NTYzNTk5NzIwOTUxODcKICB9LAogIHsKICAgICJ5IjogMjEsCiAgICAic2ltIjogMC4wNTA5ODYxNjAyMDY2NDQ3MDQsCiAgICAicmVmIjogMC4wNTAxNjIwMDI5NDU1MDgxCiAgfSwKICB7CiAgICAieSI6IDIyLAogICAgInNpbSI6IDAuMDUxNDc4NDc2Njg5ODE3Mjk2LAogICAgInJlZiI6IDAuMDUwNzQ4MDA0MDMwNjk1MjkKICB9LAogIHsKICAgICJ5IjogMjMsCiAgICAic2ltIjogMC4wNTIwMTYwODY5MzM5MzQwNCwKICAgICJyZWYiOiAwLjA1MTMzNDAwNTExNTg4MjQ5CiAgfSwKICB7CiAgICAieSI6IDI0LAogICAgInNpbSI6IDAuMDUyNjA5NjQ4MzkxNDE2ODgsCiAgICAicmVmIjogMC4wNTE5MjAwMDYyMDEwNjk2OAogIH0sCiAgewogICAgInkiOiAyNSwKICAgICJzaW0iOiAwLjA1MzIwNjk0MzgxOTQ2NTU3LAogICAgInJlZiI6IDAuMDUyNDQ4NjQ3MzkxNjc1MDU1CiAgfSwKICB7CiAgICAieSI6IDI2LAogICAgInNpbSI6IDAuMDUzNzQxODE3MDY0MjQyMzIsCiAgICAicmVmIjogMC4wNTI5MTk5Mjg2ODc2OTg2MjUKICB9LAogIHsKICAgICJ5IjogMjcsCiAgICAic2ltIjogMC4wNTQyMDMzOTMzNDY5NjQ2MywKICAgICJyZWYiOiAwLjA1MzM5MTIwOTk4MzcyMjE4CiAgfSwKICB7CiAgICAieSI6IDI4LAogICAgInNpbSI6IDAuMDU0NjI0NzM5MjMwODg5NjEsCiAgICAicmVmIjogMC4wNTM4NjI0OTEyNzk3NDU3NQogIH0sCiAgewogICAgInkiOiAyOSwKICAgICJzaW0iOiAwLjA1NTAxMzgzNTE3MjI3MzM0LAogICAgInJlZiI6IDAuMDU0Mjk4MTE2NDI1MDgzMzMKICB9LAogIHsKICAgICJ5IjogMzAsCiAgICAic2ltIjogMC4wNTUzMzUwMjgzOTExMzUzNywKICAgICJyZWYiOiAwLjA1NDY5ODA4NTQxOTczNDkKICB9LAogIHsKICAgICJ5IjogMzEsCiAgICAic2ltIjogMC4wNTU1OTM5NTc4NDUzMzQ3NCwKICAgICJyZWYiOiAwLjA1NTA5ODA1NDQxNDM4NjQ4CiAgfSwKICB7CiAgICAieSI6IDMyLAogICAgInNpbSI6IDAuMDU1ODUxMjYxMzg5MzM3MzYsCiAgICAicmVmIjogMC4wNTU0OTgwMjM0MDkwMzgwNTQKICB9LAogIHsKICAgICJ5IjogMzMsCiAgICAic2ltIjogMC4wNTYxNTQ0NjY2Njg5MDY4MjYsCiAgICAicmVmIjogMC4wNTU3NjYyMTk2NzI4OTM1NgogIH0KXQ=="
+                    },
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\test-results\\aij.gpu-acceptance-3-empty-e14ea-h-gate-≤-5-on-the-real-grid-gpu\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\test-results\\aij.gpu-acceptance-3-empty-e14ea-h-gate-≤-5-on-the-real-grid-gpu\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\test-results\\aij.gpu-acceptance-3-empty-e14ea-h-gate-≤-5-on-the-real-grid-gpu\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij.gpu.spec.ts",
+                    "column": 23,
+                    "line": 119
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "9c7521e3643719a9a113-094b53c41ab95b03580a",
+          "file": "aij.gpu.spec.ts",
+          "line": 99,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-08-15T17:15:56.560Z",
+    "duration": 192912.028,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

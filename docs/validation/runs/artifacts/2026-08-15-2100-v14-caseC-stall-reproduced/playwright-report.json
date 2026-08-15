@@ -1,0 +1,223 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "-c",
+      "apps/studio/playwright.config.ts",
+      "--project=gpu",
+      "apps/studio/e2e/aij-urban.gpu.spec.ts",
+      "-g",
+      "V14 Case C",
+      "--reporter=json"
+    ],
+    "configFile": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\playwright.config.ts",
+    "rootDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+        "testIgnore": [
+          "/\\.gpu\\.spec\\.ts$/",
+          "/fallback\\.spec\\.ts$/"
+        ],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 120000
+      },
+      {
+        "outputDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "fallback",
+        "name": "fallback",
+        "testDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/fallback\\.spec\\.ts$/"
+        ],
+        "timeout": 120000
+      },
+      {
+        "outputDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "gpu",
+        "name": "gpu",
+        "testDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/\\.gpu\\.spec\\.ts$/"
+        ],
+        "timeout": 1800000
+      },
+      {
+        "outputDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "swiftshader",
+        "name": "swiftshader",
+        "testDir": "C:/Users/goldi/OneDrive/Documents/VS Projects/aeroflow/apps/studio/e2e",
+        "testIgnore": [
+          "/\\.gpu\\.spec\\.ts$/",
+          "/fallback\\.spec\\.ts$/"
+        ],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 120000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "json"
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": {
+      "command": "npm run build && npm run preview -- --host --port 4173 --strictPort",
+      "url": "http://localhost:4173",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "aij-urban.gpu.spec.ts",
+      "file": "aij-urban.gpu.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "V14 Case C at 270 degrees",
+          "ok": false,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 30600000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "gpu",
+              "projectName": "gpu",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "failed",
+                  "duration": 1611429,
+                  "error": {
+                    "message": "Error: STALLED: case C made no step progress for 6.0 min at step 21090. This matches the intermittent hang recorded in D1 (Wall 3), whose root cause is unknown and which did not reproduce on the following run. Reported as an EXECUTION failure, NOT a physics result — q was never evaluated.",
+                    "stack": "Error: STALLED: case C made no step progress for 6.0 min at step 21090. This matches the intermittent hang recorded in D1 (Wall 3), whose root cause is unknown and which did not reproduce on the following run. Reported as an EXECUTION failure, NOT a physics result — q was never evaluated.\n    at expect.poll.timeout (C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij-urban.gpu.spec.ts:94:17)\n    at runAcceptance (C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij-urban.gpu.spec.ts:84:3)\n    at C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij-urban.gpu.spec.ts:135:3",
+                    "location": {
+                      "file": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij-urban.gpu.spec.ts",
+                      "column": 17,
+                      "line": 94
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 92 |\u001b[39m           lastProgressAt \u001b[33m=\u001b[39m \u001b[33mDate\u001b[39m\u001b[33m.\u001b[39mnow()\u001b[33m;\u001b[39m\n \u001b[90m 93 |\u001b[39m         } \u001b[36melse\u001b[39m \u001b[36mif\u001b[39m (\u001b[33mDate\u001b[39m\u001b[33m.\u001b[39mnow() \u001b[33m-\u001b[39m lastProgressAt \u001b[33m>\u001b[39m \u001b[33mSTALL_TIMEOUT_MS\u001b[39m) {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 94 |\u001b[39m           \u001b[36mthrow\u001b[39m \u001b[36mnew\u001b[39m \u001b[33mError\u001b[39m(\n \u001b[90m    |\u001b[39m                 \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 95 |\u001b[39m             \u001b[32m`STALLED: case ${caseId} made no step progress for `\u001b[39m \u001b[33m+\u001b[39m\n \u001b[90m 96 |\u001b[39m               \u001b[32m`${((Date.now() - lastProgressAt) / 60_000).toFixed(1)} min at step ${lastSteps}. `\u001b[39m \u001b[33m+\u001b[39m\n \u001b[90m 97 |\u001b[39m               \u001b[32m`This matches the intermittent hang recorded in D1 (Wall 3), whose root cause `\u001b[39m \u001b[33m+\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij-urban.gpu.spec.ts",
+                        "column": 17,
+                        "line": 94
+                      },
+                      "message": "Error: STALLED: case C made no step progress for 6.0 min at step 21090. This matches the intermittent hang recorded in D1 (Wall 3), whose root cause is unknown and which did not reproduce on the following run. Reported as an EXECUTION failure, NOT a physics result — q was never evaluated.\n\n  92 |           lastProgressAt = Date.now();\n  93 |         } else if (Date.now() - lastProgressAt > STALL_TIMEOUT_MS) {\n> 94 |           throw new Error(\n     |                 ^\n  95 |             `STALLED: case ${caseId} made no step progress for ` +\n  96 |               `${((Date.now() - lastProgressAt) / 60_000).toFixed(1)} min at step ${lastSteps}. ` +\n  97 |               `This matches the intermittent hang recorded in D1 (Wall 3), whose root cause ` +\n    at expect.poll.timeout (C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij-urban.gpu.spec.ts:94:17)\n    at runAcceptance (C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij-urban.gpu.spec.ts:84:3)\n    at C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij-urban.gpu.spec.ts:135:3"
+                    }
+                  ],
+                  "stdout": [],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-08-15T19:00:59.453Z",
+                  "annotations": [],
+                  "attachments": [
+                    {
+                      "name": "case-C-270-plan",
+                      "contentType": "application/json",
+                      "body": "ewogICJyZWFkeSI6IHRydWUsCiAgImNhc2VJZCI6ICJDIiwKICAiZGlyZWN0aW9uIjogMjcwLAogICJyZXN1bWVkIjogZmFsc2UsCiAgInVuZGVyUmVzb2x2ZWQiOiBmYWxzZSwKICAiZ3JpZCI6IHsKICAgICJueCI6IDg4MywKICAgICJueSI6IDMwMywKICAgICJueiI6IDcwMQogIH0sCiAgImR4IjogMC4wMDc5Mjk3Njc1NjYwOTA2NDcsCiAgInJlcXVpcmVkQ2VsbHMiOiAxODMyNTQ4MjAsCiAgInRvdGFsU3RlcHMiOiAwLAogICJhdmVyYWdpbmdGbG93VGhyb3VnaHMiOiAwLAogICJyZXBvcnRSb3dzIjogMCwKICAiY29tcGxldGUiOiBmYWxzZSwKICAiZWxhcHNlZE1zIjogMCwKICAidm94ZWxpemF0aW9uTXMiOiAxNzI5LjQwMDAwMDAwNTk2MDUsCiAgIndhbGxNcyI6IDMwNDEuMzAwMDAwMDExOTIxLAogICJjaGVja3BvaW50Q291bnQiOiAwLAogICJjaGVja3BvaW50VG90YWxNcyI6IDAsCiAgImxhc3RDaGVja3BvaW50Qnl0ZXMiOiAwCn0="
+                    },
+                    {
+                      "name": "screenshot",
+                      "contentType": "image/png",
+                      "path": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\test-results\\aij-urban.gpu-V14-Case-C-at-270-degrees-gpu\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\test-results\\aij-urban.gpu-V14-Case-C-at-270-degrees-gpu\\error-context.md"
+                    },
+                    {
+                      "name": "trace",
+                      "contentType": "application/zip",
+                      "path": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\test-results\\aij-urban.gpu-V14-Case-C-at-270-degrees-gpu\\trace.zip"
+                    }
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Users\\goldi\\OneDrive\\Documents\\VS Projects\\aeroflow\\apps\\studio\\e2e\\aij-urban.gpu.spec.ts",
+                    "column": 17,
+                    "line": 94
+                  }
+                }
+              ],
+              "status": "unexpected"
+            }
+          ],
+          "id": "94430a8042671f77e085-3d52def4fc0e2f8a6948",
+          "file": "aij-urban.gpu.spec.ts",
+          "line": 133,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-08-15T19:00:54.068Z",
+    "duration": 1620519.608,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 1,
+    "flaky": 0
+  }
+}

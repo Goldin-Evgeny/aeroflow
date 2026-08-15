@@ -7,13 +7,23 @@ reason recorded in a `## WITHDRAWN` section appended to its run file.
 One row per executed validation/acceptance run of any duration, including runs that failed,
 diverged, or crashed.
 
-Verdict columns are reported separately and never collapsed:
+Verdict columns are reported separately and never collapsed.
+
+There are two verdict schemas. **Rows are never rewritten**, so the v1 table below is closed
+as-is and every run from 2026-08-15 onward is appended to the v2 table instead. Do not
+back-fill v1 rows into v2 — their verdicts mean what they meant when recorded.
+
+## Schema v1 (closed 2026-08-15)
 
 - **INFRA** — harness health: non-finite cells, mass drift, ledger closure,
   checkpoint/recovery, convergence achieved, block spread. `GREEN` / `AMBER` / `RED`.
 - **PHYSICS** — did the measured quantity land in its acceptance band.
   `IN_BAND` / `PHYSICS_TARGET_MISS` / `N/A`. A miss is a research outcome, not a bug.
 - **TOPOLOGY** — `PASS` / `RECORDED` / `FAIL` / `N/A`.
+
+v1 conflated three distinct questions inside `INFRA` — did the harness run, did the
+arithmetic stay well-posed, and did the statistic converge — so a run could report
+`INFRA=GREEN` while having converged to a physically implausible field. v2 separates them.
 
 | Run                                                                                        | UTC start            | Case                                                  | Cells                   | Commit    | Dirty | Primary metric                                                             | INFRA | PHYSICS             | TOPOLOGY | Status       |
 | ------------------------------------------------------------------------------------------ | -------------------- | ----------------------------------------------------- | ----------------------- | --------- | ----- | -------------------------------------------------------------------------- | ----- | ------------------- | -------- | ------------ |
@@ -22,3 +32,26 @@ Verdict columns are reported separately and never collapsed:
 | [2026-08-15-1327-v12-v13-aij-gpu-rerun](runs/2026-08-15-1327-v12-v13-aij-gpu-rerun.md)     | 2026-08-15T13:32Z    | V13 AIJ Case A, 24 cells/b                            | 28,595,232              | `e8fde0c` | yes   | no verdict — steadiness not reached in 25 min (last q 0.659, r 0.850)      | AMBER | N/A                 | N/A      | INCONCLUSIVE |
 | [2026-08-15-1430-v13-caseA-b16-recording](runs/2026-08-15-1430-v13-caseA-b16-recording.md) | 2026-08-15T14:30Z    | V13 AIJ Case A, 16 cells/b — recording only           | 8,473,344               | `ac3ae0a` | yes   | q = 0.4762, r = 0.7835 (no band at this resolution; was ≈0.532 pre-repair) | GREEN | N/A                 | N/A      | RECORDED     |
 | [2026-08-15-1450-v14-caseC-aborted](runs/2026-08-15-1450-v14-caseC-aborted.md)             | 2026-08-15T14:50Z    | V14 AIJ Case C 270°, strict grid — aborted at ~59 min | 190,000,000 (requested) | `80dfc5b` | yes   | no result — harness budget 2 h vs 5.96 h measured (D1)                     | RED   | N/A                 | N/A      | ABORTED      |
+
+## Schema v2 (current)
+
+Five axes, never collapsed and never averaged. A run can be `GREEN` on the first three and
+still be solving the wrong discrete physics — saying exactly that is the reason this table
+has five columns instead of one.
+
+- **EXEC** (`EXECUTION`) — run completed or terminated cleanly, device-loss recovery,
+  checkpoint/restore, artifacts preserved and machine-readable. `GREEN` / `AMBER` / `RED`.
+- **NUM** (`NUMERICAL_HEALTH`) — non-finite cells, mass drift, ledger closure, density and
+  Mach bounds. `GREEN` / `AMBER` / `RED`.
+- **CONV** (`STATISTICAL_CONVERGENCE`) — block agreement, drift, stationarity.
+  `GREEN` / `AMBER` / `RED` / `N/A`. Green means the statistic is a converged estimate of
+  something; it says nothing about whether that something is right.
+- **TARGET** (`PHYSICS_TARGET`) — did the measured quantity land in its acceptance band.
+  `IN_BAND` / `PHYSICS_TARGET_MISS` / `N/A`. A miss is a research outcome, not a bug.
+- **STRUCT** (`PHYSICS_STRUCTURE`) — is the resolved field physically plausible: wake
+  topology, separation and reattachment, symmetry, near-wall behaviour, subgrid activity
+  where there should be none. `PASS` / `RECORDED` / `CONCERN` / `FAIL` / `N/A`. Subsumes
+  v1's `TOPOLOGY`.
+
+| Run | UTC start | Case | Cells | Commit | Dirty | Primary metric | EXEC | NUM | CONV | TARGET | STRUCT | Status |
+| --- | --------- | ---- | ----- | ------ | ----- | -------------- | ---- | --- | ---- | ------ | ------ | ------ |

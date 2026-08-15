@@ -1,0 +1,12 @@
+
+[WebServer] 
+[WebServer] (!) Some chunks are larger than 500 kB after minification. Consider:
+[WebServer] - Using dynamic import() to code-split the application
+[WebServer] - Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+[WebServer] - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+Running 1 test using 1 worker
+
+[1/1] [gpu] › apps\studio\e2e\aij-urban.gpu.spec.ts:103:1 › V14 Case C at 270 degrees
+
+[killed]

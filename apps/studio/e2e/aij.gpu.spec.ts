@@ -23,7 +23,24 @@ import type { Page, TestInfo } from '@playwright/test';
  * Record the printed numbers in the M10 status log after a green run.
  */
 
-const POLL_TIMEOUT = 25 * 60_000;
+/**
+ * Steadiness budgets, per mode. These are TIME BUDGETS, not gates — raising one lets a case
+ * return a verdict, it does not change what the verdict must be (CLAUDE.md rule 3, and the
+ * "correcting a broken instrument is not weakening a criterion" clause).
+ *
+ * `FETCH_POLL_TIMEOUT` is unchanged: the empty-domain fetch reaches steadiness in four
+ * windows / ~4 min, measured twice (2026-08-15 13:27 and 18:30, bit-identical).
+ *
+ * `SCORE_POLL_TIMEOUT` is raised from the original flat 25 min. The 2026-08-15 b=24 run
+ * returned INCONCLUSIVE with the predicate still false after nine windows and 114,896 steps,
+ * which is a measurement of the budget and not of the physics — the scored case carries a
+ * building, and its drift is dominated by a single wandering node rather than by the field
+ * as a whole. 90 min is ~3.5× the observed non-convergent budget; if it still times out,
+ * that is again a budget measurement and the next value comes from the trace, never from
+ * touching q/r.
+ */
+const FETCH_POLL_TIMEOUT = 25 * 60_000;
+const SCORE_POLL_TIMEOUT = 90 * 60_000;
 
 type Aij = NonNullable<Awaited<ReturnType<typeof readHooks>>['aij']>;
 
@@ -55,6 +72,7 @@ async function awaitSteady(
   testInfo: TestInfo,
   name: string,
   ready: (a: Aij) => boolean,
+  timeoutMs: number,
 ): Promise<Aij> {
   // Keep the newest readout seen DURING polling. The 2026-07-20 run died mid-poll (the
   // tab was closed) and the previous version re-read the page afterwards to build the
@@ -70,7 +88,7 @@ async function awaitSteady(
           if (a) latest = a;
           return a && a.steady && ready(a) ? a : null;
         },
-        { timeout: POLL_TIMEOUT },
+        { timeout: timeoutMs },
       )
       .not.toBeNull();
   } catch (e) {
@@ -86,7 +104,7 @@ async function awaitSteady(
       `INCONCLUSIVE: ${name} produced no verdict — ` +
         (dead
           ? 'the page was closed mid-run (browser gone, not a physics result). '
-          : `no steadiness within ${POLL_TIMEOUT / 60_000} min. `) +
+          : `no steadiness within ${timeoutMs / 60_000} min. `) +
         `Last seen: drift ${latest?.drift}, driftScaled ${latest?.trace?.at(-1)?.driftScaled}, ` +
         `${latest?.windows ?? 0} windows, ${latest?.totalSteps ?? 0} steps. ` +
         `The gate was NOT evaluated — read the attached trace. Fix the budget or the ` +
@@ -102,7 +120,13 @@ test('acceptance 3: empty-domain fetch gate ≤ 5% on the real grid', async ({
   test.setTimeout(30 * 60_000);
   await page.goto(`${BASE_URL}/?aij`);
   await page.getByTestId('aij-fetch').click();
-  const a = await awaitSteady(page, testInfo, 'aij-fetch', (x) => x.fetchMaxRel !== undefined);
+  const a = await awaitSteady(
+    page,
+    testInfo,
+    'aij-fetch',
+    (x) => x.fetchMaxRel !== undefined,
+    FETCH_POLL_TIMEOUT,
+  );
   await testInfo.attach('aij-fetch', {
     body:
       `steady driftScaled ${a.trace?.at(-1)?.driftScaled} (raw drift ${a.drift}); ` +
@@ -122,7 +146,7 @@ test('acceptance 3: empty-domain fetch gate ≤ 5% on the real grid', async ({
 test('acceptance 4: Case A hit rate q ≥ 0.66 and Pearson r ≥ 0.70 on the real grid', async ({
   gpuPage: page,
 }, testInfo) => {
-  test.setTimeout(30 * 60_000);
+  test.setTimeout(95 * 60_000); // must exceed SCORE_POLL_TIMEOUT
   // 24 cells/b, not the page default of 16. The criterion is defined at the resolution
   // that resolves the probe plane: at 16 cells/b the 2 m measurement plane falls below
   // the 3rd fluid node, which is why that grid scores q 0.532 (the acceptance ledger, M10
@@ -131,10 +155,24 @@ test('acceptance 4: Case A hit rate q ≥ 0.66 and Pearson r ≥ 0.70 on the rea
   // configuration; it does not touch the q/r bars below (Hard rule 3).
   await page.goto(`${BASE_URL}/?aij&b=24`);
   await page.getByTestId('aij-score').click();
-  const a = await awaitSteady(page, testInfo, 'aij-score', (x) => x.q !== undefined);
+  const a = await awaitSteady(
+    page,
+    testInfo,
+    'aij-score',
+    (x) => x.q !== undefined,
+    SCORE_POLL_TIMEOUT,
+  );
   await testInfo.attach('aij-score', {
     body: `q ${a.q} (gate ≥ 0.66); r ${a.r} (gate ≥ 0.70); steady driftScaled ${a.trace?.at(-1)?.driftScaled} (raw drift ${a.drift}); synthetic ${a.synthetic}; underResolved ${a.underResolved}`,
     contentType: 'text/plain',
+  });
+  // Per-point evidence, attached on pass and fail alike. `q` is hits/points over exactly
+  // these rows, so publishing only the scalar makes any hit-rate change unattributable:
+  // "seven marginal points flipped" and "seven points moved a long way" reduce to the
+  // same number. Recording only, no gate.
+  await testInfo.attach('aij-score-rows', {
+    body: JSON.stringify(a.scoreRows ?? null, null, 2),
+    contentType: 'application/json',
   });
   // Guard the guards: a verdict is only meaningful on real data at full resolution.
   expect(a.synthetic).toBe(false);
@@ -166,10 +204,16 @@ test('acceptance 4: Case A hit rate q ≥ 0.66 and Pearson r ≥ 0.70 on the rea
 test('V13 Case A at 16 cells/b — recorded, not gated (resolution-convergence point)', async ({
   gpuPage: page,
 }, testInfo) => {
-  test.setTimeout(30 * 60_000);
+  test.setTimeout(95 * 60_000); // must exceed SCORE_POLL_TIMEOUT
   await page.goto(`${BASE_URL}/?aij&b=16`);
   await page.getByTestId('aij-score').click();
-  const a = await awaitSteady(page, testInfo, 'aij-score-b16', (x) => x.q !== undefined);
+  const a = await awaitSteady(
+    page,
+    testInfo,
+    'aij-score-b16',
+    (x) => x.q !== undefined,
+    SCORE_POLL_TIMEOUT,
+  );
   await testInfo.attach('aij-score-b16', {
     body:
       `RECORDED, NOT GATED — 16 cells/b, below the resolution the V13 band is defined at.\n` +
@@ -179,6 +223,14 @@ test('V13 Case A at 16 cells/b — recorded, not gated (resolution-convergence p
       `Compare against the pre-fix reference q ≈ 0.532 at this resolution, and against the ` +
       `b=24 acceptance run in the same session.`,
     contentType: 'text/plain',
+  });
+  // Per-point evidence, attached on pass and fail alike. `q` is hits/points over exactly
+  // these rows, so publishing only the scalar makes any hit-rate change unattributable:
+  // "seven marginal points flipped" and "seven points moved a long way" reduce to the
+  // same number. Recording only, no gate.
+  await testInfo.attach('aij-score-b16-rows', {
+    body: JSON.stringify(a.scoreRows ?? null, null, 2),
+    contentType: 'application/json',
   });
   // Real data, real grid — the two things that would make the recording meaningless.
   expect(a.synthetic).toBe(false);

@@ -61,17 +61,47 @@ async function runAcceptance(
       `${planned.requiredCells?.toLocaleString()}-cell resolution requirement.`,
   );
 
-  // The strict Case C grid is estimated at ~1.4 h on the reference RTX 3090. Its physics
-  // gate is q≥0.66; the separate 30-minute gate applies only near NOMINAL_BUDGET_CELLS.
-  const completionTimeoutMs = caseId === 'C' ? 2 * 60 * 60_000 : 35 * 60_000;
+  // TIME BUDGET, not a gate. The physics gate is q≥0.66 and is untouched; the separate
+  // 30-minute wall-time gate applies only near NOMINAL_BUDGET_CELLS (asserted below).
+  //
+  // Corrected 2026-08-15. This was 2 h, derived from a "~1.4 h on the reference RTX 3090"
+  // estimate that D1 records as FALSIFIED (D1:135 — "measurement 2026-07-28: ≥ 8.7 h").
+  // The strict grid's measured cost is 5.96 h — 21,454 s for 365,560 steps, 120/120 points,
+  // ~3261 scene MLUPs at 97–99% duty, on this same RTX 3090 (D1:245). A 2 h poll therefore
+  // could not have returned a verdict regardless of solver behaviour, which is exactly what
+  // the aborted 2026-08-15-1450 run demonstrated. 8 h is ~1.34× the measured cost.
+  const completionTimeoutMs = caseId === 'C' ? 8 * 60 * 60_000 : 35 * 60_000;
+
+  // Stall detector. D1's Wall-3 section records an INTERMITTENT Case C hang whose signature
+  // is a run that does healthy work and then freezes — steps and compute duty stop together
+  // — and credits a 6-minute no-progress checkpoint-resume detector for the run that did
+  // complete. This harness had no equivalent, so a longer budget would have made that hang
+  // more expensive rather than less. Fail fast and loudly instead of burning the budget:
+  // a stall is an EXECUTION finding, never a physics result.
+  const STALL_TIMEOUT_MS = 6 * 60_000;
+  let lastSteps = -1;
+  let lastProgressAt = Date.now();
   await expect
     .poll(
       async () => {
         const urban = (await readHooks(page)).urban;
         if (urban?.error) throw new Error(urban.error);
+        const steps = urban?.totalSteps ?? -1;
+        if (steps > lastSteps) {
+          lastSteps = steps;
+          lastProgressAt = Date.now();
+        } else if (Date.now() - lastProgressAt > STALL_TIMEOUT_MS) {
+          throw new Error(
+            `STALLED: case ${caseId} made no step progress for ` +
+              `${((Date.now() - lastProgressAt) / 60_000).toFixed(1)} min at step ${lastSteps}. ` +
+              `This matches the intermittent hang recorded in D1 (Wall 3), whose root cause ` +
+              `is unknown and which did not reproduce on the following run. Reported as an ` +
+              `EXECUTION failure, NOT a physics result — q was never evaluated.`,
+          );
+        }
         return urban?.complete;
       },
-      { timeout: completionTimeoutMs },
+      { timeout: completionTimeoutMs, intervals: [15_000] },
     )
     .toBe(true);
   const result = (await readHooks(page)).urban!;
@@ -101,7 +131,7 @@ async function runAcceptance(
 }
 
 test('V14 Case C at 270 degrees', async ({ gpuPage }, testInfo) => {
-  test.setTimeout(2.25 * 60 * 60_000);
+  test.setTimeout(8.5 * 60 * 60_000); // must exceed the 8 h completion poll
   await runAcceptance(gpuPage, testInfo, { caseId: 'C', direction: 270, points: 120 });
 });
 

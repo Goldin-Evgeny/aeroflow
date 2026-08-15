@@ -326,6 +326,14 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
         fetchMaxRel: r.fetch?.maxRel,
         fetchPass: r.fetch?.pass,
         fetchRows: r.fetch?.rows,
+        scoreRows: r.score?.rows.map((row) => ({
+          x: row.point.x,
+          y: row.point.y,
+          z: row.point.z,
+          expected: row.point.u,
+          sim: row.sim,
+          hit: row.hit,
+        })),
         trace: r.trace,
       };
       if (m === 'score' && r.score) {

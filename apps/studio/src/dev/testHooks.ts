@@ -121,6 +121,22 @@ export interface AeroflowHooks {
      * rows themselves. Read-only diagnostic surface; the gate is unchanged.
      */
     fetchRows?: { y: number; sim: number; ref: number }[];
+    /**
+     * Per-point score evidence: each measurement point's data-convention position, its
+     * fixture value (`expected`), the simulated value, and whether it cleared the VDI
+     * tolerance. `q` is `hits/points` over exactly these, so publishing only `q` makes a
+     * hit-rate change unattributable — "seven marginal points flipped" and "seven points
+     * moved a long way" reduce to the same scalar. `scoreCaseA` already computes this;
+     * it was simply not surfaced. Read-only diagnostic; the gate is unchanged.
+     */
+    scoreRows?: {
+      x: number;
+      y: number;
+      z: number;
+      expected: number;
+      sim: number;
+      hit: boolean;
+    }[];
     previewUMax?: number;
     /** Convergence trace: one entry per completed averaging window. */
     trace?: {

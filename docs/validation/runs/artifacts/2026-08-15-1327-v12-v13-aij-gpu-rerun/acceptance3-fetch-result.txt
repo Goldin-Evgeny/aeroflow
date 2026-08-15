@@ -1,0 +1,1 @@
+steady driftScaled 0.00961074995430826 (raw drift 0.043208923662595135); max profile deviation 66.19% (gate 5%)

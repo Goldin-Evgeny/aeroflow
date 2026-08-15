@@ -1,0 +1,5 @@
+window   steps        drift        driftScaled  driftIdx  fetchMaxRel   q
+1        24852        —            —            -1        76.75%        —
+2        31065        2.766e-1     4.415e-2     0         70.61%        —
+3        37278        1.027e-1     2.681e-2     1         67.59%        —
+4        43491        4.321e-2     9.611e-3     1         66.19%        —

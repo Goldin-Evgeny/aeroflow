@@ -7,6 +7,7 @@ import {
   type CollideContext,
   type Collision,
   type Forcing,
+  type LesNorm,
 } from './collide.js';
 
 /**
@@ -36,8 +37,8 @@ export interface Solver2DOptions {
   collision?: Collision;
   /** TRT magic parameter Λ. Default 3/16. */
   lambda?: number;
-  /** Smagorinsky LES; off when undefined. */
-  les?: { cs: number };
+  /** Smagorinsky LES; off when undefined. `norm` defaults to `'legacy'` — see `LesNorm`. */
+  les?: { cs: number; norm?: LesNorm };
   /** Projected (Latt–Chopard) regularization of the collision — H10. */
   regularize?: boolean;
   /** Restore the incoming zeroth moment after collision roundoff — H13. */
@@ -114,6 +115,7 @@ export class Solver2D {
       collision: opts.collision,
       lambda: opts.lambda,
       lesCs: opts.les?.cs,
+      lesNorm: opts.les?.norm,
       regularize: opts.regularize,
       conserveMass: opts.conserveMass,
       forcing: opts.forcing,
@@ -251,9 +253,15 @@ export class Solver2D {
             }
             f[i] = streamed;
             if (solidIdx >= 0) {
-              // Link direction ī = opp(i) points into the solid; F_link = 2·e_ī·f*_ī.
-              const cx = 2 * ex[ib] * base;
-              const cy = 2 * ey[ib] * base;
+              // Momentum exchange at a link (PHYSICS.md §8): F_link = e_ī·[f̃_ī(t) + f_i(t+1)],
+              // evaluated with the FIXED link direction ī = opp(i) that points from the fluid
+              // into the solid. `base` is the pre-bounce population streaming toward the wall
+              // (f̃_ī); `streamed` is the post-bounce population returning from it (f_i,
+              // reported with the link's own direction convention). For a stationary wall
+              // `streamed === base`, so `base + streamed` collapses to the pre-fix `2 * base` —
+              // this is a strict generalization, not a behavior change at zero wall velocity.
+              const cx = ex[ib] * (base + streamed);
+              const cy = ey[ib] * (base + streamed);
               fx += cx;
               fy += cy;
               // Mirrors Solver3D/EsotericPull3D.isMeasured: BodySolid is a mask in its own

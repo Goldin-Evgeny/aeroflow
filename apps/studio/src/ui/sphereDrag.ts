@@ -1,7 +1,7 @@
 import { SPHERE_CASES, sphereScene, type SphereCaseName, type LateralBC } from '@aeroflow/core';
 import type { GpuCapabilities } from '../gpu/context';
 import { ForcePlot } from './forcePlot';
-import { hooks } from '../dev/testHooks';
+import { hooks, lesNormOverride } from '../dev/testHooks';
 import { deviceBindingCap } from '../gpu/ddfLayout';
 import {
   runSphereCase,
@@ -34,7 +34,9 @@ export function mountSphereDrag(device: GPUDevice, caps: GpuCapabilities, root: 
   const lp = params.get('lateral');
   const lateralBC: LateralBC | undefined =
     lp === 'freeslip' || lp === 'wall' || lp === 'freestream' ? lp : undefined;
-  const runOpts = { lateralBC, totalConvectiveTimes };
+  // `?lesNorm=spec|legacy` — fix-confirmed-physics-defects task 6.7's closure A/B.
+  const lesNorm = lesNormOverride() ?? undefined;
+  const runOpts = { lateralBC, totalConvectiveTimes, lesNorm };
   let runId = 0;
 
   const h = document.createElement('h2');

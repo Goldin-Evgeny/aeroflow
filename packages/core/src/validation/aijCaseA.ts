@@ -1,6 +1,7 @@
 import { hitRate, pearson } from './score.js';
 import { validateAijAttribution, type AijAttribution } from './aijAttribution.js';
 import type { ResolvedVelocityStatistic } from '../stats/velocityTimeAverage.js';
+import { latticeRowHeight } from '../abl.js';
 
 /**
  * AIJ Case A fixture schema + scoring utilities (M10 steps 5–6).
@@ -178,7 +179,9 @@ export function validateAijCaseAData(d: unknown): AijCaseAData {
 }
 
 /**
- * Interpolate a measured inflow profile onto the lattice node heights (k+0.5)·dx.
+ * Interpolate a measured inflow profile onto the true physical height of each absolute
+ * lattice row (`latticeRowHeight`, docs/PHYSICS.md §7.1 — the ground Solid row itself maps
+ * to a height at or below 0 and its output entry is unused, matching `ablProfileLattice`).
  * Linear between samples; linear to u = 0 at the ground below the lowest sample (the
  * wall is no-slip); held constant above the highest sample. Points are sorted by z.
  */
@@ -191,7 +194,11 @@ export function interpolateInflowToLattice(
   const pts = [...inflow].sort((a, b) => a.z - b.z);
   const out = new Float64Array(nCells);
   for (let k = 0; k < nCells; k++) {
-    const z = (k + 0.5) * dx;
+    const z = latticeRowHeight(k, dx);
+    if (z <= 0) {
+      out[k] = 0; // at or below the no-slip wall plane
+      continue;
+    }
     if (z <= pts[0].z) {
       out[k] = pts[0].z > 0 ? (pts[0].u * z) / pts[0].z : pts[0].u;
     } else if (z >= pts[pts.length - 1].z) {

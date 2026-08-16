@@ -39,7 +39,8 @@ describe('wakeProbe', () => {
         flags[at(x, y, 0)] = CellType.Inlet;
         flags[at(x, y, nz - 1)] = CellType.Inlet;
       }
-    for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) flags[at(x, ny - 1, z)] = CellType.Inlet;
+    for (let z = 0; z < nz; z++)
+      for (let x = 0; x < nx; x++) flags[at(x, ny - 1, z)] = CellType.Inlet;
     for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) flags[at(x, 0, z)] = CellType.Solid;
     for (let z = 0; z < nz; z++)
       for (let y = 1; y < ny; y++) {
@@ -69,7 +70,11 @@ describe('wakeProbe', () => {
   }
 
   it('reports an attached, vortex-free, non-recirculating flow as exactly that', () => {
-    const r = wakeProbe(macroOf(() => [1, 0.05, 0, 0]), scene(), geom);
+    const r = wakeProbe(
+      macroOf(() => [1, 0.05, 0, 0]),
+      scene(),
+      geom,
+    );
     expect(r.baseReverseFraction).toBe(0);
     expect(r.slantReverseFraction).toBe(0);
     expect(r.recircLengthCells).toBe(0);
@@ -143,9 +148,17 @@ describe('wakeProbe', () => {
 
   it('gets the ω_x sign right for each term independently', () => {
     // ω_x = ∂u_z/∂y − ∂u_y/∂z. A pure +∂u_z/∂y must read positive; a pure +∂u_y/∂z negative.
-    const a = wakeProbe(macroOf((_x, y) => [1, 0, 0, 0.001 * y]), scene(), geom);
+    const a = wakeProbe(
+      macroOf((_x, y) => [1, 0, 0, 0.001 * y]),
+      scene(),
+      geom,
+    );
     expect(a.gammaLeft + a.gammaRight).toBeGreaterThan(0);
-    const b = wakeProbe(macroOf((_x, _y, z) => [1, 0, 0.001 * z, 0]), scene(), geom);
+    const b = wakeProbe(
+      macroOf((_x, _y, z) => [1, 0, 0.001 * z, 0]),
+      scene(),
+      geom,
+    );
     expect(b.gammaLeft + b.gammaRight).toBeLessThan(0);
   });
 

@@ -15,6 +15,12 @@ const AHMED_2M_TAU0 = 0.5000020740253772;
  * CPU-authority gates for the exact D3Q27 CM formulation accepted by M9. The three golden
  * vectors were captured from the audited test-local operator before its extraction into
  * production. They make this an equivalence test, not a second implementation of the math.
+ *
+ * The golden vectors predate the `lesNorm` split (fix-confirmed-physics-defects,
+ * les-subgrid-closure) — they were captured under what is now called `'legacy'`. The
+ * comparison against them pins `lesNorm: 'legacy'` explicitly so it stays an equivalence
+ * check against those frozen numbers regardless of which convention `collideD3Q27Central`
+ * defaults to.
  */
 
 const AUDITED_GOLDEN = [
@@ -174,6 +180,7 @@ describe.sequential('D3Q27 central-moment production CPU authority', () => {
       const collision = collideD3Q27Central(populations, {
         tau0: AHMED_2M_TAU0,
         lesCs: golden.lesCs,
+        lesNorm: 'legacy',
       });
       const after = conservedD3Q27(populations);
       productionVsAuditedPopulationMaxError = Math.max(

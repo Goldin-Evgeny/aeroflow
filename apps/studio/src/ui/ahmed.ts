@@ -20,6 +20,7 @@ import {
   inletBCOverride,
   lateralBCOverride,
   lesCsOverride,
+  lesNormOverride,
   outletOverride,
   precisionOverride,
   reOverride,
@@ -234,6 +235,7 @@ export function mountAhmed(root: HTMLElement): void {
           outlet: outletOverride() ?? undefined,
         },
         lesCs: chosenCs(),
+        lesNorm: lesNormOverride() ?? undefined,
         fieldEveryTConv: fieldEveryOverride() ?? undefined,
         precision: fp16Box.checked ? 'fp16' : 'fp32',
         checkpointEveryMs: 5 * 60 * 1000,
@@ -265,7 +267,7 @@ export function mountAhmed(root: HTMLElement): void {
         info.textContent = [
           `GPU: ${m.gpu}   DDF storage: ${m.precision}`,
           `grid ${scene.nx}×${scene.ny}×${scene.nz} = ${(scene.totalCells / 1e6).toFixed(1)}M cells   dx ${scene.dxMm.toFixed(2)} mm   body ${scene.lengthCells.toFixed(0)} cells`,
-          `Re ${scene.Re.toExponential(2)} (U≈${scene.physU.toFixed(1)} m/s)   τ ${scene.tau.toFixed(6)} (LES Cs=${scene.lesCs}+regularized+conservative)   u ${scene.uLattice}`,
+          `Re ${scene.Re.toExponential(2)} (U≈${scene.physU.toFixed(1)} m/s)   τ ${scene.tau.toFixed(6)} (LES Cs=${scene.lesCs} norm=${scene.lesNorm}+regularized+conservative)   u ${scene.uLattice}`,
           `blockage ${(scene.blockage * 100).toFixed(2)}%   frontal ${scene.frontalCells} cells²   body ${scene.bodyVoxels.toLocaleString()} voxels`,
           `far field: ${scene.lateralBC} top/sides` +
             (scene.lateralBC === AHMED_ACCEPTANCE_LATERAL_BC
@@ -304,6 +306,11 @@ export function mountAhmed(root: HTMLElement): void {
                   ? `Re ${scene.Re.toExponential(2)} ≠ ${AHMED_EXPERIMENTAL_RE.toExponential(2)}`
                   : null,
                 scene.lesCs !== AHMED_LES_CS ? `Cs ${scene.lesCs} ≠ ${AHMED_LES_CS}` : null,
+                // 'legacy' is the acceptance convention until task 6.9 flips the solver default
+                // (fix-confirmed-physics-defects Phase 6 — attempted and reverted twice
+                // 2026-08-14, see collide.ts's `LesNorm` doc) — an A/B run under 'spec' is
+                // diagnostic.
+                scene.lesNorm !== 'legacy' ? `lesNorm ${scene.lesNorm} ≠ legacy` : null,
                 scene.precision !== AHMED_ACCEPTANCE_PRECISION
                   ? `${scene.precision} storage ≠ ${AHMED_ACCEPTANCE_PRECISION}`
                   : null,

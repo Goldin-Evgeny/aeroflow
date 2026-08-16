@@ -21,12 +21,7 @@ import { readHooks } from './helpers/hooks';
  * here — it is expected and reported, not a stop condition, since H12 specifically exists to
  * remove the inlet-sag confound the lateral-only A/B found.
  */
-const OUT_DIR = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  '..',
-  'test-results',
-  'phase3c',
-);
+const OUT_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'test-results', 'phase3c');
 
 test('Ahmed BC-baseline A/B: historical vs H11+H12+H14, body present (smoke test)', async ({
   gpuPage: page,

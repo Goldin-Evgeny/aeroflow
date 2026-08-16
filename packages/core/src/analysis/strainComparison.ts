@@ -55,6 +55,16 @@ export interface StrainComparisonInput {
   rho: ArrayLike<number>;
   tau0: number;
   lesK: number;
+  /**
+   * Which Π^neq norm `tauEff` was computed under — see collide.ts's `LesNorm`. The
+   * closure-to-strain inversion below depends on this: 'legacy' inverts to
+   * `|S| = 6·τ_t/lesK`, 'spec' to `|S| = 6√2·τ_t/lesK` (fix-confirmed-physics-defects,
+   * les-subgrid-closure — get this wrong and the audit's reported ratio moves by √2 for a
+   * bookkeeping reason having nothing to do with the field being audited). Default
+   * `'legacy'` matches `makeCollideContext`'s default, so a caller that doesn't pass
+   * `tauEff` through a `'spec'` run gets the same inversion as before this option existed.
+   */
+  lesNorm?: 'spec' | 'legacy';
   select?: (idx: number) => boolean;
 }
 
@@ -201,7 +211,8 @@ function boundaryProfile(
  * implemented Smagorinsky quadratic. All quantities are in lattice units.
  */
 export function compareStrain(input: StrainComparisonInput): StrainComparison {
-  const { nx, ny, nz, tauEff, evaluated, ux, uy, uz, rho, tau0, lesK } = input;
+  const { nx, ny, nz, tauEff, evaluated, ux, uy, uz, rho, tau0, lesK, lesNorm = 'legacy' } = input;
+  const piInversionFactor = lesNorm === 'spec' ? 6 * Math.SQRT2 : 6;
   const n = nx * ny * nz;
   const fields = [tauEff, evaluated, ux, uy, uz, rho];
   if (fields.some((field) => field.length !== n)) {
@@ -295,7 +306,7 @@ export function compareStrain(input: StrainComparisonInput): StrainComparison {
               dRhoUzDz * dRhoUzDz +
               2 * (densitySxy * densitySxy + densitySxz * densitySxz + densitySyz * densitySyz)),
         );
-        const pi = (6 * (tauEff[idx] - tau0)) / lesK;
+        const pi = (piInversionFactor * (tauEff[idx] - tau0)) / lesK;
         if (
           !(cellRho > 0) ||
           !Number.isFinite(fd) ||

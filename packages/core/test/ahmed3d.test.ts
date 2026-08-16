@@ -178,13 +178,15 @@ describe('ahmedScene', () => {
           ref[at(x, y, 0)] = CellType.Inlet;
           ref[at(x, y, nz - 1)] = CellType.Inlet;
         }
-      for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) ref[at(x, ny - 1, z)] = CellType.Inlet;
-      for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) ref[at(x, 0, z)] = CellType.Solid;
       for (let z = 0; z < nz; z++)
-        for (let y = 1; y < ny; y++) {
-          ref[at(0, y, z)] = CellType.Inlet;
-          ref[at(nx - 1, y, z)] = CellType.Outlet;
-        }
+        for (let x = 0; x < nx; x++) ref[at(x, ny - 1, z)] = CellType.Inlet;
+      for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) ref[at(x, 0, z)] = CellType.Solid;
+      for (let z = 0; z < nz; z++) for (let y = 1; y < ny; y++) ref[at(0, y, z)] = CellType.Inlet;
+      // Outlet is strictly interior in y/z (H4 §10.9 extended: a domain-edge/corner outlet
+      // has no well-defined odd-parity source under Esoteric Pull); the ring it leaves
+      // behind keeps whatever the lateral/ground assignment above already put there.
+      for (let z = 1; z < nz - 1; z++)
+        for (let y = 1; y < ny - 1; y++) ref[at(nx - 1, y, z)] = CellType.Outlet;
       // Overlay the body from the scene itself: the voxelizer is not what this test locks.
       for (let i = 0; i < ref.length; i++) {
         if (freestream.flags[i] === CellType.BodySolid) ref[i] = CellType.BodySolid;
@@ -224,10 +226,9 @@ describe('ahmedScene', () => {
             if (freeslip.flags[i] === freestream.flags[i]) continue;
             differing++;
             const onLateralFace = y === ny - 1 || z === 0 || z === nz - 1;
-            expect(
-              onLateralFace,
-              `(${x},${y},${z}) differs but is not on a lateral face`,
-            ).toBe(true);
+            expect(onLateralFace, `(${x},${y},${z}) differs but is not on a lateral face`).toBe(
+              true,
+            );
           }
       expect(differing).toBeGreaterThan(0); // control: the option is doing work
     });
@@ -266,9 +267,7 @@ describe('ahmedScene', () => {
           expect(up).not.toBe(CellType.BodySolid);
         }
 
-      expect(() =>
-        validateFreeSlip(flags, nx, ny, nz, AHMED_FREESLIP_FACES),
-      ).not.toThrow();
+      expect(() => validateFreeSlip(flags, nx, ny, nz, AHMED_FREESLIP_FACES)).not.toThrow();
     });
 
     /**
@@ -338,11 +337,7 @@ describe('ahmedScene', () => {
       const { nx, ny, nz } = freeslip;
       const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
       // Mirrors `hasMacroscopics`: only Fluid cells carry macroscopics after the macro pass.
-      const countPlane = (
-        flags: Uint8Array,
-        axis: 'y' | 'z',
-        index: number,
-      ): number => {
+      const countPlane = (flags: Uint8Array, axis: 'y' | 'z', index: number): number => {
         let n = 0;
         const outerMax = axis === 'y' ? nz : ny;
         for (let outer = 0; outer < outerMax; outer++)
@@ -422,8 +417,10 @@ describe('ahmedScene', () => {
               if (flags[at(x, y, z)] !== CellType.VelocityInlet) continue;
               count++;
               expect(x, 'VelocityInlet off the x=0 face').toBe(0);
-              expect(flags[at(1, y, z)], `VelocityInlet (0,${y},${z}) needs a Fluid +x neighbour`)
-                .toBe(CellType.Fluid);
+              expect(
+                flags[at(1, y, z)],
+                `VelocityInlet (0,${y},${z}) needs a Fluid +x neighbour`,
+              ).toBe(CellType.Fluid);
             }
         expect(count).toBeGreaterThan(0);
         // The edge ring keeps a BC whose +x neighbour may be shell — never VelocityInlet.
@@ -455,10 +452,9 @@ describe('ahmedScene', () => {
               freeSlip: lateral === 'freeslip' ? AHMED_FREESLIP_FACES : undefined,
             });
             solver.step(2); // both parities — the H12 pre-pass differs between them
-            expect(
-              Number.isFinite(solver.totalMass()),
-              `${lateral}/${inlet} went non-finite`,
-            ).toBe(true);
+            expect(Number.isFinite(solver.totalMass()), `${lateral}/${inlet} went non-finite`).toBe(
+              true,
+            );
           }
       });
     });

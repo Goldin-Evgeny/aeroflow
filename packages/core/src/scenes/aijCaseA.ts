@@ -1,4 +1,5 @@
 import { CellType } from '../lattice.js';
+import { heightToLatticeRow } from '../abl.js';
 
 /**
  * AIJ Case A run setup (M10 step 5): the isolated 1:1:2 square prism (b = 0.08 m,
@@ -105,7 +106,11 @@ export interface CaseAScene {
   blockage: number;
   /** Convective time H/u(H) in steps. */
   convectiveTimeSteps: number;
-  /** Continuous lattice y for a physical height z (halfway bounce-back: y = z/dx − 0.5). */
+  /**
+   * Continuous lattice y for a physical height z above the ground wall plane (halfway
+   * bounce-back with the ground Solid at row 0: y = z/dx + 0.5 — `heightToLatticeRow`,
+   * docs/PHYSICS.md §7.1).
+   */
   heightToY(z: number): number;
   /**
    * Map a DATA-convention point (model-scale meters: origin building center on ground,
@@ -220,7 +225,7 @@ export function caseAScene(opts: CaseASceneOptions): CaseAScene {
       }
 
   // τ through Re_H on the profile's velocity at z = H (M7 rule: never guess ν).
-  const yAtH = Math.min(ny - 1, Math.round(H / dx - 0.5));
+  const yAtH = Math.min(ny - 1, Math.round(heightToLatticeRow(H, dx)));
   const uH = profile[yAtH];
   const nu = (uH * hCells) / Re;
   const tau = 3 * nu + 0.5;
@@ -245,7 +250,7 @@ export function caseAScene(opts: CaseASceneOptions): CaseAScene {
     buildingCells,
     blockage: frontal / ((ny - 2) * (nz - 2)),
     convectiveTimeSteps: Math.round(hCells / uH),
-    heightToY: (z: number) => z / dx - 0.5,
+    heightToY: (z: number) => heightToLatticeRow(z, dx),
     pointToLattice: (p) => ({
       // Cell centers sit at integer indices + 0.5 in the rasterizer above; continuous
       // cell coordinates for sampleTrilinear put centers AT integers, hence the −0.5.

@@ -4,6 +4,7 @@ import {
   ConvergingVelocityAverager,
   caseAScene,
   interpolateInflowToLattice,
+  latticeRowHeight,
   powerLawProfile,
   logLawProfile,
   sampleTrilinear,
@@ -110,7 +111,7 @@ export const STEADY_DRIFT = 0.01;
 export function demoInflow(spec: AblSpec, ny: number, dx: number): Float64Array {
   const out = new Float64Array(ny);
   for (let k = 0; k < ny; k++) {
-    const zFull = (k + 0.5) * dx * AIJ_CASE_A.scale;
+    const zFull = latticeRowHeight(k, dx) * AIJ_CASE_A.scale;
     out[k] =
       spec.kind === 'power'
         ? powerLawProfile(zFull, spec.zRef, spec.uRef, spec.alpha ?? 0.25)

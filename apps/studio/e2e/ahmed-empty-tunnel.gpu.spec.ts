@@ -54,9 +54,7 @@ test('Ahmed empty-tunnel control is clean at the acceptance τ₀, both far fiel
           `${s.nonUniformity.toFixed(4)}  ${s.blThicknessCells}`,
       );
     }
-    parts.push(
-      'time:  T_conv  massDrift  rhoMin  rhoMax  uMax  Ma  fluxMismatch  latNet/in  NaN',
-    );
+    parts.push('time:  T_conv  massDrift  rhoMin  rhoMax  uMax  Ma  fluxMismatch  latNet/in  NaN');
     for (const s of run.samples) {
       parts.push(
         `  ${s.tConv.toFixed(2).padStart(7)}  ${s.field.massDriftRel.toExponential(2)}  ` +

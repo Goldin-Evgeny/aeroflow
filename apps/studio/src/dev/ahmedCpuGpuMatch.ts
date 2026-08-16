@@ -435,8 +435,7 @@ export async function runAhmedMatch(
             if (e > maxRelU) maxRelU = e;
           }
         }
-        const relPairFx =
-          Math.abs(gf.fx - cpuS.pair) / Math.max(Math.abs(cpuS.pair), 1e-30);
+        const relPairFx = Math.abs(gf.fx - cpuS.pair) / Math.max(Math.abs(cpuS.pair), 1e-30);
         trajectory.push({
           steps: h,
           maxRelRho,
@@ -555,30 +554,31 @@ export async function runAhmedMatch(
 
   const solver: Record<string, string> = {
     'grid (nx×ny×nz)': `${scene.nx}×${scene.ny}×${scene.nz} = ${scene.nx * scene.ny * scene.nz} cells`,
-    'body': `${scene.bodyVoxels} voxels, ${scene.lengthCells.toFixed(1)} cells long, frontal ${scene.frontalCells} cells²`,
-    'blockage': `${(scene.blockage * 100).toFixed(2)} %`,
-    'dx': `${(scene.dx * 1e3).toFixed(2)} mm`,
+    body: `${scene.bodyVoxels} voxels, ${scene.lengthCells.toFixed(1)} cells long, frontal ${scene.frontalCells} cells²`,
+    blockage: `${(scene.blockage * 100).toFixed(2)} %`,
+    dx: `${(scene.dx * 1e3).toFixed(2)} mm`,
     'Re (on body length)': scene.Re.toExponential(3),
     'u_lattice / Mach': `${scene.uLattice} / ${(scene.uLattice * CS2_INV_SQRT).toFixed(4)}`,
     'τ₀ / ω': `${(1 / scene.omega).toFixed(9)} / ${scene.omega.toFixed(6)}`,
-    'ν_lattice': scene.nu.toExponential(4),
+    ν_lattice: scene.nu.toExponential(4),
     'LES Cs': `${AHMED_CS} (both)`,
-    'collision': 'TRT (both), default Λ',
+    collision: 'TRT (both), default Λ',
     'regularize / conserveMass': 'true / true (both)',
-    'precision': 'CPU Float64 / GPU fp32 storage',
-    'BCs':
+    precision: 'CPU Float64 / GPU fp32 storage',
+    BCs:
       scene.lateralBC === 'freeslip'
         ? 'Inlet x=0, H11 FREE-SLIP top/sides, Outlet x=nx−1 (strictly interior, H11 §3.2), ' +
           'Solid ground y=0 — identical flags array both sides'
         : 'Inlet x=0 + top/sides (hard Dirichlet), Outlet x=nx−1, Solid ground y=0 — identical flags array',
-    'lateralBC': scene.lateralBC,
-    'inletBC': scene.inletBC,
-    'outlet': scene.outlet,
+    lateralBC: scene.lateralBC,
+    inletBC: scene.inletBC,
+    outlet: scene.outlet,
     'force mask': 'CellType.BodySolid both sides (CPU isMeasured, GPU cellForce mask)',
-    'init': 'reset(1, 0, 0, 0) — rest, both sides',
-    'T_conv': `${T} steps`,
+    init: 'reset(1, 0, 0, 0) — rest, both sides',
+    T_conv: `${T} steps`,
     'warmup / interval / samples': `${config.warmupSteps} / ${config.sampleInterval} / ${config.samples}`,
-    'pair path': 'GPU forceAveraged(k); CPU step(k−1)→f₁→step(1)→f₂ — same grid, same steps consumed',
+    'pair path':
+      'GPU forceAveraged(k); CPU step(k−1)→f₁→step(1)→f₂ — same grid, same steps consumed',
   };
 
   const lines = [
@@ -711,7 +711,7 @@ export async function runAhmedLateralAB(
       `${(freestream.scene.blockage * 100).toFixed(2)}%   tau0 ${freestream.scene.tau0.toFixed(9)}`,
     '',
     'EVERY Cd BELOW IS Cd_windowed — a fixed-window screening number, NOT converged. A',
-    'converged Cd comes from the ladder\'s block-agreement stop and from nowhere else. Do not',
+    "converged Cd comes from the ladder's block-agreement stop and from nowhere else. Do not",
     'quote these as results; they exist to decide whether the ladder is worth running.',
     '',
     row('Cd_windowed (CPU)', freestream.windowed.cpuCdWindowed, freeslip.windowed.cpuCdWindowed),
@@ -719,7 +719,11 @@ export async function runAhmedLateralAB(
     row('  +/- sem (CPU)', freestream.windowed.cpuSem, freeslip.windowed.cpuSem),
     row('body Fx (CPU)', freestream.windowed.cpuBodyFx, freeslip.windowed.cpuBodyFx, 8),
     row('ground Fx (CPU)', freestream.windowed.cpuGroundFx, freeslip.windowed.cpuGroundFx, 8),
-    row('raw pair spread', freestream.windowed.cpuRawPairSpread, freeslip.windowed.cpuRawPairSpread),
+    row(
+      'raw pair spread',
+      freestream.windowed.cpuRawPairSpread,
+      freeslip.windowed.cpuRawPairSpread,
+    ),
     '',
     row('coreU / u_cmd', a.coreRatio, b.coreRatio),
     `    ${'Re_effective'.padEnd(24)} freestream ${a.reEffective.toExponential(3).padStart(12)}   ` +
@@ -780,7 +784,12 @@ export interface AhmedBaselineAbReport {
 
 export async function runAhmedBaselineAB(
   device: GPUDevice,
-  cfg: Partial<Pick<AhmedMatchConfig, 'maxCells' | 'Re' | 'warmupSteps' | 'sampleInterval' | 'samples' | 'horizons'>> = {},
+  cfg: Partial<
+    Pick<
+      AhmedMatchConfig,
+      'maxCells' | 'Re' | 'warmupSteps' | 'sampleInterval' | 'samples' | 'horizons'
+    >
+  > = {},
 ): Promise<AhmedBaselineAbReport> {
   const t0 = performance.now();
   const historical = await runAhmedMatch(device, {

@@ -1,4 +1,4 @@
-import { CellType, D2Q9, equilibrium } from '@aeroflow/core';
+import { CellType, D2Q9, equilibrium, lesKFromCs } from '@aeroflow/core';
 import lbmWgsl from './shaders/lbm2d.wgsl?raw';
 import reduceForcesWgsl from './shaders/reduce_forces.wgsl?raw';
 import renderWgsl from './shaders/render2d.wgsl?raw';
@@ -14,6 +14,12 @@ export interface Lbm2DParams {
   lambda?: number;
   /** Smagorinsky Cs (0 = LES off). Default 0. */
   lesCs?: number;
+  /**
+   * Which Π^neq norm the Smagorinsky closure uses — see collide.ts's `LesNorm`. Default
+   * `'legacy'` (fix-confirmed-physics-defects, les-subgrid-closure). Irrelevant when
+   * `lesCs` is unset.
+   */
+  lesNorm?: 'spec' | 'legacy';
   /** Projected (Latt-Chopard) regularization of pre-collision f^neq. See H10. */
   regularize?: boolean;
   /** Restore the incoming zeroth moment after finite-precision collision. See H13. */
@@ -30,9 +36,8 @@ export interface Lbm2DParams {
   periodicY?: boolean;
 }
 
-/** 18·√2·Cs² — the LES constant, matching makeCollideContext in @aeroflow/core. */
 function lesKof(cs: number | undefined): number {
-  return cs ? 18 * Math.SQRT2 * cs * cs : 0;
+  return cs ? lesKFromCs(cs) : 0;
 }
 
 export type RenderMode = 'speed' | 'vorticity' | 'tau';
@@ -216,6 +221,7 @@ export class Lbm2D {
       dv.setUint32(40, this.params.periodicY ? 1 : 0, true);
       dv.setUint32(44, this.params.regularize ? 1 : 0, true);
       dv.setUint32(48, this.params.conserveMass ? 1 : 0, true);
+      dv.setUint32(52, this.params.lesNorm === 'spec' ? 1 : 0, true);
       return buf;
     };
     this.device.queue.writeBuffer(this.paramsBuf, 0, write(0));

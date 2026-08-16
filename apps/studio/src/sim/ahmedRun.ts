@@ -12,6 +12,7 @@ import type {
   TauStats,
   WakeProbe,
 } from '@aeroflow/core';
+import { AHMED_CD_BAND } from '@aeroflow/core';
 import type { Precision } from '../gpu/ddfLayout';
 
 /**
@@ -30,6 +31,12 @@ export interface AhmedRunOptions {
    * 0 is a meaningful value (LES fully off) and must be passed through, not treated as unset.
    */
   lesCs?: number;
+  /**
+   * Smagorinsky norm convention. Defaults to the solver's own default ('legacy' until Phase 6
+   * re-baselines and flips it — fix-confirmed-physics-defects task 6.1). A run knob, like
+   * `lesCs`, so the A/B (task 6.7) can select it per run without changing what a plain run gets.
+   */
+  lesNorm?: 'spec' | 'legacy';
   /**
    * Convective times between whole-field stability snapshots. Defaults to
    * `FIELD_SNAPSHOT_TCONV_DEFAULT`.
@@ -70,6 +77,8 @@ export interface AhmedSceneSummary {
    * them, and because the page's verdict suppression keys off these exact values.
    */
   lesCs: number;
+  /** The norm convention the solver actually BUILT with — same audit rationale as `lesCs`. */
+  lesNorm: 'spec' | 'legacy';
   precision: Precision;
   /**
    * The far field the scene was BUILT with (M9 phase 3). On the summary line for the same
@@ -423,7 +432,11 @@ export const AHMED_ACCEPTANCE_LATERAL_BC: AhmedLateralBC = 'freestream';
 export const AHMED_ACCEPTANCE_INLET_BC: AhmedInletBC = 'velocity';
 export const AHMED_ACCEPTANCE_OUTLET: Outlet3D = 'pressure';
 
-/** Ahmed 25° literature band (M9 acceptance 1): Cd = 0.285 ± 15% (stretch ± 10%). */
+/**
+ * Ahmed 25° literature band (M9 acceptance 1): Cd = 0.285 ± 15% (stretch ± 10%).
+ * The band itself is defined once, in @aeroflow/core's validation ledger (V11) — re-exported
+ * here so existing call sites keep importing it from ahmedRun without a second literal.
+ */
 export const AHMED_CD_TARGET = 0.285;
-export const AHMED_CD_BAND: [number, number] = [0.242, 0.328];
+export { AHMED_CD_BAND };
 export const AHMED_CD_STRETCH: [number, number] = [0.257, 0.314];

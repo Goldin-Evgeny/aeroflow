@@ -186,25 +186,28 @@ export function sphereScene(spec: Sphere3DCaseSpec, opts: SphereSceneOptions = {
       for (let y = 1; y < ny - 1; y++) flags[at(nx - 1, y, z)] = CellType.Outlet;
     }
   } else {
+    // Mirrors the freeslip arm's precedence above, and for the same reason: the outlet
+    // must be STRICTLY INTERIOR (H4 §10.9 extended) so its odd-parity snapshot never reads
+    // a crosswise population Esoteric-Pull's scatter left unwritten at a domain edge. Lateral
+    // BC over the FULL x-range first (including the x=nx−1 column), then Inlet over the full
+    // x=0 face, then Outlet inset one row in y and z — leaving the outlet face's edge ring as
+    // `lateral`, exactly as sphereScene's freeslip arm leaves it FreeSlip.
     const lateral = lateralBC === 'wall' ? CellType.Solid : CellType.Inlet;
     for (let z = 0; z < nz; z++) {
-      for (let y = 0; y < ny; y++) {
-        // Inlet / outlet planes span the full face (they take precedence over lateral edges).
-        flags[at(0, y, z)] = CellType.Inlet;
-        flags[at(nx - 1, y, z)] = CellType.Outlet;
-      }
-    }
-    for (let z = 0; z < nz; z++) {
-      for (let x = 1; x < nx - 1; x++) {
+      for (let x = 0; x < nx; x++) {
         flags[at(x, 0, z)] = lateral;
         flags[at(x, ny - 1, z)] = lateral;
       }
     }
     for (let y = 0; y < ny; y++) {
-      for (let x = 1; x < nx - 1; x++) {
+      for (let x = 0; x < nx; x++) {
         flags[at(x, y, 0)] = lateral;
         flags[at(x, y, nz - 1)] = lateral;
       }
+    }
+    for (let z = 0; z < nz; z++) for (let y = 0; y < ny; y++) flags[at(0, y, z)] = CellType.Inlet;
+    for (let z = 1; z < nz - 1; z++) {
+      for (let y = 1; y < ny - 1; y++) flags[at(nx - 1, y, z)] = CellType.Outlet;
     }
   }
 

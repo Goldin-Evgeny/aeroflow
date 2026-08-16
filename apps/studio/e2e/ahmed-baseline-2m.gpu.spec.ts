@@ -10,7 +10,15 @@ import type {
   AhmedTauReport,
   AhmedWorkerEvent,
 } from '../src/sim/ahmedRun';
-import { blocksAgree, relSpread, STRESS_COMPONENTS } from '@aeroflow/core';
+import {
+  blockMeans,
+  blocksAgree,
+  relSpread,
+  requiredBlockLength,
+  samplesPerUnitTime,
+  STRESS_COMPONENTS,
+  type TimeSample,
+} from '@aeroflow/core';
 
 /**
  * M9/V11, Stage 1 primary experiment — the H11+H12+H14 boundary configuration, body present,
@@ -35,9 +43,21 @@ const DIAGNOSTIC_CELLS = Number(process.env.AHMED_DIAGNOSTIC_CELLS ?? 2_000_000)
 const TARGET_TCONV = process.env.AHMED_TARGET_TCONV
   ? Number(process.env.AHMED_TARGET_TCONV)
   : undefined;
-const BLOCK_TCONV = Number(process.env.AHMED_2M_BLOCK_TCONV ?? 20);
+/**
+ * Block length floor/ceiling, passed to the centralized `requiredBlockLength` (`@aeroflow/core`):
+ * the length actually used is derived from this run's own sigma/mean rather than a fixed
+ * constant, so a signal noisier than the ladder ever measured cannot silently produce an
+ * unreachable gate (see ahmed-ladder.gpu.spec.ts and m9-closure.gpu.spec.ts, same rule).
+ */
+const BLOCK_TCONV_MIN = 20;
+const BLOCK_TCONV_MAX = 400;
 const MIN_BLOCKS = Number(process.env.AHMED_2M_MIN_BLOCKS ?? 4);
 const BLOCK_GATE = 0.03;
+/**
+ * `AHMED_LES_NORM=spec|legacy` — fix-confirmed-physics-defects task 6.7b's closure A/B.
+ * Absent means the solver default (no `&lesNorm` param), same as the recorded Phase 5 baseline.
+ */
+const LES_NORM_SUFFIX = process.env.AHMED_LES_NORM ? `&lesNorm=${process.env.AHMED_LES_NORM}` : '';
 
 // Playwright deletes apps/studio/test-results at the start of every invocation. Diagnostic
 // evidence belongs in the repository-level ignored directory so a later unrelated E2E run
@@ -62,31 +82,18 @@ const samples = (h: AeroflowHooks): Sample[] =>
 const agrees = (blockVals: number[]): boolean =>
   blocksAgree(blockVals, { minBlocks: MIN_BLOCKS, gate: BLOCK_GATE });
 
-/** Independent (non-overlapping) block means of the instantaneous Cd, same shape as the
- *  ladder's `blockMeans` — the trailing partial block is dropped, not compared as if full. */
-function blockMeans(
-  post: Sample[],
-  blockTConv: number,
-): { blocks: { t0: number; t1: number; mean: number; n: number }[]; droppedSamples: number } {
-  if (post.length === 0) return { blocks: [], droppedSamples: 0 };
-  const blocks: { t0: number; t1: number; mean: number; n: number }[] = [];
-  let start = post[0].convectiveTimes;
-  let sum = 0;
-  let n = 0;
-  let last = start;
-  for (const s of post) {
-    if (s.convectiveTimes - start >= blockTConv && n > 0) {
-      blocks.push({ t0: start, t1: last, mean: sum / n, n });
-      start = s.convectiveTimes;
-      sum = 0;
-      n = 0;
-    }
-    sum += s.cd;
-    n++;
-    last = s.convectiveTimes;
-  }
-  return { blocks, droppedSamples: n };
-}
+/** Samples per T_conv, measured from the run rather than assumed. */
+/**
+ * Adapt this harness's `Sample` (convectiveTimes/cd) to the generic `TimeSample` (t/value)
+ * `blockMeans`/`requiredBlockLength`/`samplesPerUnitTime` take. Block-mean statistics and
+ * their tests live in `@aeroflow/core` (analysis/blockConvergence.ts) — same functions as
+ * ahmed-ladder.gpu.spec.ts and m9-closure.gpu.spec.ts, so all three harnesses judge
+ * convergence identically (fix-confirmed-physics-defects, task 9.3: `samplesPerUnitTime`
+ * itself was the one piece still triplicated per-harness — the cadence input to the very
+ * rule this adapter exists to centralize).
+ */
+const toTimeSamples = (post: Sample[]): TimeSample[] =>
+  post.map((s) => ({ t: s.convectiveTimes, value: s.cd }));
 
 test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async ({
   gpuPage: page,
@@ -94,7 +101,7 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
   test.setTimeout(60 * 60_000);
   await page.goto(
     `${BASE_URL}/?ahmed&cells=${DIAGNOSTIC_CELLS}&Re=4.29e6&lesCs=0.1&precision=fp16` +
-      `&lateralBC=freeslip&inletBC=velocity&outlet=pressure&fieldEvery=20`,
+      `&lateralBC=freeslip&inletBC=velocity&outlet=pressure&fieldEvery=20${LES_NORM_SUFFIX}`,
   );
   const startedAt = Date.now();
   await page.getByTestId('ahmed-start').click();
@@ -131,6 +138,9 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
 
   const deadline = startedAt + RUN_BUDGET_MS;
   let stopReason: 'target' | 'agreed' | 'budget' | 'budget-no-trigger' | 'diverged';
+  // Recomputed each poll as the post-trigger variance estimate improves, so the block length
+  // that decides the stop is the run's own, not a guess made before the run existed.
+  let blockTConv = BLOCK_TCONV_MIN;
   for (;;) {
     h = await readHooks(page);
     if (errored()) {
@@ -145,7 +155,13 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
     const trig = triggerOf(h);
     if (trig) {
       const post = all.filter((s) => s.convectiveTimes > trig.convectiveTimes);
-      const { blocks } = blockMeans(post, BLOCK_TCONV);
+      const ts = toTimeSamples(post);
+      blockTConv = requiredBlockLength(ts, samplesPerUnitTime(ts), {
+        gate: BLOCK_GATE,
+        min: BLOCK_TCONV_MIN,
+        max: BLOCK_TCONV_MAX,
+      });
+      const { blocks } = blockMeans(ts, blockTConv);
       if (agrees(blocks.map((b) => b.mean))) {
         stopReason = 'agreed';
         break;
@@ -212,7 +228,9 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
   const all = samples(h);
   const trig = triggerOf(h);
   const post = trig ? all.filter((s) => s.convectiveTimes > trig.convectiveTimes) : [];
-  const { blocks } = blockMeans(post, BLOCK_TCONV);
+  // Reuse the block length that actually decided the stop (or the floor, if the run never
+  // triggered) rather than recomputing — the reported blocks must match what was judged.
+  const { blocks } = blockMeans(toTimeSamples(post), blockTConv);
   const blockVals = blocks.map((b) => b.mean);
   const finalCd =
     blockVals.length > 0 ? blockVals.reduce((a, b) => a + b, 0) / blockVals.length : NaN;
@@ -220,8 +238,11 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
   const lastTConv = all.at(-1)?.convectiveTimes ?? 0;
   const tier = `${Math.round(DIAGNOSTIC_CELLS / 1_000_000)}m`;
   const artifactStem =
-    TARGET_TCONV !== undefined || RUN_BUDGET_MS < 30 * 60_000 || DIAGNOSTIC_CELLS !== 2_000_000
-      ? `ahmed-strain-scale-${tier}-tconv${lastTConv.toFixed(1)}`
+    TARGET_TCONV !== undefined ||
+    RUN_BUDGET_MS < 30 * 60_000 ||
+    DIAGNOSTIC_CELLS !== 2_000_000 ||
+    LES_NORM_SUFFIX !== ''
+      ? `ahmed-strain-scale-${tier}-tconv${lastTConv.toFixed(1)}${LES_NORM_SUFFIX && `-lesNorm${process.env.AHMED_LES_NORM}`}`
       : 'ahmed-baseline-2m';
 
   const summary = {
@@ -235,7 +256,7 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
     targetTConv: TARGET_TCONV,
     lastTConv,
     sampleCount: all.length,
-    blockTConv: BLOCK_TCONV,
+    blockTConv,
     blocks: blocks.map((b) => ({ t0: b.t0, t1: b.t1, mean: b.mean, n: b.n })),
     blocksAgreeAtStop: agrees(blockVals),
     finalCd,
@@ -260,7 +281,7 @@ test('Ahmed V11 Stage 1: H11+H12+H14 body-present, 2M cells, Re=4.29e6', async (
     `Re nominal ${scene.Re.toExponential(3)}   tau ${scene.tau.toFixed(9)}   precision ${scene.precision}   Cs ${scene.lesCs}`,
     `stop: ${stopReason}   sim time ${(simMs / 60000).toFixed(1)} min   last T_conv ${lastTConv.toFixed(1)}   samples ${all.length}`,
     `post-stop: diagnostics ${(diagnosticsMs / 60000).toFixed(1)} min   tau/scale ${(tauMs / 60000).toFixed(1)} min`,
-    `blocks (${BLOCK_TCONV} T_conv each): ${blockVals.map((v) => v.toFixed(4)).join(' ')}`,
+    `blocks (${blockTConv} T_conv each, derived from this run's sigma/mean): ${blockVals.map((v) => v.toFixed(4)).join(' ')}`,
     `final Cd (mean of blocks) = ${finalCd.toFixed(4)}   block spread = ${(spread * 100).toFixed(2)}%   agree@stop=${agrees(blockVals)}`,
     diagnostics
       ? `Cd_commanded ${diagnostics.cdCommanded.toFixed(4)}  Cd_bulk ${diagnostics.cdBulk.toFixed(4)}  Cd_core ${diagnostics.cdCore.toFixed(4)}`

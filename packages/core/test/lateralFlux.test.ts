@@ -26,7 +26,8 @@ describe('lateralFlux', () => {
         flags[at(x, y, 0)] = CellType.Inlet;
         flags[at(x, y, nz - 1)] = CellType.Inlet;
       }
-    for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) flags[at(x, ny - 1, z)] = CellType.Inlet;
+    for (let z = 0; z < nz; z++)
+      for (let x = 0; x < nx; x++) flags[at(x, ny - 1, z)] = CellType.Inlet;
     for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) flags[at(x, 0, z)] = CellType.Solid;
     for (let z = 0; z < nz; z++)
       for (let y = 1; y < ny; y++) {
@@ -131,8 +132,7 @@ describe('lateralFlux', () => {
     // A large uy on the Inlet lid must not be counted: the macro pass never writes those cells,
     // and counting them would fabricate a flux out of a boundary value.
     const macro = uniformMacro(1, 0.05, 0, 0);
-    for (let z = 0; z < nz; z++)
-      for (let x = 0; x < nx; x++) macro[4 * at(x, ny - 1, z) + 2] = 99;
+    for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) macro[4 * at(x, ny - 1, z) + 2] = 99;
     macro[4 * at(2, 2, 2)] = Number.NaN;
     const r = lateralFlux(macro, flags, nx, ny, nz);
     expect(r.top).toBe(0);

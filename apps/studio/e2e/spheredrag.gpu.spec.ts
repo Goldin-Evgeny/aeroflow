@@ -31,6 +31,13 @@ import type { Page, TestInfo } from '@playwright/test';
 
 const POLL = 28 * 60_000;
 
+/**
+ * `SPHERE_LES_NORM=spec|legacy` — fix-confirmed-physics-defects task 6.7b's closure A/B on
+ * V7. Absent means the solver default (no `&lesNorm` param at all), same as every other run
+ * in this file — so the standard invocation is untouched.
+ */
+const LES_NORM_SUFFIX = process.env.SPHERE_LES_NORM ? `&lesNorm=${process.env.SPHERE_LES_NORM}` : '';
+
 type Sphere = NonNullable<Awaited<ReturnType<typeof readHooks>>['sphereDrag']>;
 
 function fmt(s: Sphere | undefined): string {
@@ -145,7 +152,13 @@ test('Re=100 FP16 A/B (tc=100) — relΔ recorded (steady wake, converged)', asy
   gpuPage: page,
 }, testInfo) => {
   test.setTimeout(30 * 60_000);
-  await recordAb(page, testInfo, 'sphere-re100-ab', '/?spheredrag&tc=100', 'sphere-ab-Re100');
+  await recordAb(
+    page,
+    testInfo,
+    'sphere-re100-ab',
+    `/?spheredrag&tc=100${LES_NORM_SUFFIX}`,
+    'sphere-ab-Re100',
+  );
 });
 
 test('Re=10⁴ FP16 vs FP32 A/B — pair-averaged relΔ recorded', async ({

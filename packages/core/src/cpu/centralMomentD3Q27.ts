@@ -1,5 +1,11 @@
 import { D3Q27 } from '../lattice3d.js';
-import { piNeqNorm, smagorinskyTauEff } from './collide.js';
+import {
+  lesKFromCs,
+  piNeqNormLegacy,
+  piNeqNormSpec,
+  smagorinskyTauEff,
+  type LesNorm,
+} from './collide.js';
 
 /** Audited tensor-product central-moment ordering: index = 9*px + 3*py + pz. */
 export const D3Q27_CENTRAL_EXPONENTS = Object.freeze(
@@ -17,6 +23,8 @@ export interface D3Q27CentralCollisionOptions {
   tau0: number;
   /** Smagorinsky constant. Zero disables SGS without changing the collision formulation. */
   lesCs?: number;
+  /** See collide.ts's `LesNorm`. Default `'legacy'` — irrelevant when `lesCs` is unset. */
+  lesNorm?: LesNorm;
 }
 
 export interface D3Q27CentralCollisionResult {
@@ -140,6 +148,7 @@ export function collideD3Q27Central(
   }
   const { tau0 } = options;
   const lesCs = options.lesCs ?? 0;
+  const lesNorm = options.lesNorm ?? 'legacy';
   if (!(tau0 > 0.5) || !Number.isFinite(tau0)) throw new Error('tau0 must be finite and > 0.5');
   if (!(lesCs >= 0) || !Number.isFinite(lesCs)) throw new Error('lesCs must be finite and >= 0');
 
@@ -166,8 +175,9 @@ export function collideD3Q27Central(
     moments[d3q27CentralMomentIndex(1, 0, 1)],
     moments[d3q27CentralMomentIndex(0, 1, 1)],
   );
-  const lesK = 18 * Math.SQRT2 * lesCs * lesCs;
-  const tauEff = lesK === 0 ? tau0 : smagorinskyTauEff(tau0, lesK, piNeqNorm(piNeq), rho);
+  const lesK = lesKFromCs(lesCs);
+  const qNorm = lesNorm === 'spec' ? piNeqNormSpec(piNeq) : piNeqNormLegacy(piNeq);
+  const tauEff = lesK === 0 ? tau0 : smagorinskyTauEff(tau0, lesK, qNorm, rho);
 
   const post = new Float64Array(equilibrium);
   const conserved = [

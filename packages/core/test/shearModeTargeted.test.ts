@@ -179,7 +179,10 @@ function equilibriumRecursive3(
   );
 }
 
-function collideCellRecursive3(f: Float64Array, context: ReturnType<typeof makeCollideContext>): void {
+function collideCellRecursive3(
+  f: Float64Array,
+  context: ReturnType<typeof makeCollideContext>,
+): void {
   let rho = 0;
   let mx = 0;
   let my = 0;
@@ -533,8 +536,7 @@ describe.sequential('targeted periodic shear-mode discrimination', () => {
         Math.abs(longCandidate.modalGainAmplitude / longBaseline.modalGainAmplitude - 1) < 0.02,
       longConstitutivePreserved:
         Math.abs(
-          longCandidate.analyticPiOverHydroAmplitude /
-            longBaseline.analyticPiOverHydroAmplitude -
+          longCandidate.analyticPiOverHydroAmplitude / longBaseline.analyticPiOverHydroAmplitude -
             1,
         ) < 0.02,
     };

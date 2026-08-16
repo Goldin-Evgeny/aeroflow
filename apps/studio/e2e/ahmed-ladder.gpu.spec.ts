@@ -8,7 +8,15 @@ import {
   type AhmedTauReport,
   type AhmedWorkerEvent,
 } from '../src/sim/ahmedRun';
-import { blocksAgree, relSpread, type FieldStats } from '@aeroflow/core';
+import {
+  blockMeans,
+  blocksAgree,
+  relSpread,
+  requiredBlockLength,
+  samplesPerUnitTime,
+  type FieldStats,
+  type TimeSample,
+} from '@aeroflow/core';
 
 /**
  * M9 acceptance-1 harness: the resolution / effective-Re ladder, plus the two diagnostics
@@ -117,8 +125,16 @@ const RUNGS = (process.env.AHMED_RUNGS ?? '8000000@1000')
  * exists to bound how long the flow is allowed to develop, which is a different question.
  */
 const RUNG_BUDGET_MS = Number(process.env.AHMED_RUNG_BUDGET_MS ?? 30 * 60_000);
-/** Width of each independent block mean, in convective times. */
-const BLOCK_TCONV = Number(process.env.AHMED_BLOCK_TCONV ?? 20);
+/**
+ * Block length floor/ceiling, in convective times, passed to the centralized
+ * `requiredBlockLength` (`@aeroflow/core`). The length actually used per rung is derived from
+ * that rung's own post-trigger sigma/mean rather than fixed: a fixed 20-T_conv block is exactly
+ * what made the M9 acceptance gate unreachable on a noisy signal (sigma(Cd)=1.212, see
+ * m9-closure.gpu.spec.ts's module docstring) — a defect that lived here too until this rung
+ * length became derived rather than declared.
+ */
+const BLOCK_TCONV_MIN = Number(process.env.AHMED_BLOCK_TCONV_MIN ?? 20);
+const BLOCK_TCONV_MAX = Number(process.env.AHMED_BLOCK_TCONV_MAX ?? 400);
 /**
  * Blocks in the agreement window. The stop test needs `MIN_BLOCKS + 1` complete blocks and
  * requires BOTH overlapping windows to pass — see `blocksAgree`.
@@ -254,39 +270,16 @@ function fieldLine(f: FieldStats, label: string): string {
 }
 
 /**
- * Independent (non-overlapping) block means of the INSTANTANEOUS Cd, over samples taken
- * after the first convergence trigger. Independent blocks are the point: a running mean
- * cannot disagree with itself, but consecutive block means can, and that disagreement is
- * the honest statistical error bar.
+ * Adapt this harness's `Sample` (convectiveTimes/cd) to the generic `TimeSample` (t/value)
+ * `blockMeans`/`requiredBlockLength`/`samplesPerUnitTime` take. Independent block means and
+ * the block-length rule live in `@aeroflow/core` (analysis/blockConvergence.ts) — same
+ * functions as ahmed-baseline-2m.gpu.spec.ts and m9-closure.gpu.spec.ts, so all three
+ * harnesses judge convergence identically instead of carrying their own copies that can
+ * silently drift apart (fix-confirmed-physics-defects, task 9.3: the sampling-cadence
+ * computation itself was the one piece still triplicated per-harness).
  */
-function blockMeans(
-  post: Sample[],
-  blockTConv: number,
-): { blocks: { t0: number; t1: number; mean: number; n: number }[]; droppedSamples: number } {
-  if (post.length === 0) return { blocks: [], droppedSamples: 0 };
-  const blocks: { t0: number; t1: number; mean: number; n: number }[] = [];
-  let start = post[0].convectiveTimes;
-  let sum = 0;
-  let n = 0;
-  let last = start;
-  for (const s of post) {
-    if (s.convectiveTimes - start >= blockTConv && n > 0) {
-      blocks.push({ t0: start, t1: last, mean: sum / n, n });
-      start = s.convectiveTimes;
-      sum = 0;
-      n = 0;
-    }
-    sum += s.cd;
-    n++;
-    last = s.convectiveTimes;
-  }
-  // The trailing remainder is NOT a block: it spans less than blockTConv, so its mean has
-  // a different (larger) sampling error and comparing it against full blocks manufactures
-  // spread. Measured: a 2-T_conv / n=13 tail turned a genuine 2.43% into a reported
-  // 14.52%, i.e. it inverted the verdict. Dropped, and its size is reported so the drop is
-  // visible rather than silent.
-  return { blocks, droppedSamples: n };
-}
+const toTimeSamples = (post: Sample[]): TimeSample[] =>
+  post.map((s) => ({ t: s.convectiveTimes, value: s.cd }));
 
 function diagnosticsLines(d: AhmedDiagnostics): string {
   const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
@@ -395,6 +388,8 @@ function comparisonTable(
     spread: number;
     allBlocks: number[];
     allSpread: number;
+    /** Block length actually used for this rung, derived from its own sigma/mean. */
+    blockTConv: number;
     triggerTConv?: number;
     stopReason: StopReason;
     simMs: number;
@@ -414,9 +409,11 @@ function comparisonTable(
 
   const header =
     `${'Cs'.padStart(5)} ${'prec'.padStart(5)} ${'farfield'.padStart(10)} ` +
-    `${'T_conv'.padStart(7)} ${'trig'.padStart(6)} ` +
+    `${'T_conv'.padStart(7)} ${'trig'.padStart(6)} ${'blockT'.padStart(6)} ` +
     `${'stop'.padStart(17)} ${'sim min'.padStart(7)}  ` +
-    `${`ALL complete ${BLOCK_TCONV}-T_conv Cd block means`.padEnd(46)} ` +
+    // Block length is now derived per rung from its own sigma/mean (see "blockT"), not fixed,
+    // so this label no longer names a single T_conv width shared by every row.
+    `${'ALL complete Cd block means'.padEnd(46)} ` +
     `${'range(all)'.padStart(10)} ${'blocks?'.padStart(8)}  ` +
     `${'coreU/u'.padStart(8)} ${'Re_core'.padStart(9)} ${'lat/in'.padStart(8)} ` +
     `${'recircL'.padStart(8)} ${'slantRev'.padStart(8)} ${'Casym'.padStart(6)}  ` +
@@ -441,6 +438,7 @@ function comparisonTable(
       `${String(r.rung.lesCs).padStart(5)} ${r.rung.precision.padStart(5)} ` +
       `${r.rung.lateralBC.padStart(10)} ` +
       `${num(r.lastTConv, 1).padStart(7)} ${num(r.triggerTConv, 1).padStart(6)} ` +
+      `${String(r.blockTConv).padStart(6)} ` +
       `${r.stopReason.padStart(17)} ${(r.simMs / 60_000).toFixed(1).padStart(7)}  ` +
       `${blocks.padEnd(46)} ` +
       `${(Number.isFinite(r.allSpread) ? `${(r.allSpread * 100).toFixed(2)}%` : '—').padStart(10)} ` +
@@ -495,7 +493,10 @@ function comparisonTable(
     '                       Cd-only table would record it as "no effect".',
     '',
     '"trig" is the convective time of the rung\'s first isConverged(20, 3%) trigger, or "—" if',
-    'it never fired. The Cd column lists EVERY complete block mean over the whole run.',
+    'it never fired. "blockT" is the block length (T_conv) this rung actually used — DERIVED',
+    "from the rung's own post-trigger sigma/mean (see requiredBlockLength, @aeroflow/core), not",
+    'a fixed constant, so it varies rung to rung and is not the number in the Cd column header.',
+    'The Cd column lists EVERY complete block mean over the whole run.',
     '',
     '  "range(all)" IS NOT A CONVERGENCE FIGURE. It is the range of that whole series, which',
     '  STARTS AT t=0 AND THEREFORE INCLUDES THE STARTUP TRANSIENT — the first block or two',
@@ -569,6 +570,8 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
     /** Every complete block over the whole run — the cross-rung comparison basis. */
     allBlocks: number[];
     allSpread: number;
+    /** Block length actually used for this rung, derived from its own sigma/mean. */
+    blockTConv: number;
     triggerTConv?: number;
     stopReason: StopReason;
     /** Simulation wall-clock (the budgeted part) and the two unbudgeted readbacks. */
@@ -643,6 +646,9 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
         samples(hh).find((s) => s.converged);
 
       let stopReason: StopReason;
+      // Recomputed each poll as the post-trigger variance estimate improves, so the block
+      // length that decides the stop is this rung's own, not a guess made before it ran.
+      let blockTConv = BLOCK_TCONV_MIN;
       for (;;) {
         h = await readHooks(page);
         if (errored()) {
@@ -654,7 +660,13 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
         const tConv = all.at(-1)?.convectiveTimes ?? 0;
         if (trig) {
           const post = all.filter((s) => s.convectiveTimes > trig.convectiveTimes);
-          const { blocks } = blockMeans(post, BLOCK_TCONV);
+          const ts = toTimeSamples(post);
+          blockTConv = requiredBlockLength(ts, samplesPerUnitTime(ts), {
+            gate: BLOCK_GATE,
+            min: BLOCK_TCONV_MIN,
+            max: BLOCK_TCONV_MAX,
+          });
+          const { blocks } = blockMeans(ts, blockTConv);
           // MIN_TCONV is a floor on comparability, ANDed in — it can delay this stop but can
           // never cause one. A rung that reaches the floor while still disagreeing keeps running.
           if (agrees(blocks.map((b) => b.mean)) && tConv >= MIN_TCONV) {
@@ -757,8 +769,9 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
       const post = trigger ? all.filter((s) => s.convectiveTimes > trigger.convectiveTimes) : [];
 
       // Post-trigger blocks: the convergence verdict, unchanged. Comparing blocks from before the
-      // trigger against ones after would mix the startup transient into the spread.
-      const { blocks, droppedSamples } = blockMeans(post, BLOCK_TCONV);
+      // trigger against ones after would mix the startup transient into the spread. Reuses the
+      // block length that actually decided the stop, so the reported blocks match what was judged.
+      const { blocks, droppedSamples } = blockMeans(toTimeSamples(post), blockTConv);
       const blockVals = blocks.map((b) => b.mean);
       const spread = relSpread(blockVals);
 
@@ -769,7 +782,7 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
       //     failing to trigger is a plausible outcome.
       //   - The whole series shows whether a rung's Cd was wandering across the run, which the
       //     post-trigger tail alone can hide.
-      const { blocks: allBlocks } = blockMeans(all, BLOCK_TCONV);
+      const { blocks: allBlocks } = blockMeans(toTimeSamples(all), blockTConv);
       const allBlockVals = allBlocks.map((b) => b.mean);
       const allSpread = relSpread(allBlockVals);
       const wallMin = (Date.now() - startedAt) / 60_000;
@@ -791,6 +804,7 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
         spread,
         allBlocks: allBlockVals,
         allSpread,
+        blockTConv,
         triggerTConv: trigger?.convectiveTimes,
         stopReason,
         simMs,
@@ -822,7 +836,8 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
               `drift ${((final?.drift ?? NaN) * 100).toFixed(2)}%   drag ${final?.meanNewtons.toFixed(1)} N\n` +
               `  first 3% trigger at ${trigger?.convectiveTimes.toFixed(1)} T_conv, ` +
               `Cd ${trigger?.meanCd.toFixed(4)} — opened the observation window\n` +
-              `  independent ${BLOCK_TCONV}-T_conv block means (${blocks.length} complete` +
+              `  independent ${blockTConv}-T_conv block means, derived from this rung's own ` +
+              `sigma/mean (${blocks.length} complete` +
               `${droppedSamples > 0 ? `, ${droppedSamples} trailing samples dropped as a partial block` : ''}): ` +
               `${blocks.map((b) => `${b.mean.toFixed(4)} [${b.t0.toFixed(0)}–${b.t1.toFixed(0)}, n=${b.n}]`).join('  ')}\n` +
               // The stop test reads the LAST two overlapping windows, so report those, not just
@@ -836,7 +851,7 @@ test('M9 acceptance-1 ladder: Cd vs resolution and effective Re', async ({
               `dominated by its oldest blocks, so a rung that settles late can never satisfy it)\n` +
               // The full series, so the cross-rung comparison rests on every complete block and
               // not on a single end-of-run figure.
-              `  ALL complete ${BLOCK_TCONV}-T_conv blocks over the whole run (${allBlocks.length}): ` +
+              `  ALL complete ${blockTConv}-T_conv blocks over the whole run (${allBlocks.length}): ` +
               `${allBlocks.map((b) => `${b.mean.toFixed(4)} [${b.t0.toFixed(0)}–${b.t1.toFixed(0)}]`).join('  ')}\n` +
               `  whole-run block spread ${(allSpread * 100).toFixed(2)}%\n` +
               (diagnostics ? `${diagnosticsLines(diagnostics)}\n` : '') +

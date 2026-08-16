@@ -125,29 +125,40 @@ describe.each([
   // ---- H13 finite-precision conservative collision ----
 
   it('C1: mass correction changes only f0 and preserves momentum/stress exactly', () => {
+    // Whether a given (tau, collision, lesCs, lesNorm) combo leaves an observable
+    // sub-ULP roundoff residual is a coincidence of that combo's exact float64 bit
+    // pattern — it can vanish for one convention and not another (that is precisely
+    // what happened here when the LES norm default flipped: the one combo that used
+    // to show a residual under 'legacy' rounds exactly under 'spec'). So sweep enough
+    // taus/conventions that the "the correction branch is reachable at all" claim
+    // does not depend on any single lucky bit pattern.
     let observedCorrection = false;
-    for (const collision of ['bgk', 'trt'] as const) {
-      for (const lesCs of [undefined, 0.1]) {
-        const input = nonEqState(lat);
-        const inputMass = moments(lat, input).rho;
-        const plain = Float64Array.from(input);
-        const corrected = Float64Array.from(input);
-        collideCell(plain, makeCollideContext(lat, { tau: 0.83, collision, lesCs }));
-        collideCell(
-          corrected,
-          makeCollideContext(lat, { tau: 0.83, collision, lesCs, conserveMass: true }),
-        );
+    for (const tau of [0.83, 0.71, 0.95, 1.2]) {
+      for (const collision of ['bgk', 'trt'] as const) {
+        for (const lesCs of [undefined, 0.1]) {
+          for (const lesNorm of ['spec', 'legacy'] as const) {
+            const input = nonEqState(lat);
+            const inputMass = moments(lat, input).rho;
+            const plain = Float64Array.from(input);
+            const corrected = Float64Array.from(input);
+            collideCell(plain, makeCollideContext(lat, { tau, collision, lesCs, lesNorm }));
+            collideCell(
+              corrected,
+              makeCollideContext(lat, { tau, collision, lesCs, lesNorm, conserveMass: true }),
+            );
 
-        for (let i = 1; i < lat.q; i++) expect(corrected[i]).toBe(plain[i]);
-        if (corrected[0] !== plain[0]) observedCorrection = true;
+            for (let i = 1; i < lat.q; i++) expect(corrected[i]).toBe(plain[i]);
+            if (corrected[0] !== plain[0]) observedCorrection = true;
 
-        const plainMoments = moments(lat, plain);
-        const correctedMoments = moments(lat, corrected);
-        for (let d = 0; d < 3; d++) expect(correctedMoments.m[d]).toBe(plainMoments.m[d]);
-        expect(secondMoments(lat, corrected)).toEqual(secondMoments(lat, plain));
-        expect(Math.abs(correctedMoments.rho - inputMass)).toBeLessThanOrEqual(
-          Math.abs(plainMoments.rho - inputMass),
-        );
+            const plainMoments = moments(lat, plain);
+            const correctedMoments = moments(lat, corrected);
+            for (let d = 0; d < 3; d++) expect(correctedMoments.m[d]).toBe(plainMoments.m[d]);
+            expect(secondMoments(lat, corrected)).toEqual(secondMoments(lat, plain));
+            expect(Math.abs(correctedMoments.rho - inputMass)).toBeLessThanOrEqual(
+              Math.abs(plainMoments.rho - inputMass),
+            );
+          }
+        }
       }
     }
     expect(observedCorrection).toBe(true);

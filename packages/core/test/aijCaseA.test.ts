@@ -152,16 +152,21 @@ describe('caseAScene geometry + boundary layout', () => {
 
 describe('fixture utilities', () => {
   it('interpolateInflowToLattice is exact on piecewise-linear data and clamps the ends', () => {
+    // fix-confirmed-physics-defects, wall-height-convention: row k's true height is
+    // (k-0.5)*dx, not (k+0.5)*dx — row 0 (the ground row) sits at a negative height and
+    // clips to 0 rather than being sampled just above the wall.
     const inflow = [
       { z: 0.01, u: 0.4 },
       { z: 0.03, u: 0.8 },
       { z: 0.07, u: 1.0 },
     ];
-    const prof = interpolateInflowToLattice(inflow, 8, 0.01); // nodes at 0.005, 0.015 …
-    expect(prof[0]).toBeCloseTo(0.2, 12); // below first sample: linear to 0 at ground
-    expect(prof[1]).toBeCloseTo(0.5, 12); // between 0.01 and 0.03: 0.4 + 0.25·0.4... hand: t=(0.015-0.01)/0.02=0.25 → 0.4+0.25·0.4=0.5
-    expect(prof[2]).toBeCloseTo(0.7, 12); // z=0.025 → t=0.75 → 0.7
-    expect(prof[7]).toBeCloseTo(1.0, 12); // above the last sample: held
+    const prof = interpolateInflowToLattice(inflow, 10, 0.01); // nodes at -0.005, 0.005, 0.015 …
+    expect(prof[0]).toBe(0); // ground row: negative height, clamped
+    expect(prof[1]).toBeCloseTo(0.2, 12); // z=0.005, below first sample: linear to 0 at ground
+    expect(prof[2]).toBeCloseTo(0.5, 12); // z=0.015, between 0.01 and 0.03: t=0.25 → 0.4+0.25·0.4=0.5
+    expect(prof[3]).toBeCloseTo(0.7, 12); // z=0.025 → t=0.75 → 0.7
+    expect(prof[8]).toBeCloseTo(1.0, 12); // z=0.075, above the last sample: held
+    expect(prof[9]).toBeCloseTo(1.0, 12); // z=0.085, still held
   });
 
   it('sampleTrilinear reproduces a trilinear field exactly', () => {

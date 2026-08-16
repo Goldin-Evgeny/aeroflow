@@ -61,12 +61,12 @@ as WGSL so parity remains a transliteration test, even though its residual is mu
 `cavity-drift.gpu.spec.ts`, H=64 Re=100, three configurations to 4M steps each (~66 s per
 run). Sampled at the fixed checkpoints; `wallΔ/step` is the replayed moving-wall roundoff.
 
-| steps | TRT plain `u_min` / drift  | TRT+H10 `u_min` / drift    | TRT+H10+H13 `u_min` / drift    |
-| ----- | -------------------------- | -------------------------- | ------------------------------ |
-| 20 k  | −0.20717307 / 2.085e−4     | −0.20749032 / 1.472e−4     | −0.20752342 / **8.668e−7**     |
-| 200 k | −0.20672187 / 2.073e−3     | −0.20715642 / 1.527e−3     | −0.20752380 / **6.683e−7**     |
-| 1 M   | −0.20474338 / 1.042e−2     | −0.20569973 / 7.609e−3     | −0.20752461 / **6.653e−7**     |
-| 4 M   | −0.19754993 / **4.214e−2** | −0.20040275 / **3.051e−2** | −0.20752497 / **7.017e−7**     |
+| steps | TRT plain `u_min` / drift  | TRT+H10 `u_min` / drift    | TRT+H10+H13 `u_min` / drift |
+| ----- | -------------------------- | -------------------------- | --------------------------- |
+| 20 k  | −0.20717307 / 2.085e−4     | −0.20749032 / 1.472e−4     | −0.20752342 / **8.668e−7**  |
+| 200 k | −0.20672187 / 2.073e−3     | −0.20715642 / 1.527e−3     | −0.20752380 / **6.683e−7**  |
+| 1 M   | −0.20474338 / 1.042e−2     | −0.20569973 / 7.609e−3     | −0.20752461 / **6.653e−7**  |
+| 4 M   | −0.19754993 / **4.214e−2** | −0.20040275 / **3.051e−2** | −0.20752497 / **7.017e−7**  |
 
 **Gate: absolute mass drift 7.017e−7 against the 1e−4 bar (142× margin); `u_min` drift
 from its 20k value 7.5e−6 against the 0.5% bar (670× margin).** No tolerance was changed.

@@ -11,6 +11,7 @@ import {
   D3Q27_CENTRAL_EXPONENTS,
   d3q27CentralMomentIndex,
   equilibriumD3Q27Central,
+  lesKFromCs,
   populationsFromCentralMomentsD3Q27,
   streamCollidePeriodicD3Q27,
 } from '../src/index.js';
@@ -879,8 +880,12 @@ const centralMatrix27 = centralMomentMatrixD3Q27;
 const equilibriumMoments27 = centralMomentAttractorsD3Q27;
 const equilibriumCentral27 = equilibriumD3Q27Central;
 const rawConserved27 = conservedD3Q27;
-const collideCentral27 = (populations: Float64Array, tau0: number, lesCs = 0) =>
-  collideD3Q27Central(populations, { tau0, lesCs });
+const collideCentral27 = (
+  populations: Float64Array,
+  tau0: number,
+  lesCs = 0,
+  lesNorm?: 'spec' | 'legacy',
+) => collideD3Q27Central(populations, { tau0, lesCs, lesNorm });
 
 function collisionJacobian27(
   backgroundAxis: 0 | 1 | 2,
@@ -1183,11 +1188,16 @@ function auditAdditionalGuards27(): Omit<
     );
   }
 
+  // piNorm below is an independent re-derivation of the `'legacy'` norm (√(2·Σ) in one
+  // sqrt, not √2·√(Σ)) — see collide.ts's `LesNorm` doc. Pin the collisions it audits to
+  // 'legacy' explicitly so this stays a check against that hand-derived formula regardless
+  // of collideD3Q27Central's own default (fix-confirmed-physics-defects task 6.9).
   const equilibriumWithLes = equilibriumCentral27(1, AHMED_U, 0, 0);
   const equilibriumCollision = collideCentral27(
     new Float64Array(equilibriumWithLes),
     TAU_2M,
     Q27_PERIODIC_LES_CS,
+    'legacy',
   );
   const equilibriumSmagorinskyTauResidual = Math.abs(equilibriumCollision.tauEff - TAU_2M);
 
@@ -1195,7 +1205,7 @@ function auditAdditionalGuards27(): Omit<
   for (let direction = 0; direction < 27; direction++) {
     perturbed[direction] += 2e-5 * Math.sin(0.71 * (direction + 1));
   }
-  const collision = collideCentral27(perturbed, TAU_2M, Q27_PERIODIC_LES_CS);
+  const collision = collideCentral27(perturbed, TAU_2M, Q27_PERIODIC_LES_CS, 'legacy');
   const piNorm = Math.sqrt(
     2 *
       (collision.piNeq[0] ** 2 +
@@ -1203,7 +1213,7 @@ function auditAdditionalGuards27(): Omit<
         collision.piNeq[2] ** 2 +
         2 * (collision.piNeq[3] ** 2 + collision.piNeq[4] ** 2 + collision.piNeq[5] ** 2)),
   );
-  const lesK = 18 * Math.SQRT2 * Q27_PERIODIC_LES_CS ** 2;
+  const lesK = lesKFromCs(Q27_PERIODIC_LES_CS);
   const expectedTau =
     TAU_2M + 0.5 * (Math.sqrt(TAU_2M ** 2 + (lesK * piNorm) / collision.rho) - TAU_2M);
   const smagorinskyFormulaResidual = Math.abs(collision.tauEff - expectedTau);
@@ -1854,7 +1864,7 @@ describe.sequential('D3Q27 central-moment finite-amplitude periodic shear gate',
         backgroundUx: AHMED_U,
         tau0: TAU_2M,
         lesCs: Q27_PERIODIC_LES_CS,
-        lesK: 18 * Math.SQRT2 * Q27_PERIODIC_LES_CS ** 2,
+        lesK: lesKFromCs(Q27_PERIODIC_LES_CS),
         steps: Q27_PERIODIC_STEPS,
         discard: Q27_PERIODIC_DISCARD,
         cs2: CS2,

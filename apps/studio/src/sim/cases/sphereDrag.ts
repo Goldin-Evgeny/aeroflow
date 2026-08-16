@@ -61,6 +61,11 @@ export interface SphereRunOptions {
    * stays plain TRT so its validated Cd is untouched. Pass explicitly to override.
    */
   regularize?: boolean;
+  /**
+   * Smagorinsky norm convention (fix-confirmed-physics-defects task 6.7's A/B). Only relevant
+   * when the case is LES (`scene.les`); ignored otherwise. Defaults to the solver default.
+   */
+  lesNorm?: 'spec' | 'legacy';
   lateralBC?: LateralBC;
   /**
    * Pre-built scene override (M8 acceptance 2: the STL-sphere variant). Must carry the
@@ -126,7 +131,7 @@ export async function runSphereCase(
     inletVel: scene.uLattice,
     collision: opts.collision ?? 'trt',
     regularize: opts.regularize ?? scene.tau < 0.51,
-    les: scene.les ? { cs: 0.1 } : undefined,
+    les: scene.les ? { cs: 0.1, norm: opts.lesNorm } : undefined,
     precision,
     hasF16: opts.hasF16,
     hasTimestamp: opts.hasTimestamp,

@@ -19,6 +19,10 @@ struct Params {
   lesCs: f32,
   historyStep: u32,
   streamPeriodic: u32,
+  // fix-confirmed-physics-defects, les-subgrid-closure: 1 = Frobenius norm ('spec',
+  // matches centralMomentD3Q27.ts's default-off `lesNorm` option), 0 = legacy
+  // √2-too-large norm. 1:1 with collide.ts's CollideContext.lesNorm.
+  lesNormSpec: u32,
 };
 
 struct CollisionDiagnostics {
@@ -131,10 +135,21 @@ fn collide(populations: ptr<function, array<f32, 27>>) -> CollisionDiagnostics {
   piNeq[3] = moments[12];
   piNeq[4] = moments[10];
   piNeq[5] = moments[4];
-  let piNorm = sqrt(2.0 * (
-    piNeq[0] * piNeq[0] + piNeq[1] * piNeq[1] + piNeq[2] * piNeq[2] +
-    2.0 * (piNeq[3] * piNeq[3] + piNeq[4] * piNeq[4] + piNeq[5] * piNeq[5])
-  ));
+  // Norm selected by params.lesNormSpec (fix-confirmed-physics-defects,
+  // les-subgrid-closure): 1 = Frobenius, 0 = legacy √2-too-large norm. Legacy computes the
+  // original single-sqrt expression, NOT sqrt(2)*sqrt(Frobenius) — see
+  // stream_collide_3d.wgsl's identical comment for why that reordering matters.
+  let piNorm = select(
+    sqrt(2.0 * (
+      piNeq[0] * piNeq[0] + piNeq[1] * piNeq[1] + piNeq[2] * piNeq[2] +
+      2.0 * (piNeq[3] * piNeq[3] + piNeq[4] * piNeq[4] + piNeq[5] * piNeq[5])
+    )),
+    sqrt(
+      piNeq[0] * piNeq[0] + piNeq[1] * piNeq[1] + piNeq[2] * piNeq[2] +
+      2.0 * (piNeq[3] * piNeq[3] + piNeq[4] * piNeq[4] + piNeq[5] * piNeq[5])
+    ),
+    params.lesNormSpec == 1u,
+  );
   let lesK = 18.0 * sqrt(2.0) * params.lesCs * params.lesCs;
   var tauEff = params.tau0;
   if (lesK != 0.0) {
@@ -170,12 +185,22 @@ fn collide(populations: ptr<function, array<f32, 27>>) -> CollisionDiagnostics {
     }
     augmented[row][Q] = post[row];
   }
+  // CPU (centralMomentD3Q27.ts): `throw new Error('singular D3Q27 central-moment basis')`
+  // at |pivot| < 1e-14. f32 conditioning is worse than f64, so the pivot the CPU authority
+  // refuses is exactly the one f32 is most likely to hit — and WGSL cannot throw. Detect it
+  // and surface a non-finite sentinel instead of dividing by a near-zero diagonal and
+  // propagating an undiagnosed Inf/NaN (solver-failure-visibility).
+  var singular = false;
   for (var pivot = 0u; pivot < Q; pivot++) {
     var best = pivot;
     for (var row = pivot + 1u; row < Q; row++) {
       if (abs(augmented[row][pivot]) > abs(augmented[best][pivot])) {
         best = row;
       }
+    }
+    if (abs(augmented[best][pivot]) < 1e-14) {
+      singular = true;
+      break;
     }
     for (var column = pivot; column <= Q; column++) {
       let temporary = augmented[pivot][column];
@@ -194,6 +219,23 @@ fn collide(populations: ptr<function, array<f32, 27>>) -> CollisionDiagnostics {
         }
       }
     }
+  }
+
+  if (singular) {
+    // fix-confirmed-physics-defects, task 2.3 finding: a fully-literal
+    // `bitcast<f32>(0x7fc00000u)` is a WGSL const-expression regardless of `const` vs `let`,
+    // and Dawn rejects any const-expression that evaluates to NaN at CreateShaderModule time
+    // ("value nan cannot be represented as 'f32'") — confirmed on real hardware for the
+    // identical pattern in stream_collide_3d.wgsl's free-slip sentinel, which silently broke
+    // shader compilation for every scene using it. XOR with a genuinely runtime value that is
+    // always numerically 0 — a bit read off the populations buffer already in scope, not a
+    // loop variable that could compile-time-fold — keeps the bit pattern identical while
+    // defeating constant-folding, so the NaN is produced at runtime instead.
+    let sentinel = bitcast<f32>(0x7fc00000u ^ (bitcast<u32>((*populations)[0]) & 0u));
+    for (var direction = 0u; direction < Q; direction++) {
+      (*populations)[direction] = sentinel;
+    }
+    return CollisionDiagnostics(sentinel, sentinel, sentinel, sentinel, sentinel, sentinel);
   }
 
   var rhoOut = 0.0;

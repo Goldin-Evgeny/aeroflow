@@ -1147,10 +1147,7 @@ function pressureOutletAbLines(runs: EmptyTunnelRun[]): string[] {
       row('acoustic decay', (r) => r.acoustic.decay, true),
       row('final window massDrift', (r) => r.finalWindow?.maxAbsMassDrift ?? Number.NaN),
       row('final window fluxMismatch', (r) => r.finalWindow?.maxFluxMismatch ?? Number.NaN),
-      row(
-        'final window centerRhoAmp',
-        (r) => r.finalWindow?.centerRhoAmplitude ?? Number.NaN,
-      ),
+      row('final window centerRhoAmp', (r) => r.finalWindow?.centerRhoAmplitude ?? Number.NaN),
       row('mirror asymmetry (worst)', (r) => r.worst.mirrorMaxDu),
       row('mirror asymmetry (final window)', (r) => r.finalWindow?.maxMirrorDu ?? Number.NaN),
       '',

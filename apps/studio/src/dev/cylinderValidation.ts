@@ -52,6 +52,12 @@ export interface CylinderRunOptions {
   onProgress?: (fraction: number, partial: CylinderStats | null) => void;
   /** Smagorinsky LES Cs (0/undefined = off). Used by the V6 non-interference check. */
   lesCs?: number;
+  /**
+   * Smagorinsky norm convention (fix-confirmed-physics-defects task 6.7's A/B — V5/V6 are
+   * design.md's named stability canary). Only relevant when `lesCs` is set. Defaults to the
+   * solver default.
+   */
+  lesNorm?: 'spec' | 'legacy';
   /** Projected H10 regularization. Off by default to preserve the recorded M4 cases. */
   regularize?: boolean;
 }
@@ -81,6 +87,7 @@ export async function runCylinderCase(
     outlet: 'pressure',
     periodicY: true,
     lesCs: opts.lesCs,
+    lesNorm: opts.lesNorm,
     regularize: opts.regularize,
   });
   gpu.flags.set(Uint32Array.from(scene.flags));
@@ -160,7 +167,7 @@ export interface V6Result {
 
 export async function runV6NonInterference(
   device: GPUDevice,
-  opts: { onProgress?: (frac: number) => void } = {},
+  opts: { onProgress?: (frac: number) => void; lesNorm?: 'spec' | 'legacy' } = {},
 ): Promise<V6Result> {
   const runOpts = { totalSteps: 150_000, transientSteps: 70_000 } as const;
   const off = await runCylinderCase(device, 100, {
@@ -170,6 +177,7 @@ export async function runV6NonInterference(
   const on = await runCylinderCase(device, 100, {
     ...runOpts,
     lesCs: 0.1,
+    lesNorm: opts.lesNorm,
     onProgress: (f) => opts.onProgress?.(0.5 + 0.5 * f),
   });
   const shift = (a: number, b: number) => (a === 0 ? 0 : Math.abs(b - a) / Math.abs(a));

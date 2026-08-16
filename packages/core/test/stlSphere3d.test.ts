@@ -34,11 +34,18 @@ describe('stlSphereScene', () => {
     expect(scene.tau).toBe(analytic.tau);
     const { nx, ny, nz } = scene;
     const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+    // Inlet has no upstream constraint, so it spans the full x=0 face. Outlet must stay
+    // strictly interior in y/z (H4 §10.9 extended — an outlet on a domain edge/corner has
+    // no well-defined odd-parity source under Esoteric Pull); the edge ring holds the
+    // default freestream lateral BC, Inlet, instead.
     for (let z = 0; z < nz; z += 7)
-      for (let y = 0; y < ny; y += 7) {
-        expect(scene.flags[at(0, y, z)]).toBe(CellType.Inlet);
+      for (let y = 0; y < ny; y += 7) expect(scene.flags[at(0, y, z)]).toBe(CellType.Inlet);
+    for (let z = 1; z < nz - 1; z += 7)
+      for (let y = 1; y < ny - 1; y += 7) {
         expect(scene.flags[at(nx - 1, y, z)]).toBe(CellType.Outlet);
       }
+    expect(scene.flags[at(nx - 1, 0, 1)]).toBe(CellType.Inlet);
+    expect(scene.flags[at(nx - 1, ny - 1, 1)]).toBe(CellType.Inlet);
   });
 
   it('voxel count matches the analytic sphere within 1% (the like-with-like guarantee)', () => {

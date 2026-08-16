@@ -59,6 +59,71 @@ export interface EsotericPull3DOptions {
 const { q, ex, ey, ez, opp } = D3Q19;
 const pairs = D3Q19_SPEC.pairs;
 
+/**
+ * Scene-legality checks for the Esoteric-Pull layout (H4). Exported so the GPU driver can
+ * run the same checks before uploading flags — see `EsotericPull3D`'s constructor, which
+ * calls this and is the CPU reference's own use of it (their agreement is what "the CPU
+ * reference validates, the GPU driver validates the identical rule" means in practice).
+ */
+export function validateEsotericPull3DFlags(
+  flags: Uint8Array,
+  nx: number,
+  ny: number,
+  nz: number,
+): void {
+  const idx = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+  for (let z = 0; z < nz; z++) {
+    for (let y = 0; y < ny; y++) {
+      for (let x = 0; x < nx; x++) {
+        const f = flags[idx(x, y, z)];
+        const onFace =
+          x === 0 || x === nx - 1 || y === 0 || y === ny - 1 || z === 0 || z === nz - 1;
+        if (onFace && f === CellType.Fluid) {
+          throw new Error(`EsotericPull3D: fluid on the shell at (${x},${y},${z}) (H4 §2)`);
+        }
+        if (f === CellType.Outlet && x !== nx - 1) {
+          throw new Error('EsotericPull3D: Outlet cells must sit on the +x face');
+        }
+        if (f === CellType.Outlet) {
+          const upX = x - 1;
+          if (isSolid(flags[idx(upX, y, z)])) {
+            throw new Error(
+              `EsotericPull3D: Outlet at (${x},${y},${z}) has a Solid upstream neighbor (H4 §10.9)`,
+            );
+          }
+          // The odd-parity outlet snapshot reads every direction's upstream population,
+          // including the crosswise ones (e.g. (x−1, y, z±1)). Esoteric Pull's scatter skips
+          // out-of-domain crosswise writes, so if that neighbor's own +/−y or +/−z neighbor
+          // is itself off the domain (y or z on a face), the population being read was never
+          // written. This is the same "no defined source" failure as the Solid case above,
+          // just one hop further out — reject it at the same face the Solid check already
+          // walks, rather than let it surface as a silently wrong value.
+          const onLateralFace = y === 0 || y === ny - 1 || z === 0 || z === nz - 1;
+          if (onLateralFace) {
+            throw new Error(
+              `EsotericPull3D: Outlet at (${x},${y},${z}) sits on a domain edge/corner — its ` +
+                `upstream neighbor's crosswise populations were never written (H4 §10.9 extended). ` +
+                `Keep the outlet plane strictly interior in y and z.`,
+            );
+          }
+        }
+        // H12 §2: VelocityInlet only on the x=0 face, +x neighbor must be Fluid.
+        if (f === CellType.VelocityInlet) {
+          if (x !== 0) {
+            throw new Error(`VelocityInlet at (${x},${y},${z}) must sit on the x=0 face`);
+          }
+          if (flags[idx(1, y, z)] !== CellType.Fluid) {
+            throw new Error(
+              `VelocityInlet at (0,${y},${z}) needs a Fluid +x neighbor (H12 §2) — ` +
+                `keep edges/corners as plain Inlet or FreeSlip`,
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
 export class EsotericPull3D {
   readonly nx: number;
   readonly ny: number;
@@ -122,7 +187,7 @@ export class EsotericPull3D {
       forcing: opts.forcing,
       gravity: opts.gravity,
     });
-    this.validate();
+    validateEsotericPull3DFlags(this.flags, this.nx, this.ny, this.nz);
     this.A = new Float64Array(q * this.n);
     this.scratch = new Float64Array(q);
     this.outletCells = [];
@@ -165,42 +230,6 @@ export class EsotericPull3D {
    */
   private isMeasured(idx: number): boolean {
     return this.flags[idx] === CellType.BodySolid || this.forceMask?.[idx] === 1;
-  }
-
-  private validate(): void {
-    const { nx, ny, nz, flags } = this;
-    for (let z = 0; z < nz; z++) {
-      for (let y = 0; y < ny; y++) {
-        for (let x = 0; x < nx; x++) {
-          const f = flags[this.idx(x, y, z)];
-          const onFace =
-            x === 0 || x === nx - 1 || y === 0 || y === ny - 1 || z === 0 || z === nz - 1;
-          if (onFace && f === CellType.Fluid) {
-            throw new Error(`EsotericPull3D: fluid on the shell at (${x},${y},${z}) (H4 §2)`);
-          }
-          if (f === CellType.Outlet && x !== nx - 1) {
-            throw new Error('EsotericPull3D: Outlet cells must sit on the +x face');
-          }
-          if (f === CellType.Outlet && isSolid(flags[this.idx(x - 1, y, z)])) {
-            throw new Error(
-              `EsotericPull3D: Outlet at (${x},${y},${z}) has a Solid upstream neighbor (H4 §10.9)`,
-            );
-          }
-          // H12 §2: VelocityInlet only on the x=0 face, +x neighbor must be Fluid.
-          if (f === CellType.VelocityInlet) {
-            if (x !== 0) {
-              throw new Error(`VelocityInlet at (${x},${y},${z}) must sit on the x=0 face`);
-            }
-            if (flags[this.idx(1, y, z)] !== CellType.Fluid) {
-              throw new Error(
-                `VelocityInlet at (0,${y},${z}) needs a Fluid +x neighbor (H12 §2) — ` +
-                  `keep edges/corners as plain Inlet or FreeSlip`,
-              );
-            }
-          }
-        }
-      }
-    }
   }
 
   /** Canonical equilibrium init for ALL cells (solid slots are functional scratch — H4 §5). */

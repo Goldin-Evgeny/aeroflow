@@ -1,4 +1,5 @@
 import { enuVectorToWindFrame, type EnuVector } from '../geometry/windFrame.js';
+import { heightToLatticeRow } from '../abl.js';
 
 export interface Bounds3 {
   min: [number, number, number];
@@ -150,7 +151,8 @@ function cellCount(grid: { nx: number; ny: number; nz: number }): number {
  * This function reports, rather than conceals, the uniform-grid feasibility wall. In
  * particular, the published pedestrian probe plane may only be used for an acceptance
  * verdict when it lies at the third fluid-node center or higher:
- * `probeHeight / dx - 0.5 >= 2`. A coarse budget still returns a useful plan, but its
+ * `heightToLatticeRow(probeHeight, dx) >= 2` (docs/PHYSICS.md §7.1). A coarse budget
+ * still returns a useful plan, but its
  * `acceptanceReady` flag is false and `requiredCells` states the honest minimum budget.
  */
 export function planUrbanDomain(opts: UrbanDomainOptions): UrbanDomainPlan {
@@ -197,7 +199,7 @@ export function planUrbanDomain(opts: UrbanDomainOptions): UrbanDomainPlan {
   }
 
   const totalCells = cellCount(grid);
-  const probeLatticeY = probeHeight / dx - 0.5;
+  const probeLatticeY = heightToLatticeRow(probeHeight, dx);
   const cellsPerBuildingHeight = H / dx;
   const blockage = (bounds.size[1] * bounds.size[2]) / (domainY * domainZ);
   const requiredDx = Math.min(probeHeight / 2.5, H / minCellsPerH);

@@ -23,6 +23,9 @@ const NZ = 6;
  * faces so no Outlet has a Solid upstream neighbor, H4 §10.9), freestream Inlet top and
  * z sides (they carry the profile's per-height velocity — the consistent sheared far
  * field, and what sustains the profile until true free-slip lands), inlet/outlet in x.
+ * The outlet is strictly interior in y/z (H4 §10.9 extended, fix-confirmed-physics-defects):
+ * a domain-edge/corner outlet has no well-defined odd-parity source under Esoteric Pull,
+ * so the edge ring keeps the lateral Inlet instead — matching ahmedScene's own fix.
  */
 function flags(): Uint8Array {
   const f = new Uint8Array(NX * NY * NZ);
@@ -34,11 +37,9 @@ function flags(): Uint8Array {
     }
   for (let z = 0; z < NZ; z++) for (let x = 0; x < NX; x++) f[at(x, NY - 1, z)] = CellType.Inlet;
   for (let z = 0; z < NZ; z++) for (let x = 0; x < NX; x++) f[at(x, 0, z)] = CellType.Solid;
-  for (let z = 0; z < NZ; z++)
-    for (let y = 1; y < NY; y++) {
-      f[at(0, y, z)] = CellType.Inlet;
-      f[at(NX - 1, y, z)] = CellType.Outlet;
-    }
+  for (let z = 0; z < NZ; z++) for (let y = 1; y < NY; y++) f[at(0, y, z)] = CellType.Inlet;
+  for (let z = 1; z < NZ - 1; z++)
+    for (let y = 1; y < NY - 1; y++) f[at(NX - 1, y, z)] = CellType.Outlet;
   return f;
 }
 

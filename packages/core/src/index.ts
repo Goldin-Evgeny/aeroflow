@@ -10,6 +10,8 @@ export {
   D3Q19_SPEC,
   piNeq,
   piNeqNorm,
+  piNeqNormLegacy,
+  piNeqNormSpec,
   smagorinskyTauEff,
   viscosityFromTau,
 } from './cpu/collide.js';
@@ -33,9 +35,9 @@ export type {
 } from './cpu/centralMomentD3Q27.js';
 export { Solver2D } from './cpu/solver2d.js';
 export type { Solver2DOptions, Macroscopics } from './cpu/solver2d.js';
-export { Solver3D } from './cpu/solver3d.js';
+export { Solver3D, validateSolver3DShell } from './cpu/solver3d.js';
 export type { Solver3DOptions } from './cpu/solver3d.js';
-export { EsotericPull3D } from './cpu/esoteric.js';
+export { EsotericPull3D, validateEsotericPull3DFlags } from './cpu/esoteric.js';
 export type { EsotericPull3DOptions } from './cpu/esoteric.js';
 export type { Outlet3D } from './cpu/outlet3d.js';
 export { GHIA_U, GHIA_V, interpProfile } from './fixtures/ghia.js';
@@ -90,7 +92,14 @@ export type {
   AhmedLateralBC,
   AhmedInletBC,
 } from './scenes/ahmed3d.js';
-export { powerLawProfile, logLawProfile, ablProfileLattice, LATTICE_MACH_LIMIT } from './abl.js';
+export {
+  powerLawProfile,
+  logLawProfile,
+  ablProfileLattice,
+  latticeRowHeight,
+  heightToLatticeRow,
+  LATTICE_MACH_LIMIT,
+} from './abl.js';
 export type { AblSpec, AblLatticeProfile } from './abl.js';
 export { hitRate, pearson } from './validation/score.js';
 export {
@@ -215,8 +224,31 @@ export { mirrorAsymmetryZ } from './analysis/mirrorAsymmetry.js';
 export type { MirrorAsymmetry } from './analysis/mirrorAsymmetry.js';
 export { wakeProbe } from './analysis/wakeProbe.js';
 export type { WakeProbe, AhmedWakeGeometry } from './analysis/wakeProbe.js';
-export { relSpread, blocksAgree } from './analysis/blockConvergence.js';
-export type { BlockAgreementOptions } from './analysis/blockConvergence.js';
+export { lesKFromCs, csFromLesK } from './cpu/collide.js';
+export type { LesNorm } from './cpu/collide.js';
+export { ACCEPTANCE_BANDS, acceptanceBand, AHMED_CD_BAND } from './validation/bands.js';
+export type { AcceptanceBand, BandGateKind, BandStatus } from './validation/bands.js';
+export {
+  relSpread,
+  blocksAgree,
+  blockMeans,
+  requiredBlockLength,
+  samplesPerUnitTime,
+} from './analysis/blockConvergence.js';
+export type {
+  BlockAgreementOptions,
+  TimeSample,
+  Block,
+  BlockMeansResult,
+  RequiredBlockLengthOptions,
+} from './analysis/blockConvergence.js';
+export { auditRunProgress } from './analysis/recoveryProgress.js';
+export type {
+  RunProgressEvent,
+  RunProgressSegment,
+  RunRestoreBoundary,
+  RunProgressAudit,
+} from './analysis/recoveryProgress.js';
 export { tauStats, tauLayersAt, ahmedTauRegions, TAU_PERCENTILES } from './analysis/tauStats.js';
 export type { TauStats, TauRegion, TauLayer } from './analysis/tauStats.js';
 export { compareStrain } from './analysis/strainComparison.js';

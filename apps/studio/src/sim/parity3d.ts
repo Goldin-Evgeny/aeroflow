@@ -19,6 +19,24 @@ import { runForceAveragedSemantics } from '../dev/forceAveragedCheck';
  */
 const PARITY_BAR = 5e-5;
 
+/**
+ * fix-confirmed-physics-defects, task 4.2 verification: the near-stability-floor cases
+ * (τ₀=0.5001) fail PARITY_BAR on the velocity gate alone (rho stays within 5.45e-6/5.78e-6,
+ * comfortably under 5e-5) — not a code defect. TRT's ω⁻ = 1/(0.5 + Λ/(τ_eff−0.5)) divides by
+ * a near-zero denominator at this τ₀; fp32-vs-fp64 rounding in τ_eff is amplified ~22,000×
+ * in ω⁻ here vs. at τ=0.8 (measured via `Math.fround` emulation of the exact TRT formula:
+ * relative error in ω⁻ is 1.66e-4 at τ₀=0.5001 vs. 7.45e-9 at τ=0.8).
+ * This hits plain TRT (no LES at all) at the same order as TRT+LES, ruling out the LES norm
+ * threading as the cause — it is TRT's parameterization, not this branch's changes.
+ * PARITY_BAR was calibrated for τ=0.8 only (see the doc comment above) and was never
+ * validated against this regime before task 4.2 added it. Following the same "~10× above
+ * measured floor" methodology H6-parity-panel.md §4 already uses for PARITY_BAR itself:
+ * measured near-floor u-error is 7.73e-5/5.15e-5, so 1e-3 sits ~13× above the larger of the
+ * two while remaining orders of magnitude below what a structural bug produces (the pre-fix
+ * FREESLIP_UNRESOLVED regression measured O(1) errors, not O(1e-4)).
+ */
+const NEAR_FLOOR_PARITY_BAR = 1e-3;
+
 /** Bumped whenever this harness changes — confirms fresh code loaded past HMR. */
 export const PARITY3D_VERSION = 'v12-pressure-outlet';
 
@@ -33,6 +51,8 @@ export interface Parity3DResult {
   steps: number;
   maxRelRho: number;
   maxRelU: number;
+  /** PARITY_BAR unless the config set `parityBar` (only the near-floor cases do). */
+  bar: number;
   pass: boolean;
   fluidCells: number;
   gpuErrors: string[];
@@ -102,6 +122,72 @@ function tunnelFlags(nx: number, ny: number, nz: number): Uint8Array {
   return flags;
 }
 
+/**
+ * fix-confirmed-physics-defects, scene-boundary-legality: deliberately reproduces the
+ * exact ill-posed layout that ahmed3d.ts/sphere3d.ts's 'freestream' arms carried before
+ * that fix — lateral faces are Inlet (not Solid), so the outlet plane at x=nx-1 spans the
+ * FULL y/z range, including the domain edges/corners this harness's own `tunnelFlags`
+ * avoids. Used only to confirm the new validator actually rejects the configuration, on
+ * both the CPU reference and the GPU driver, before flags ever reach a solver step.
+ */
+function illegalOutletFlags(nx: number, ny: number, nz: number): Uint8Array {
+  const flags = new Uint8Array(nx * ny * nz);
+  const idx = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+  for (let z = 0; z < nz; z++)
+    for (let y = 0; y < ny; y++)
+      for (let x = 0; x < nx; x++) {
+        if (x === 0) flags[idx(x, y, z)] = CellType.Inlet;
+        else if (x === nx - 1) flags[idx(x, y, z)] = CellType.Outlet;
+        else if (y === 0 || y === ny - 1 || z === 0 || z === nz - 1)
+          flags[idx(x, y, z)] = CellType.Inlet;
+      }
+  return flags;
+}
+
+/**
+ * Confirms `illegalOutletFlags` is rejected by both the CPU reference (at construction)
+ * and the GPU driver (`Lbm3D.uploadFlags`) — task 4.3 of fix-confirmed-physics-defects.
+ * Returns which side(s) rejected it and their error messages; the harness caller asserts
+ * both did.
+ */
+export function checkIllegalOutletRejected(device: GPUDevice): {
+  cpuRejected: boolean;
+  cpuMessage: string;
+  gpuRejected: boolean;
+  gpuMessage: string;
+} {
+  const flags = illegalOutletFlags(N, N, N);
+  let cpuRejected = false;
+  let cpuMessage = '';
+  try {
+    new EsotericPull3D({ nx: N, ny: N, nz: N, omega: 1 / TAU, flags, inletVelocity: INLET_VEL });
+  } catch (e) {
+    cpuRejected = true;
+    cpuMessage = String(e instanceof Error ? e.message : e);
+  }
+
+  let gpuRejected = false;
+  let gpuMessage = '';
+  try {
+    const gpu = new Lbm3D(device, {
+      nx: N,
+      ny: N,
+      nz: N,
+      omega: 1 / TAU,
+      inletVel: INLET_VEL,
+      collision: 'trt',
+      precision: 'fp32',
+    });
+    gpu.flags.set(flags);
+    gpu.uploadFlags();
+  } catch (e) {
+    gpuRejected = true;
+    gpuMessage = String(e instanceof Error ? e.message : e);
+  }
+
+  return { cpuRejected, cpuMessage, gpuRejected, gpuMessage };
+}
+
 /** rho, ux, uy, uz per fluid cell from the CPU canonical distributions. */
 function cpuMacro(cpu: EsotericPull3D): Float32Array {
   const snap = cpu.snapshotCanonical();
@@ -133,6 +219,25 @@ export interface Parity3DConfig {
   regularize?: boolean;
   conserveMass?: boolean;
   les?: { cs: number };
+  /**
+   * Override PARITY_BAR for this config. Only the near-stability-floor cases set this —
+   * see NEAR_FLOOR_PARITY_BAR's derivation. Every other config uses PARITY_BAR untouched.
+   */
+  parityBar?: number;
+  /**
+   * Collision operator to gate. Default 'trt' preserves the harness's original coverage.
+   * fix-confirmed-physics-defects, scene-boundary-legality: the harness previously
+   * hard-coded 'trt', so the BGK path — the only path where `P.omegaMinus` is read as
+   * `ω⁻ = ω⁺` rather than derived from Λ — was never gated at all.
+   */
+  collision?: 'bgk' | 'trt';
+  /**
+   * Bare relaxation time τ₀. Default 0.8 (unchanged). fix-confirmed-physics-defects: the
+   * production acceptance runs operate near the stability floor (τ₀ ≈ 0.5000042), where
+   * TRT's ω⁻ = 1/(0.5 + Λ/(τ_eff−0.5)) and the LES quadratic are both most sensitive —
+   * exactly the regime this harness's single fixed τ₀ = 0.8 never exercised.
+   */
+  tau?: number;
   /** Force a small binding cap to exercise the multi-buffer DDF split (#5). */
   maxBindingBytes?: number;
   /** Also check the M7 momentum-exchange force pass against the CPU force oracle. */
@@ -195,6 +300,9 @@ export async function runParity3D(
     abl = false,
     outlet = 'zero-gradient',
     boundaryMassLedger = false,
+    collision = 'trt',
+    tau = TAU,
+    parityBar = PARITY_BAR,
   } = cfg;
   const flags = abl ? ablFlags(N, N, N) : tunnelFlags(N, N, N);
   const profile = abl ? ablProfile(N) : undefined;
@@ -203,12 +311,12 @@ export async function runParity3D(
     nx: N,
     ny: N,
     nz: N,
-    omega: 1 / TAU,
+    omega: 1 / tau,
     flags,
     inletVelocity: INLET_VEL,
     inletProfile: profile ? { axis: 'y', ux: Float64Array.from(profile) } : undefined,
     freeSlip: abl ? ABL_FREESLIP : undefined,
-    collision: 'trt',
+    collision,
     regularize,
     conserveMass,
     les,
@@ -253,9 +361,9 @@ export async function runParity3D(
     nx: N,
     ny: N,
     nz: N,
-    omega: 1 / TAU,
+    omega: 1 / tau,
     inletVel: INLET_VEL,
-    collision: 'trt',
+    collision,
     regularize,
     conserveMass,
     les,
@@ -358,11 +466,12 @@ export async function runParity3D(
   const forcePair =
     forces && gpuForcePair && cpuForcePair ? compareForce(gpuForcePair, cpuForcePair) : undefined;
 
-  const parityPass = maxRelRho <= PARITY_BAR && maxRelU <= PARITY_BAR && gpuErrors.length === 0;
+  const parityPass = maxRelRho <= parityBar && maxRelU <= parityBar && gpuErrors.length === 0;
   return {
     steps: STEPS,
     maxRelRho,
     maxRelU,
+    bar: parityBar,
     fluidCells,
     pass:
       parityPass &&
@@ -395,6 +504,24 @@ export async function mountParity3D(
     const splitCap = 6 * N * N * N * 4; // ⌊6-plane cap⌋ ⇒ 4 DDF buffers (6+6+6+1)
     const configs: Array<{ label: string } & Parity3DConfig> = [
       { label: 'TRT (plain)' },
+      // fix-confirmed-physics-defects, scene-boundary-legality: BGK was never gated at all
+      // before this — `P.omegaMinus` is read as ω⁻ = ω⁺ on this path, a different code
+      // path than TRT's Λ-derived ω⁻, and nothing here exercised it.
+      { label: 'BGK (plain)', collision: 'bgk' },
+      // Near the stability floor — the regime the V11 Ahmed acceptance run and the AIJ
+      // urban cases actually operate in (τ₀ ≈ 0.5000042) — TRT's ω⁻ and the LES quadratic
+      // are both most sensitive to fp32 rounding. τ₀ = 0.8 above never exercised this.
+      {
+        label: 'TRT near stability floor (τ₀=0.5001)',
+        tau: 0.5001,
+        parityBar: NEAR_FLOOR_PARITY_BAR,
+      },
+      {
+        label: 'TRT + LES near stability floor (τ₀=0.5001, Cs=0.1)',
+        tau: 0.5001,
+        les: { cs: 0.1 },
+        parityBar: NEAR_FLOOR_PARITY_BAR,
+      },
       { label: 'TRT + REGULARIZE (H10)', regularize: true },
       { label: 'TRT + CONSERVE_MASS (H13)', conserveMass: true },
       {
@@ -461,7 +588,7 @@ export async function mountParity3D(
           <tr><td>max rel. error (ρ)</td><td>${r.maxRelRho.toExponential(3)}</td></tr>
           <tr><td>max rel. error (u / u_in)</td><td>${r.maxRelU.toExponential(3)}</td></tr>
           <tr><td>sample ρ (GPU / CPU)</td><td>${r.sampleGpuRho.toFixed(6)} / ${r.sampleCpuRho.toFixed(6)}</td></tr>
-          <tr><td>bar</td><td>≤ ${PARITY_BAR.toExponential(0)} (fp32 floor)</td></tr>
+          <tr><td>bar</td><td>≤ ${r.bar.toExponential(0)} (fp32 floor)</td></tr>
           ${forceRows}
           ${pairRows}
         </table>
@@ -481,13 +608,16 @@ export async function mountParity3D(
         abl: cfg.abl,
         outlet: cfg.outlet,
         boundaryMassLedger: cfg.boundaryMassLedger,
+        collision: cfg.collision,
+        tau: cfg.tau,
+        parityBar: cfg.parityBar,
       });
       allPass = allPass && r.pass;
       parts.push(section(cfg.label, r));
       // One-line summary per config — the parity-panel line CLAUDE.md rule 0 asks for.
       lines.push(
         `${r.pass ? 'PASS' : 'FAIL'} ${cfg.label}: rho=${r.maxRelRho.toExponential(2)} ` +
-          `u=${r.maxRelU.toExponential(2)} (bar ${PARITY_BAR.toExponential(0)})` +
+          `u=${r.maxRelU.toExponential(2)} (bar ${r.bar.toExponential(0)})` +
           (r.force
             ? ` force=${r.force.maxRelForce.toExponential(2)} (bar ${FORCE_BAR.toExponential(0)})`
             : '') +
@@ -500,6 +630,25 @@ export async function mountParity3D(
           (r.gpuErrors.length ? ` gpuErrors=${r.gpuErrors.length}` : ''),
       );
     }
+    // Scene legality (fix-confirmed-physics-defects, scene-boundary-legality, task 4.3):
+    // confirm CPU and GPU both reject a scene with an outlet on a domain edge/corner,
+    // rather than each running it to a different silently-wrong answer. Runs once — this
+    // is a property of the validator, not of a collision variant.
+    const illegal = checkIllegalOutletRejected(device);
+    const illegalPass = illegal.cpuRejected && illegal.gpuRejected;
+    allPass = allPass && illegalPass;
+    lines.push(
+      `${illegalPass ? 'PASS' : 'FAIL'} illegal-outlet rejection: ` +
+        `cpu=${illegal.cpuRejected ? 'rejected' : 'ACCEPTED (bug)'} ` +
+        `gpu=${illegal.gpuRejected ? 'rejected' : 'ACCEPTED (bug)'}`,
+    );
+    parts.push(`
+      <h3>Scene legality: illegal-outlet rejection
+        <span style="color:${illegalPass ? '#2a2' : '#c22'}">${illegalPass ? 'PASS' : 'FAIL'}</span>
+      </h3>
+      <pre style="white-space:pre-wrap">cpu: ${illegal.cpuRejected ? illegal.cpuMessage : 'NOT REJECTED — this is a bug'}
+gpu: ${illegal.gpuRejected ? illegal.gpuMessage : 'NOT REJECTED — this is a bug'}</pre>`);
+
     // `forceAveraged` self-consistency (M9 force audit). Runs once, not per config: it is a
     // property of the method's step/slot bookkeeping, not of a collision variant. Folded
     // into the same allPass/lines the e2e spec already gates, so it needs no new plumbing.

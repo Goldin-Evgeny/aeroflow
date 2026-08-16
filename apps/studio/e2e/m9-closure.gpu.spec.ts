@@ -1,7 +1,18 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { blocksAgree, relSpread } from '@aeroflow/core';
+import {
+  AHMED_CD_BAND,
+  auditRunProgress,
+  blockMeans,
+  blocksAgree,
+  relSpread,
+  requiredBlockLength,
+  samplesPerUnitTime,
+  type Block,
+  type RunProgressEvent,
+  type TimeSample,
+} from '@aeroflow/core';
 import { expect, test, BASE_URL } from './fixtures/gpu';
 import { readHooks } from './helpers/hooks';
 import type { AeroflowHooks } from '../src/dev/testHooks';
@@ -100,38 +111,17 @@ const ACCEPTANCE_BUDGET_MS = ENDURANCE_MS - READBACK_RESERVE_MS;
 const BACKGROUND_MS = 60 * 60_000;
 const MIN_BLOCKS = 4;
 const BLOCK_GATE = 0.03;
-const CD_BAND = [0.242, 0.328] as const;
+/** Single source: @aeroflow/core validation ledger, case V11. */
+const CD_BAND = AHMED_CD_BAND;
 
 /**
- * Block length floor/ceiling.  The floor is the originally declared 20 T_conv, so a signal
- * quiet enough for it is judged exactly as before.  The ceiling keeps a pathologically noisy
- * run from demanding a block the budget can never fill -- it fails on the budget instead,
- * which is the honest outcome.
+ * Block length floor/ceiling, passed to the centralized `requiredBlockLength` (`@aeroflow/core`).
+ * The floor is the originally declared 20 T_conv, so a signal quiet enough for it is judged
+ * exactly as before.  The ceiling keeps a pathologically noisy run from demanding a block the
+ * budget can never fill -- it fails on the budget instead, which is the honest outcome.
  */
 const BLOCK_TCONV_MIN = 20;
 const BLOCK_TCONV_MAX = 400;
-
-/**
- * Block length that makes the declared 3% spread gate resolvable for the observed noise.
- * n >= (sigma / (gate * |mean|))^2 independent samples; converted to T_conv at the run's own
- * sampling cadence and clamped.  Samples inside a block are correlated, so this is a lower
- * bound on the block length, never an optimistic one.
- */
-function requiredBlockTConv(post: Sample[], samplesPerTConv: number): number {
-  if (post.length < 2 || !Number.isFinite(samplesPerTConv) || samplesPerTConv <= 0) {
-    return BLOCK_TCONV_MIN;
-  }
-  const values = post.map((s) => s.cd);
-  const mean = values.reduce((a, b) => a + b, 0) / values.length;
-  if (!Number.isFinite(mean) || mean === 0) return BLOCK_TCONV_MAX;
-  const variance =
-    values.reduce((a, b) => a + (b - mean) * (b - mean), 0) / Math.max(1, values.length - 1);
-  const sigma = Math.sqrt(variance);
-  if (!Number.isFinite(sigma)) return BLOCK_TCONV_MAX;
-  const needed = (sigma / (BLOCK_GATE * Math.abs(mean))) ** 2;
-  const tconv = needed / samplesPerTConv;
-  return Math.min(BLOCK_TCONV_MAX, Math.max(BLOCK_TCONV_MIN, Math.ceil(tconv)));
-}
 
 const OUT_DIR = resolve(
   dirname(fileURLToPath(import.meta.url)),
@@ -150,36 +140,15 @@ const events = (h: AeroflowHooks): AhmedWorkerEvent[] =>
 const samples = (h: AeroflowHooks): Sample[] =>
   events(h).filter((e): e is Sample => e.type === 'sample');
 
-/** Samples per T_conv, measured from the run rather than assumed. */
-function samplesPerTConv(post: Sample[]): number {
-  if (post.length < 2) return NaN;
-  const span = post[post.length - 1].convectiveTimes - post[0].convectiveTimes;
-  return span > 0 ? (post.length - 1) / span : NaN;
-}
-
-function blockMeans(
-  post: Sample[],
-  blockTConv: number,
-): { t0: number; t1: number; mean: number; n: number }[] {
-  if (post.length === 0) return [];
-  const complete: { t0: number; t1: number; mean: number; n: number }[] = [];
-  let start = post[0].convectiveTimes;
-  let last = start;
-  let sum = 0;
-  let n = 0;
-  for (const sample of post) {
-    if (sample.convectiveTimes - start >= blockTConv && n > 0) {
-      complete.push({ t0: start, t1: last, mean: sum / n, n });
-      start = sample.convectiveTimes;
-      sum = 0;
-      n = 0;
-    }
-    sum += sample.cd;
-    n++;
-    last = sample.convectiveTimes;
-  }
-  return complete; // the trailing partial block is intentionally excluded
-}
+/**
+ * Adapt this harness's `Sample` (convectiveTimes/cd) to the generic `TimeSample` (t/value)
+ * `blockMeans`/`requiredBlockLength`/`samplesPerUnitTime` take. Block-mean statistics and
+ * their tests live in `@aeroflow/core` (analysis/blockConvergence.ts) so the predicate that
+ * decides "this run is
+ * converged" is unit-tested and shared, rather than reimplemented per harness.
+ */
+const toTimeSamples = (post: Sample[]): TimeSample[] =>
+  post.map((s) => ({ t: s.convectiveTimes, value: s.cd }));
 
 function lastEvent<T extends AhmedWorkerEvent['type']>(
   h: AeroflowHooks,
@@ -292,7 +261,9 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
         stopTConv: number;
         cd?: number;
         blockSpread?: number;
-        blocks: ReturnType<typeof blockMeans>;
+        blocks: Block[];
+        /** Trailing samples that didn't fill a complete block — dropped, not compared as full. */
+        droppedSamples?: number;
         /** Block length actually used, derived from the run's own sigma/mean. */
         blockTConv?: number;
         /** The variance that set it, so the choice is auditable from the artifact alone. */
@@ -334,9 +305,14 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
         // to sit under the same 3% gate the contract has always used.  Recomputed each poll
         // as the variance estimate improves, so it is the run that sets it, not a guess made
         // before the run existed.
-        const cadence = samplesPerTConv(post);
-        const blockTConv = requiredBlockTConv(post, cadence);
-        const blocks = blockMeans(post, blockTConv);
+        const ts = toTimeSamples(post);
+        const cadence = samplesPerUnitTime(ts);
+        const blockTConv = requiredBlockLength(ts, cadence, {
+          gate: BLOCK_GATE,
+          min: BLOCK_TCONV_MIN,
+          max: BLOCK_TCONV_MAX,
+        });
+        const { blocks, droppedSamples } = blockMeans(ts, blockTConv);
         const values = blocks.map((b) => b.mean);
         const postMean =
           post.length > 0 ? post.reduce((a, s) => a + s.cd, 0) / post.length : undefined;
@@ -357,6 +333,7 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
             cd,
             blockSpread: relSpread(values.slice(-(MIN_BLOCKS + 1))),
             blocks,
+            droppedSamples,
             blockTConv,
             postTriggerSigma: postSigma,
             postTriggerMean: postMean,
@@ -373,6 +350,7 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
               values.length >= MIN_BLOCKS + 1
                 ? relSpread(values.slice(-(MIN_BLOCKS + 1)))
                 : undefined,
+            droppedSamples,
             blockTConv,
             postTriggerSigma: postSigma,
             postTriggerMean: postMean,
@@ -548,10 +526,40 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
 
   const all = samples(h);
   const final = all.at(-1);
-  const postRecovery = all.filter((s) => s.totalSteps >= recovered.totalSteps);
-  const monotonicAfterRecovery = postRecovery.every(
-    (sample, i) => i === 0 || sample.totalSteps > postRecovery[i - 1].totalSteps,
-  );
+  /**
+   * Resilience audit (task 9.4 / design.md D8).  This replaced a global strict-monotonicity
+   * assertion over every sample whose step value exceeded the FIRST recovery's step.  That
+   * check was wrong twice over: it filtered by step VALUE where the intent was emission
+   * POSITION, and the window it spanned contained both device-loss cycles this test induces
+   * ON PURPOSE -- and restoring a checkpoint rewinds the step counter by construction, so the
+   * steps between the checkpoint and the loss are replayed and their values emitted twice.
+   * It failed flakily, only when a sample happened to land in the sub-second gap between the
+   * checkpoint and the induced loss, which is why 2026-08-11 passed and 2026-08-14 failed on
+   * identical code and reported INFRA=AMBER against a sound physics result.
+   *
+   * `auditRunProgress` states what is actually claimed: forward progress within each stretch
+   * of uninterrupted running, every restore lossless, and every restore followed by real
+   * progress.  The losslessness leg is an invariant the old assertion never expressed.
+   *
+   * Partitioning is positional, so the stream is walked in emission order and each `recovered`
+   * event is paired with the most recent `checkpoint-saved` before it -- the checkpoint it
+   * necessarily restored from.
+   */
+  let lastCheckpointStep = Number.NaN;
+  const progressEvents: RunProgressEvent[] = [];
+  for (const event of events(h)) {
+    if (event.type === 'checkpoint-saved') lastCheckpointStep = event.totalSteps;
+    else if (event.type === 'recovered') {
+      progressEvents.push({
+        kind: 'restore',
+        restoredStep: event.totalSteps,
+        checkpointStep: lastCheckpointStep,
+      });
+    } else if (event.type === 'sample') {
+      progressEvents.push({ kind: 'progress', step: event.totalSteps });
+    }
+  }
+  const progressAudit = auditRunProgress(progressEvents);
   /**
    * V11's qualitative criterion asks for a slant separation bubble and a counter-rotating
    * C-pillar pair.  `slantReverseFraction > 0 && gammaLeft*gammaRight < 0` does not test that:
@@ -600,6 +608,11 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
       equilibrium: 'quadratic',
       regularization: 'projected second-order',
       conserveMass: true,
+      // H13's correction is quantized away by the very next f16 store (docs/WGSL-NOTES.md
+      // #23) — this frozen configuration requests conserveMass under fp16 storage, so the
+      // correction is NOT actually active. Record both the request and the fact, rather
+      // than let `conserveMass: true` alone be read as "the correction held".
+      conserveMassEffective: false,
       lesCs: 0.1,
       precision: 'fp16',
       forceOwnership: 'BodySolid only',
@@ -634,7 +647,10 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
       // The early cycle proves the plumbing; the aged one proves it on a multi-hour field.
       aged: agedResilience,
       postRecoveryFinalStep: final?.totalSteps,
-      monotonicAfterRecovery,
+      // Segment-aware; see the audit above.  The old scalar `monotonicAfterRecovery` is
+      // deliberately gone rather than kept alongside: it reported a harness defect as a run
+      // outcome, and leaving it in the artifact would keep that reading available.
+      progressAudit,
       backgroundStartedAt,
       backgroundEndedAt,
       backgroundMs: backgroundEndedAt ? backgroundEndedAt - backgroundStartedAt : 0,
@@ -681,7 +697,16 @@ test('M9 closure: one target Ahmed acceptance plus four-hour resilience', async 
   expect(backgroundEndStep).toBeGreaterThan(backgroundStartStep);
   expect(checkpoint.totalSteps).toBeGreaterThan(0);
   expect(recovered.totalSteps).toBeGreaterThan(0);
-  expect(monotonicAfterRecovery).toBe(true);
+  // Three legs, asserted separately so a failure names which invariant broke rather than
+  // reporting a bare `false` (task 9.4 / design.md D8).
+  expect(
+    progressAudit.segmentsMonotonic,
+    'a run segment reported a step counter that did not advance',
+  ).toBe(true);
+  expect(progressAudit.allLossless, 'a restore resumed below the checkpoint it restored').toBe(
+    true,
+  );
+  expect(progressAudit.allAdvanced, 'the run did not advance after a restore').toBe(true);
   expect(Date.now() - wallStartedAt).toBeGreaterThanOrEqual(ENDURANCE_MS);
   expect(diagnostics?.field.nonFiniteCells ?? 1).toBe(0);
   // The tau snapshot is the reason this run exists (private b2b7fd9): without it there is no

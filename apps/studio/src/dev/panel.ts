@@ -7,7 +7,7 @@ import {
   runStabilityEnvelope,
 } from './cylinderValidation';
 import { ForcePlot } from '../ui/forcePlot';
-import { hooks } from './testHooks';
+import { hooks, lesNormOverride } from './testHooks';
 
 const BTN_CSS =
   'background:#21262d;color:#e6edf3;border:1px solid #2d333b;border-radius:6px;padding:6px 12px;cursor:pointer;margin-right:6px';
@@ -197,6 +197,10 @@ function mountM4Section(parent: HTMLElement, device: GPUDevice, sim?: SimSuspend
     }
   };
 
+  // `?lesNorm=spec|legacy` — fix-confirmed-physics-defects task 6.7's closure A/B. V5 (Re=200)
+  // and V6 are design.md's named stability canary, so both LES-bearing runs below read it.
+  const lesNorm = lesNormOverride() ?? undefined;
+
   const runCase = async (Re: number, lesCs?: number) => {
     setBusy(true);
     out.textContent = `running cylinder Re=${Re}… 0%`;
@@ -205,6 +209,7 @@ function mountM4Section(parent: HTMLElement, device: GPUDevice, sim?: SimSuspend
       const r = await runCylinderCase(device, Re, {
         plot,
         lesCs,
+        lesNorm,
         onProgress: (frac) => {
           out.textContent = `running cylinder Re=${Re}… ${(frac * 100).toFixed(0)}%`;
         },
@@ -230,6 +235,7 @@ function mountM4Section(parent: HTMLElement, device: GPUDevice, sim?: SimSuspend
     sim?.suspend();
     try {
       const r = await runV6NonInterference(device, {
+        lesNorm,
         onProgress: (frac) => {
           out.textContent = `running V6 (Re=100 ±LES)… ${(frac * 100).toFixed(0)}%`;
         },

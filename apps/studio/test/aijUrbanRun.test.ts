@@ -59,15 +59,18 @@ describe('AIJ urban GPU-run preparation', () => {
     expect(() => gltfYUpToEnu([1, 2])).toThrow(/triplets/);
   });
 
-  it('samples power-law U/Uref at fluid-node centers', () => {
+  it('samples power-law U/Uref at true row heights (fix-confirmed-physics-defects, wall-height-convention)', () => {
+    // Row y's true height is (y-0.5)*dx (docs/PHYSICS.md §7.1): row 0 is the ground row,
+    // at a negative height, so powerLawProfile clips it to 0; row 1 is the first fluid
+    // row, at height 0.5*dx.
     const profile = buildAijUrbanInflow(
       data({ kind: 'power', alpha: 0.25, note: 'published' }),
       direction,
       2,
       1,
     );
-    expect(profile[0]).toBeCloseTo((0.5 / 2) ** 0.25, 12);
-    expect(profile[1]).toBeCloseTo((1.5 / 2) ** 0.25, 12);
+    expect(profile[0]).toBe(0);
+    expect(profile[1]).toBeCloseTo((0.5 / 2) ** 0.25, 12);
   });
 
   it('normalizes measured m/s inflow by the direction Uref before interpolation', () => {
@@ -85,7 +88,9 @@ describe('AIJ urban GPU-run preparation', () => {
       2,
       1,
     );
-    expect(Array.from(profile)).toEqual([0.25, 0.75]);
+    // Row 0 (ground, height -0.5) clamps to 0; row 1 (height 0.5, below the first sample
+    // at z=1) interpolates linearly to 0 at the ground: (0.5 normalized) * 0.5/1 = 0.25.
+    expect(Array.from(profile)).toEqual([0, 0.25]);
   });
 
   it('keeps the full transient for acceptance and labels smoke averaging honestly', () => {

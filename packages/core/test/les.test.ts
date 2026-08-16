@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Solver2D, cylinderScene, coefficient } from '../src/index.js';
+import { Solver2D, cylinderScene, coefficient, type LesNorm } from '../src/index.js';
 
 /**
  * M5 LES acceptance checks on the CPU reference (the GPU kernel is a 1:1 transliteration
@@ -10,7 +10,12 @@ import { Solver2D, cylinderScene, coefficient } from '../src/index.js';
  * GPU and are recorded in the M5 status log.
  */
 
-async function runScene(scene: ReturnType<typeof cylinderScene>, steps: number, les: boolean) {
+async function runScene(
+  scene: ReturnType<typeof cylinderScene>,
+  steps: number,
+  les: boolean,
+  lesNorm?: LesNorm,
+) {
   const solver = new Solver2D({
     nx: scene.nx,
     ny: scene.ny,
@@ -22,7 +27,7 @@ async function runScene(scene: ReturnType<typeof cylinderScene>, steps: number, 
     collision: 'trt',
     lambda: 3 / 16,
     outlet: 'pressure',
-    les: les ? { cs: 0.1 } : undefined,
+    les: les ? { cs: 0.1, norm: lesNorm } : undefined,
   });
   solver.reset(1, scene.uLattice, 0);
   const chunk = 500;
@@ -35,17 +40,36 @@ async function runScene(scene: ReturnType<typeof cylinderScene>, steps: number, 
 
 describe('M5 LES: moderate-Re stability (within the proven envelope)', () => {
   // M5 finding (the M5 status log): plain Smagorinsky-TRT is Mach-unstable in
-  // under-resolved HIGH-Re flow — local velocity overshoots to Ma≈0.5 and it diverges by
-  // Re≈3000 at D=25 (Float64-confirmed). Re=10⁴–10⁵ needs a velocity-stable collision,
-  // deferred to M6. So this test stays INSIDE the envelope LES genuinely holds: Re=1000
-  // runs long and subsonic, with τ_eff ≥ τ₀ > 0.5 by construction (assert, never clamp).
+  // under-resolved HIGH-Re flow — local velocity overshoots to Ma≈0.5 and it diverges.
+  // Re=10⁴–10⁵ needs a velocity-stable collision, deferred to M6. So this test stays
+  // INSIDE the envelope LES genuinely holds, with τ_eff ≥ τ₀ > 0.5 by construction
+  // (assert, never clamp).
+  //
+  // fix-confirmed-physics-defects, task 6.9: this case was originally Re=1000 (τ₀=0.503),
+  // calibrated only against the pre-fix `'legacy'` closure norm, which supplies up to
+  // √2× the spec-correct eddy viscosity. Under the corrected `'spec'` norm the same
+  // configuration goes non-finite by step ~675 (vortex shedding overshoots to Ma>0.5) —
+  // the documented Mach-instability boundary moved down once the excess damping bug was
+  // fixed, and Re=1000/D=20/τ₀=0.503 no longer sits inside it. Re=300 (τ₀=0.51) was
+  // screened empirically: bounded (maxSpeed 0.14-0.35 depending on Re tried) through the
+  // full 12,000-step run under `'spec'`, with a clean margin under the 0.3 Mach bound
+  // below (Re=500 touched 0.35 at times — too close to be a stable choice). The test now
+  // asserts stability under `'spec'` explicitly, independent of whichever convention is
+  // the solver's current default, so it stays meaningful across further 6.9 flip attempts.
+  //
+  // Recalibrating this to Re=300 was NOT sufficient to flip the default: a second,
+  // independent near-floor case (`pressureOutlet3d.test.ts`'s M9 empty-tunnel harness,
+  // τ₀=0.5000005 — the actual acceptance-tier operating point, not a proxy for it) also
+  // went non-finite under `'spec'`, and unlike this cylinder proxy it cannot be
+  // recalibrated away without defeating its purpose. Task 6.9 remains blocked; see
+  // collide.ts's `LesNorm` doc for the full record of both attempts.
   it(
-    'Re=1000 cylinder with LES runs finite and subsonic (reduced grid)',
+    'Re=300 cylinder with LES runs finite and subsonic (reduced grid, spec norm)',
     { timeout: 120_000 },
     async () => {
-      const scene = cylinderScene({ Re: 1_000, nx: 240, ny: 96, diameter: 20 });
+      const scene = cylinderScene({ Re: 300, nx: 240, ny: 96, diameter: 20 });
       expect(scene.tau).toBeGreaterThan(0.5); // τ₀ floor; τ_eff ≥ τ₀ everywhere under LES
-      const solver = await runScene(scene, 12_000, true);
+      const solver = await runScene(scene, 12_000, true, 'spec');
       const { ux, uy } = solver.macroscopics();
       let maxSpeed = 0;
       for (let i = 0; i < ux.length; i++) {

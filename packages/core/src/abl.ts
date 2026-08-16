@@ -5,13 +5,32 @@
  *   power law  u(z) = uRef · (z/zRef)^α        (α ≈ 0.25 for urban terrain)
  *   log law    u(z) = (u✳/κ) · ln((z+z0)/z0)   (the +z0 form avoids the z→0 singularity)
  *
- * `ablProfileLattice` samples either profile at the FLUID-NODE heights z_k = (k+0.5)·dx:
- * with halfway bounce-back the ground plane sits half a cell below the first fluid node,
- * so sampling at k·dx would bias the whole near-ground profile — exactly where the AIJ
- * measurement plane (2 cells up) lives (M10 pitfall). The power law grows without bound
- * above zRef, so the LATTICE Mach clamp (0.1) is applied per-node and REPORTED — a silent
- * clamp would flatten the profile top and quietly change the benchmark inflow.
+ * `ablProfileLattice` samples either profile at the true physical height of each ABSOLUTE
+ * lattice row (`latticeRowHeight`, docs/PHYSICS.md §7.1): with the no-slip ground Solid at
+ * row 0 and halfway bounce-back, the wall plane sits at row 0.5, so row y's height is
+ * (y−0.5)·dx, not (y+0.5)·dx — row 0 itself (the solid ground) maps to a negative height,
+ * which is fine and deliberate: `powerLawProfile`/`logLawProfile` both return 0 for z≤0,
+ * and row 0's profile entry is never read (no Inlet/VelocityInlet cell sits on the ground
+ * row). The power law grows without bound above zRef, so the LATTICE Mach clamp (0.1) is
+ * applied per-node and REPORTED — a silent clamp would flatten the profile top and quietly
+ * change the benchmark inflow.
  */
+
+/**
+ * The physical height of lattice row `y` above the halfway-bounce-back wall plane, when a
+ * no-slip wall occupies row 0 (docs/PHYSICS.md §7.1, normative). The SINGLE definition of
+ * this mapping — inlet profiles, AIJ probe placement (`scenes/aijCaseA.ts`), and inflow
+ * interpolation (`validation/aijCaseA.ts`) must all use this rather than each keeping an
+ * independent copy (fix-confirmed-physics-defects, wall-height-convention).
+ */
+export function latticeRowHeight(y: number, dx: number): number {
+  return (y - 0.5) * dx;
+}
+
+/** Inverse of `latticeRowHeight`: the lattice row (possibly fractional) at physical height `z`. */
+export function heightToLatticeRow(z: number, dx: number): number {
+  return z / dx + 0.5;
+}
 
 export interface AblSpec {
   kind: 'power' | 'log';
@@ -42,7 +61,7 @@ export function logLawProfile(z: number, z0: number, uStar: number, kappa = 0.41
 export const LATTICE_MACH_LIMIT = 0.1;
 
 export interface AblLatticeProfile {
-  /** Lattice inlet velocity per fluid-node layer k (height (k+0.5)·dx), length nCells. */
+  /** Lattice inlet velocity per absolute lattice row y (height `latticeRowHeight(y, dx)`), length nCells. */
   profile: Float32Array;
   /** True if any node hit the 0.1 lattice Mach clamp (report it — never silent). */
   clamped: boolean;
@@ -69,7 +88,7 @@ export function ablProfileLattice(
   const profile = new Float32Array(nCells);
   let clamped = false;
   for (let k = 0; k < nCells; k++) {
-    const z = (k + 0.5) * dx; // halfway bounce-back: first fluid node half a cell up
+    const z = latticeRowHeight(k, dx);
     const u =
       spec.kind === 'power'
         ? powerLawProfile(z, spec.zRef, spec.uRef, spec.alpha ?? 0.25)

@@ -311,35 +311,52 @@ per cell (TRT). Properties an implementation must preserve:
 
 ---
 
-## 6. Body force: velocity-shifted equilibrium
+## 6. Body force: Guo forcing (default), with a legacy shifted-velocity mode
 
 A constant body force per unit mass $\mathbf{g}$ (lattice units) drives channel flows
-(Poiseuille, M2) and can model pressure gradients. AeroFlow uses the shifted-velocity
-(Shan–Chen-style) forcing **exactly as implemented in
-`packages/core/src/cpu/solver2d.ts`**: compute the bare moment velocity, then evaluate
-the equilibrium at a shifted velocity,
+(Poiseuille, M2) and can model pressure gradients.
 
-$$\mathbf{u}_{eq} = \frac{1}{\rho}\sum_i \mathbf{e}_i f_i + \frac{\tau\,\mathbf{g}}{\rho}$$
+**Guo forcing is the default and the only scheme validated with TRT and/or LES**
+(`makeCollideContext` defaults `forcing` to `'guo'` whenever `gravity` is non-zero —
+`packages/core/src/cpu/collide.ts`). Guo, Zheng & Shi, Phys. Rev. E 65:046308, 2002;
+classified against other forcing schemes in Krüger et al. 2017, ch. 6.
 
-$$f_i \leftarrow f_i + \omega\left(f_i^{eq}(\rho, \mathbf{u}_{eq}) - f_i\right)$$
+Guo forcing shifts the velocity used to evaluate the equilibrium by $\mathbf{g}/2$
+before collision,
 
-(Shan & Chen, Phys. Rev. E 47:1815, 1993; classified against other forcing schemes in
-Krüger et al. 2017, ch. 6.)
+$$\mathbf{u}_{eq} = \frac{1}{\rho}\sum_i \mathbf{e}_i f_i + \frac{\mathbf{g}}{2}$$
 
-**Limits of this scheme — state them honestly:**
+collides normally with $f_i^{eq}(\rho, \mathbf{u}_{eq})$, then adds an explicit discrete
+source term $S_i$ split across the TRT $\omega^+/\omega^-$ prefactors (H1 §4) so the
+scheme is exact for TRT, not just BGK. **The true fluid velocity — what any reported
+Cd/St or the AIJ/Ghia comparisons must use — is the moment computed from the *previous*
+step's post-collision, post-source populations, minus $\mathbf{g}/2$:**
+`Solver2D.macroscopics()` and its 3D counterparts report exactly this,
+$\mathbf{u} = \frac{1}{\rho}\sum_i \mathbf{e}_i f_i - \mathbf{g}/2$. This is Guo's
+half-force correction accounting for when in the step the moment is sampled (before
+this step's forcing has been applied, so it is offset in the opposite direction from
+the in-collision $+\mathbf{g}/2$ shift) — see the derivation in `collide.ts`'s
+`CollideContext.macro` docstring, which both `collideCell` and `macroscopics()` must
+stay consistent with.
 
-- It is adequate for a **constant, uniform** force; for spatially or temporally varying
-  forces it introduces discrete-lattice errors of order $g^2$ and $g\,\partial u$ that
-  the Guo forcing scheme (Guo, Zheng & Shi, Phys. Rev. E 65:046308, 2002) removes. If
-  varying forces are ever needed (e.g. actuator-line turbines), switch to Guo forcing
-  and re-run the validation ladder.
-- The true fluid velocity in this scheme is $\mathbf{u} = \frac{1}{\rho}\sum_i
-  \mathbf{e}_i f_i + \frac{\mathbf{g}}{2\rho}$ (half-force correction, Krüger et al.
-  2017 ch. 6). `Solver2D.macroscopics()` reports the bare moment velocity; for the
-  tiny driving forces used in validation ($g \sim 10^{-6}$) the difference is far below
-  test tolerances, but any measurement that compares absolute velocities under strong
-  forcing must apply the $+\mathbf{g}/2\rho$ correction.
-- With TRT, the $\tau$ in the shift is $1/\omega^+$.
+**`forcing: 'shift'`** (Shan & Chen, Phys. Rev. E 47:1815, 1993 — velocity-shifted
+equilibrium, no separate source term) survives only as a **legacy compatibility mode**:
+`makeCollideContext` rejects it outright unless `collision === 'bgk'` and LES is off
+(`collide.ts`, "its τ-dependent error defeats TRT exactness and its interaction with
+per-cell τ_eff is undefined — H1 §4"). It is not validated against any case in this
+ladder and should not be reached for new work.
+
+**Limits, stated honestly:**
+
+- Guo forcing is exact for a **constant, uniform** force under BGK and TRT alike. For
+  spatially or temporally varying forces (e.g. actuator-line turbines) re-derive the
+  discrete source term and re-run the validation ladder before trusting results.
+- Regularization (H10) is **not yet compatible with forcing at all** — `collide.ts`
+  throws if both are requested together ("deferred to M7 (3D forces)"; still deferred
+  as of M9). The projection zeroes the non-equilibrium's momentum, which drops the
+  $-\frac{1}{2}\rho\mathbf{g}$ the Guo-shifted non-equilibrium carries.
+- With TRT, both $\omega^+$ and $\omega^-$ enter the Guo source term's split
+  prefactors — there is no single "the $\tau$" the way the legacy shift scheme has one.
 
 ---
 
@@ -367,6 +384,23 @@ $$f_i(\mathbf{x}, t) = f_{\bar{i}}^{pc}(\mathbf{x}, t-1)$$
 where superscript $pc$ means post-collision. Solid cells' storage is never read or
 written. No special wall-normal logic is needed; corners and staircased (voxelized)
 geometry are handled link by link.
+
+**Physical height convention (normative).** When a scene puts a solid no-slip wall at
+lattice row $y=0$ (a ground plane, or a channel floor), the "halfway between" language
+above is exact and literal: the wall plane sits at lattice coordinate $y = 0.5$, one half
+cell spacing above the solid row. The physical height of fluid row $y$ above that wall is
+
+$$h(y) = (y - 0.5)\cdot dx$$
+
+**not** $(y+0.5)\cdot dx$. Every consumer of a physical height against this wall —
+inlet velocity profiles (`abl.ts`), probe/measurement placement
+(`scenes/aijCaseA.ts`'s `heightToY`/`pointToLattice`, `validation/aijCaseA.ts`'s
+inflow interpolation), and any near-wall resolution rule — must use this mapping and
+must agree with each other; they are not free to each pick a convention, because a
+consumer measuring the wrong height silently prescribes or scores the wrong point. If a
+future scene's ground genuinely needs a ghost row at $y=0$ that is not itself the first
+physical fluid layer, that must be a documented, deliberate index offset stated at the
+call site — not an implicit assumption embedded independently in each consumer.
 
 ### 7.2 Equilibrium inlet (prescribed velocity)
 

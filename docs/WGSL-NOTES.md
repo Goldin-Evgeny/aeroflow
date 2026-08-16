@@ -84,3 +84,22 @@ kernels consistent with it.
 21. The collision routine is written ONCE per dimension as a WGSL snippet shared
     between naive-3D (debug) and esoteric-3D kernels via string inclusion (H4 §9) —
     forked collision code invalidates the bit-identity chain.
+22. **Out-of-bounds storage reads are not deterministic-zero.** WGSL spec
+    ([Out-of-Bounds Access](https://gpuweb.github.io/gpuweb/wgsl/#out-of-bounds-access-sec))
+    defines an out-of-bounds load on a storage/uniform buffer as a _dynamic error_ whose
+    "Invalid Load" outcome may return **the value from ANY memory location of the bound
+    GPUBuffer**, not necessarily the store type's zero value. An index computed via
+    `u32(-1)` wraparound into `cellIndex()` is exactly this case. Consequence: a scene
+    with an outlet on a domain edge/corner (fixed in
+    `openspec/changes/fix-confirmed-physics-defects`, `scene-boundary-legality`) produced
+    an **implementation-defined**, not merely wrong, GPU value — pre-fix Ahmed/sphere
+    numbers taken with that defect active are not reproducible across adapters/drivers,
+    only within one. Never rely on OOB reads returning zero; guard bounds explicitly.
+23. **f32→f16 storage rounds to the nearest representable f16, with no guaranteed
+    direction** ([Floating Point Accuracy](https://gpuweb.github.io/gpuweb/wgsl/#floating-point-accuracy)
+    — "correctly rounded", "WGSL does not specify a rounding mode"). A correction whose
+    magnitude is far below the target f16's ULP at that value is not partially retained;
+    it rounds back to the pre-correction value. This is why H13's `CONSERVE_MASS`
+    (`rho − rhoOut`, typically ~1e-7) is a no-op when paired with `STORAGE_FP16`: the very
+    next `f16(v − w_i)` store quantizes the correction away. Do not assume a "small"
+    correction survives an f16 store; check its magnitude against the target's ULP first.

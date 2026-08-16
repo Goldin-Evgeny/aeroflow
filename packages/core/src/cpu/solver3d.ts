@@ -8,6 +8,7 @@ import {
   type CollideContext,
   type Collision,
   type Forcing,
+  type LesNorm,
 } from './collide.js';
 import { resolveFreeSlipPull, validateFreeSlip, type FreeSlipFaces } from './freeslip.js';
 import { reconstructPressureOutlet3D, type Outlet3D } from './outlet3d.js';
@@ -39,7 +40,8 @@ export interface Solver3DOptions {
   periodicZ?: boolean;
   collision?: Collision;
   lambda?: number;
-  les?: { cs: number };
+  /** Smagorinsky LES; off when undefined. `norm` defaults to `'legacy'` — see `LesNorm`. */
+  les?: { cs: number; norm?: LesNorm };
   /** Projected (Latt–Chopard) regularization of the collision — H10. */
   regularize?: boolean;
   /** Restore the incoming zeroth moment after collision roundoff — H13. */
@@ -64,6 +66,59 @@ export interface Solver3DOptions {
 }
 
 const { q, ex, ey, ez, opp } = D3Q19;
+
+/**
+ * Scene-legality checks for the naive two-array pull streaming layout (H3 §2). Exported for
+ * the same reason as `validateEsotericPull3DFlags` in esoteric.ts: a callable, not merely a
+ * constructor side-effect. This solver is the bit-identity oracle for `EsotericPull3D`, not
+ * what the GPU kernel mirrors — Lbm3D's own legality requirements come from
+ * `validateEsotericPull3DFlags` and `validateFreeSlip`, since its WGSL is Esoteric Pull.
+ */
+export function validateSolver3DShell(
+  flags: Uint8Array,
+  nx: number,
+  ny: number,
+  nz: number,
+  periodic: { x?: boolean; y?: boolean; z?: boolean } = {},
+): void {
+  const idx = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+  const bad = (x: number, y: number, z: number) => flags[idx(x, y, z)] === CellType.Fluid;
+  for (let z = 0; z < nz; z++) {
+    for (let y = 0; y < ny; y++) {
+      for (let x = 0; x < nx; x++) {
+        const onX = !periodic.x && (x === 0 || x === nx - 1);
+        const onY = !periodic.y && (y === 0 || y === ny - 1);
+        const onZ = !periodic.z && (z === 0 || z === nz - 1);
+        if ((onX || onY || onZ) && bad(x, y, z)) {
+          throw new Error(
+            `Solver3D: fluid cell on a non-periodic boundary at (${x},${y},${z}) — ` +
+              'every non-periodic face must be a shell of Solid/Inlet/Outlet cells (H3 §2)',
+          );
+        }
+        if (flags[idx(x, y, z)] === CellType.VelocityInlet) {
+          if (x !== 0) {
+            throw new Error(`VelocityInlet at (${x},${y},${z}) must sit on the x=0 face`);
+          }
+          if (flags[idx(1, y, z)] !== CellType.Fluid) {
+            throw new Error(
+              `VelocityInlet at (0,${y},${z}) needs a Fluid +x neighbor (H12 §2) — ` +
+                `keep edges/corners as plain Inlet or FreeSlip`,
+            );
+          }
+        }
+        if (flags[idx(x, y, z)] === CellType.Outlet && x > 0) {
+          const up = flags[idx(x - 1, y, z)];
+          if (isSolid(up)) {
+            throw new Error(
+              `Solver3D: Outlet at (${x},${y},${z}) has a Solid upstream neighbor — ` +
+                'keep at least one non-solid cell upstream of every outlet',
+            );
+          }
+        }
+      }
+    }
+  }
+}
 
 export class Solver3D {
   readonly nx: number;
@@ -117,12 +172,17 @@ export class Solver3D {
       collision: opts.collision,
       lambda: opts.lambda,
       lesCs: opts.les?.cs,
+      lesNorm: opts.les?.norm,
       regularize: opts.regularize,
       conserveMass: opts.conserveMass,
       forcing: opts.forcing,
       gravity: opts.gravity,
     });
-    this.validateShell();
+    validateSolver3DShell(this.flags, this.nx, this.ny, this.nz, {
+      x: this.periodicX,
+      y: this.periodicY,
+      z: this.periodicZ,
+    });
     this.fSrc = new Float64Array(q * this.n);
     this.fDst = new Float64Array(q * this.n);
     this.scratch = new Float64Array(q);
@@ -151,51 +211,6 @@ export class Solver3D {
    */
   private isMeasured(idx: number): boolean {
     return this.flags[idx] === CellType.BodySolid || this.forceMask?.[idx] === 1;
-  }
-
-  /** H3 §2: fluid cells must never see out-of-bounds neighbors. */
-  private validateShell(): void {
-    const { nx, ny, nz, flags } = this;
-    const bad = (x: number, y: number, z: number) => flags[this.idx(x, y, z)] === CellType.Fluid;
-    for (let z = 0; z < nz; z++) {
-      for (let y = 0; y < ny; y++) {
-        for (let x = 0; x < nx; x++) {
-          const onX = !this.periodicX && (x === 0 || x === nx - 1);
-          const onY = !this.periodicY && (y === 0 || y === ny - 1);
-          const onZ = !this.periodicZ && (z === 0 || z === nz - 1);
-          if ((onX || onY || onZ) && bad(x, y, z)) {
-            throw new Error(
-              `Solver3D: fluid cell on a non-periodic boundary at (${x},${y},${z}) — ` +
-                'every non-periodic face must be a shell of Solid/Inlet/Outlet cells (H3 §2)',
-            );
-          }
-          // H12 §2: VelocityInlet only on the x=0 face, +x neighbor must be Fluid.
-          if (flags[this.idx(x, y, z)] === CellType.VelocityInlet) {
-            if (x !== 0) {
-              throw new Error(`VelocityInlet at (${x},${y},${z}) must sit on the x=0 face`);
-            }
-            if (flags[this.idx(1, y, z)] !== CellType.Fluid) {
-              throw new Error(
-                `VelocityInlet at (0,${y},${z}) needs a Fluid +x neighbor (H12 §2) — ` +
-                  `keep edges/corners as plain Inlet or FreeSlip`,
-              );
-            }
-          }
-          // Zero-gradient outlets copy their upstream (−x) neighbor: that neighbor
-          // being Solid is physically meaningless and implementation-dependent
-          // (measured: naive copies zeros, esoteric copies scratch — H4 §10.9).
-          if (flags[this.idx(x, y, z)] === CellType.Outlet && x > 0) {
-            const up = flags[this.idx(x - 1, y, z)];
-            if (isSolid(up)) {
-              throw new Error(
-                `Solver3D: Outlet at (${x},${y},${z}) has a Solid upstream neighbor — ` +
-                  'keep at least one non-solid cell upstream of every outlet',
-              );
-            }
-          }
-        }
-      }
-    }
   }
 
   reset(rho = 1, ux = 0, uy = 0, uz = 0): void {

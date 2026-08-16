@@ -41,11 +41,15 @@ describe('sphereScene (M7 sphere-drag scenes)', () => {
     const s = sphereScene(SPHERE_CASES.Re100); // freestream default
     const { nx, ny, nz, flags } = s;
     const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
-    // x=0 plane all Inlet, x=nx-1 plane all Outlet.
+    // x=0 plane all Inlet (inlets have no upstream constraint). x=nx-1 plane is Outlet only
+    // strictly interior in y/z — a domain-edge/corner outlet has no well-defined odd-parity
+    // source under Esoteric Pull (H4 §10.9 extended), so the edge ring stays the lateral
+    // BC's type (Inlet, for the freestream default).
     for (let z = 0; z < nz; z++) {
       for (let y = 0; y < ny; y++) {
         expect(flags[at(0, y, z)]).toBe(CellType.Inlet);
-        expect(flags[at(nx - 1, y, z)]).toBe(CellType.Outlet);
+        const onEdge = y === 0 || y === ny - 1 || z === 0 || z === nz - 1;
+        expect(flags[at(nx - 1, y, z)]).toBe(onEdge ? CellType.Inlet : CellType.Outlet);
       }
     }
     // Lateral faces are Inlet (free stream), not Solid.

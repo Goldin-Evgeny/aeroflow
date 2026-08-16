@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Solver2D, cylinderScene, coefficient } from '../src/index.js';
+import { CellType, D2Q9, Solver2D, cylinderScene, coefficient } from '../src/index.js';
 
 /**
  * Momentum-exchange force validation (M4 step 10). The machine-precision global
@@ -48,6 +48,89 @@ describe('forces2d: symmetry', () => {
     const { fx, fy } = await runScene(scene, 500);
     expect(Math.abs(fx)).toBeGreaterThan(0); // drag is real
     expect(Math.abs(fy)).toBeLessThanOrEqual(1e-10 * Math.abs(fx));
+  });
+});
+
+/**
+ * fix-confirmed-physics-defects, solver-failure-visibility: moving-wall momentum exchange
+ * must include the Ladd wall-velocity term (PHYSICS.md §8's F_link = e_ī·(f̃_ī(t)+f_i(t+1)))
+ * in the FORCE, not just in the returning population. The pre-fix code used `2*ex[ib]*base`
+ * — correct only when streamed === base, i.e. only at zero wall velocity.
+ *
+ * The expected delta is derived independently of solver2d.ts's own formula: at t=0 every
+ * population is at rest equilibrium (f_i = w_i for all i, since rho=1, u=0), so for a link
+ * bouncing off a wall moving at (uLid, 0), `base = w_ib = w_i` (D2Q9 opposite-direction
+ * weights are equal) and `streamed = w_i + 6*w_i*ex[i]*uLid`. Summed by hand over the three
+ * directions whose neighbor is the moving top wall (N, NE, NW: i = 2, 5, 6).
+ */
+describe('forces2d: moving-wall momentum exchange (Ladd term)', () => {
+  it('the force on a moving wall differs from a stationary one by the independently-derived Ladd delta', () => {
+    const nx = 5;
+    const ny = 5;
+    const n = nx * ny;
+    const idx = (x: number, y: number) => y * nx + x;
+    const flags = new Uint8Array(n).fill(CellType.Fluid);
+    for (let x = 0; x < nx; x++) {
+      flags[idx(x, 0)] = CellType.BodySolid;
+      flags[idx(x, ny - 1)] = CellType.BodySolid;
+    }
+    for (let y = 0; y < ny; y++) {
+      flags[idx(0, y)] = CellType.BodySolid;
+      flags[idx(nx - 1, y)] = CellType.BodySolid;
+    }
+
+    const uLid = 0.02;
+    const wallVelocityMoving = new Float64Array(2 * n);
+    for (let x = 0; x < nx; x++) {
+      wallVelocityMoving[2 * idx(x, ny - 1)] = uLid;
+    }
+    const wallVelocityStationary = new Float64Array(2 * n); // all zero
+
+    function forceAfterOneStep(wallVelocity: Float64Array) {
+      const solver = new Solver2D({ nx, ny, omega: 1.0, flags, wallVelocity });
+      solver.reset(1, 0, 0); // rest equilibrium: f_i = w_i everywhere
+      solver.step(1);
+      return solver.force;
+    }
+
+    const moving = forceAfterOneStep(wallVelocityMoving);
+    const stationary = forceAfterOneStep(wallVelocityStationary);
+
+    // Independently-derived expected delta. Per fluid cell touching the moving wall, the
+    // three directions whose PULL SOURCE is the wall row (S=4, SW=7, SE=8 — ey[i] = −1,
+    // since sy = y − ey[i] must land on the wall row above) bounce back with ib = opp(i)
+    // (N=2, NE=5, NW=6). The force contribution is ex[ib]/ey[ib] * (base + streamed), so
+    // the wall-velocity term's contribution per direction is ex[ib] * 6*w[i]*ex[i]*uLid
+    // (Fx) / ey[ib] * 6*w[i]*ex[i]*uLid (Fy) — using i's own ex/ey in the Ladd term, ib's
+    // in the force projection. nx-2 fluid cells sit under the top wall row (the two corner
+    // columns are solid), each contributing identically at t=0's uniform rest equilibrium.
+    const fluidCellsUnderWall = nx - 2;
+    let expectedDeltaFxPerCell = 0;
+    let expectedDeltaFyPerCell = 0;
+    for (const i of [4, 7, 8]) {
+      const ib = D2Q9.opp[i];
+      const ladd = 6 * D2Q9.w[i] * D2Q9.ex[i] * uLid;
+      expectedDeltaFxPerCell += D2Q9.ex[ib] * ladd;
+      expectedDeltaFyPerCell += D2Q9.ey[ib] * ladd;
+    }
+    const expectedDeltaFx = fluidCellsUnderWall * expectedDeltaFxPerCell;
+    const expectedDeltaFy = fluidCellsUnderWall * expectedDeltaFyPerCell;
+
+    expect(moving.x - stationary.x).toBeCloseTo(expectedDeltaFx, 12);
+    expect(moving.y - stationary.y).toBeCloseTo(expectedDeltaFy, 12);
+    // The delta must be non-trivial, or this test would pass vacuously.
+    expect(Math.abs(expectedDeltaFx)).toBeGreaterThan(1e-6);
+
+    // Regression guard: at zero wall velocity the corrected formula must reproduce the
+    // pre-fix stationary-wall value exactly (base + streamed === 2*base there).
+    const noWallVelOption = (() => {
+      const solver = new Solver2D({ nx, ny, omega: 1.0, flags }); // wallVelocity omitted
+      solver.reset(1, 0, 0);
+      solver.step(1);
+      return solver.force;
+    })();
+    expect(stationary.x).toBeCloseTo(noWallVelOption.x, 15);
+    expect(stationary.y).toBeCloseTo(noWallVelOption.y, 15);
   });
 });
 

@@ -8,6 +8,7 @@ import {
   analyzeStrainScales,
   compareStrain,
   compareStressTensors,
+  csFromLesK,
   forceToNewtons,
   lateralFlux,
   sectionStats,
@@ -92,16 +93,23 @@ interface RunState {
   fatal: boolean;
 }
 
+/** `Lbm3D`'s own default (task 6.9's flip was attempted twice and reverted twice
+ *  2026-08-14 — see collide.ts's `LesNorm` doc). Kept here only for reporting (checkpoint
+ *  metadata, scene summary), never as a second place the actual bit is decided. */
+const AHMED_LES_NORM_DEFAULT = 'legacy';
+
 let run: RunState | null = null;
 
 function summarize(
   scene: AhmedScene,
   physU: number,
   lesCs: number,
+  lesNorm: 'spec' | 'legacy',
   precision: Precision,
 ): AhmedSceneSummary {
   return {
     lesCs,
+    lesNorm,
     // The precision the sim actually BUILT with (post-`hasF16` fallback), not what was asked
     // for — a run that silently fell back to fp32 must not report fp16.
     precision,
@@ -286,7 +294,7 @@ async function collectTau(r: RunState): Promise<AhmedTauReport> {
     // Inverted from the kernel's own lesK (18√2·Cs²) rather than echoed from the options, so
     // the report states the Cs the SOLVER used. If plumbing ever drops the parameter, this
     // disagrees with the requested value instead of quietly confirming it.
-    lesCs: Math.sqrt(field.lesK / (18 * Math.SQRT2)),
+    lesCs: csFromLesK(field.lesK),
     Re: scene.Re,
     fluidCells: field.fluidCells,
     freeSlipAdjacentSkipped: field.freeSlipAdjacentSkipped,
@@ -334,7 +342,7 @@ function buildSim(state: Pick<RunState, 'scene' | 'gpu' | 'opts'>): Lbm3D {
     conserveMass: true, // H13: prevent systematic collision-density drift on long runs
     // Cs is a run parameter (M9 step 7 Cs sweep), defaulting to the acceptance value. `?? `
     // and not `||`: Cs = 0 means "LES off", a legitimate rung, and must not fall back to 0.1.
-    les: { cs: opts.lesCs ?? AHMED_LES_CS },
+    les: { cs: opts.lesCs ?? AHMED_LES_CS, norm: opts.lesNorm },
     forces: true,
     freeSlip,
     velocityInlet: scene.inletBC === 'velocity',
@@ -391,7 +399,9 @@ async function start(opts: AhmedRunOptions): Promise<void> {
       // without merging two configurations' force histories. Warn loudly rather than fail: the
       // DDF state is still valid, and the operator may be doing this deliberately — but a Cd
       // stitched across configurations is not a measurement of either.
-      const saved = meta.sceneOptions as { lesCs?: number; precision?: Precision } | undefined;
+      const saved = meta.sceneOptions as
+        | { lesCs?: number; lesNorm?: 'spec' | 'legacy'; precision?: Precision }
+        | undefined;
       const wantCs = opts.lesCs ?? AHMED_LES_CS;
       if (saved?.lesCs !== undefined && saved.lesCs !== wantCs) {
         post({
@@ -400,6 +410,16 @@ async function start(opts: AhmedRunOptions): Promise<void> {
             `WARNING: checkpoint was written at Cs ${saved.lesCs}, this run asks for ` +
             `${wantCs}. The restored force history mixes two configurations — do not quote ` +
             `its Cd.`,
+        });
+      }
+      const wantNorm = opts.lesNorm ?? AHMED_LES_NORM_DEFAULT;
+      if (saved?.lesNorm !== undefined && saved.lesNorm !== wantNorm) {
+        post({
+          type: 'status',
+          message:
+            `WARNING: checkpoint was written under lesNorm '${saved.lesNorm}', this run asks ` +
+            `for '${wantNorm}'. The restored force history mixes two conventions — do not ` +
+            `quote its Cd.`,
         });
       }
       if (saved?.precision !== undefined && saved.precision !== sim.precision) {
@@ -437,7 +457,13 @@ async function start(opts: AhmedRunOptions): Promise<void> {
   };
   post({
     type: 'ready',
-    scene: summarize(scene, physU, opts.lesCs ?? AHMED_LES_CS, sim.precision),
+    scene: summarize(
+      scene,
+      physU,
+      opts.lesCs ?? AHMED_LES_CS,
+      opts.lesNorm ?? AHMED_LES_NORM_DEFAULT,
+      sim.precision,
+    ),
     gpu: gpu.description,
     precision: sim.precision,
   });
@@ -455,6 +481,7 @@ async function doCheckpoint(): Promise<void> {
     sceneOptions: {
       ...run.opts.scene,
       lesCs: run.opts.lesCs ?? AHMED_LES_CS,
+      lesNorm: run.opts.lesNorm ?? AHMED_LES_NORM_DEFAULT,
       precision: run.sim.precision,
     },
     forceHistory: run.history.serialize(),

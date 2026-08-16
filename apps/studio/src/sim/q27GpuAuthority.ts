@@ -322,9 +322,10 @@ function createParams(
   lesCs: number,
   historyStep: number,
   streamPeriodic: boolean,
+  lesNorm: 'spec' | 'legacy' = 'legacy',
 ): ArrayBuffer {
   const cells = grid.nx * grid.ny * grid.nz;
-  const bytes = new ArrayBuffer(32);
+  const bytes = new ArrayBuffer(36);
   const view = new DataView(bytes);
   view.setUint32(0, grid.nx, true);
   view.setUint32(4, grid.ny, true);
@@ -334,6 +335,7 @@ function createParams(
   view.setFloat32(20, lesCs, true);
   view.setUint32(24, historyStep, true);
   view.setUint32(28, streamPeriodic ? 1 : 0, true);
+  view.setUint32(32, lesNorm === 'spec' ? 1 : 0, true);
   return bytes;
 }
 
@@ -386,7 +388,7 @@ async function runGpu(
   for (let step = 0; step < steps; step++) {
     const parameterBuffer = device.createBuffer({
       label: `Q27 params step ${step}`,
-      size: 32,
+      size: 36,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     device.queue.writeBuffer(

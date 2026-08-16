@@ -107,12 +107,55 @@ export function piNeq(
   out[5] = pyz;
 }
 
-/** ‖Π^neq‖ = √(2 Π:Π). Off-diagonals count twice — the tensor is symmetric. */
-export function piNeqNorm(p: Float64Array): number {
+/**
+ * The Frobenius norm ‖Π^neq‖ = √(Σ_αβ Π_αβ²), as specified in docs/PHYSICS.md §5 and
+ * paired there with the coefficient 18√2·Cs². Off-diagonals count twice — the tensor is
+ * symmetric, so Σ_αβ = Σ diag + 2·Σ off-diag. This is `lesNorm: 'spec'`.
+ *
+ * fix-confirmed-physics-defects, les-subgrid-closure: an independent re-derivation from
+ * ν_t = Cs²|S|, |S| = √(2S:S), S_αβ = −3Π_αβ/(2ρτ_eff) reproduces exactly this norm paired
+ * with exactly this coefficient. `piNeqNormLegacy` below computes √2 times this value —
+ * see its docstring for why that is a defect, not an alternative convention.
+ */
+export function piNeqNormSpec(p: Float64Array): number {
+  return Math.sqrt(
+    p[0] * p[0] + p[1] * p[1] + p[2] * p[2] + 2 * (p[3] * p[3] + p[4] * p[4] + p[5] * p[5]),
+  );
+}
+
+/**
+ * ‖Π^neq‖ = √(2 Π:Π), mathematically √2 · `piNeqNormSpec`(p) — but computed as the
+ * original single-sqrt expression, NOT as that product, so this function is bit-for-bit
+ * identical to the pre-existing (pre-fix-confirmed-physics-defects) `piNeqNorm`.
+ * `Math.sqrt(2) * Math.sqrt(x)` and `Math.sqrt(2 * x)` are mathematically equal but not
+ * IEEE754-identical, and at least one recorded case (the M5 Re=1000 LES stability
+ * envelope) sits close enough to a stability boundary that the last-bit difference
+ * flipped it from converging to diverging — exactly the reproducibility this function
+ * exists to guarantee. This is `lesNorm: 'legacy'` — the pre-existing convention,
+ * preserved ONLY so historical results (V5/V6/V11/V13/V14 at Cs=0.1) remain reproducible
+ * while the ladder is re-baselined under `'spec'`.
+ *
+ * **This is a defect, not a second valid convention.** docs/PHYSICS.md §5 specifies the
+ * Frobenius norm (`piNeqNormSpec`) paired with `18√2·Cs²`; this function instead computes
+ * `√2` times that norm, so `lesK · piNeqNormLegacy(p)` evaluates to `36·Cs²·Π̄` rather than
+ * the documented `18√2·Cs²·Π̄` — an effective `Cs` high by 2^¼ ≈ 1.19× in the `τ₀→½` limit
+ * (where the subgrid model supplies essentially all the viscosity) and by up to √2 ≈ 1.41×
+ * elsewhere. See `openspec/changes/fix-confirmed-physics-defects` for the full derivation
+ * and the migration plan off this default.
+ */
+export function piNeqNormLegacy(p: Float64Array): number {
   return Math.sqrt(
     2 * (p[0] * p[0] + p[1] * p[1] + p[2] * p[2] + 2 * (p[3] * p[3] + p[4] * p[4] + p[5] * p[5])),
   );
 }
+
+/**
+ * @deprecated Use `piNeqNormSpec` or `piNeqNormLegacy` explicitly, selected via
+ * `CollideContext.lesNorm`. Kept as an alias of the legacy (pre-existing) behavior so
+ * external callers that imported this name directly do not silently change results;
+ * `collideCell` itself does not call this function.
+ */
+export const piNeqNorm = piNeqNormLegacy;
 
 /**
  * Smagorinsky τ_eff (Hou et al. 1996): τ_eff = τ₀ + τ_t, τ_t = ½(√(τ₀² + K‖Π‖/ρ) − τ₀).
@@ -132,6 +175,69 @@ export function viscosityFromTau(tau: number): number {
   return (tau - 0.5) / 3;
 }
 
+/**
+ * The Smagorinsky closure coefficient's Cs-dependent factor: `lesK = 18√2·Cs²` (Hou et al.
+ * 1996, docs/PHYSICS.md §5). Single definition — every solver (CPU, D3Q19 WGSL, D2Q9 WGSL,
+ * the D3Q27 central-moment path) and every test that needs `lesK` from a `Cs` imports this
+ * rather than re-declaring the literal `18 * Math.SQRT2`
+ * (fix-confirmed-physics-defects, les-subgrid-closure — a test that re-declares the
+ * constant asserts the implementation against a copy of itself and cannot detect an error
+ * in the shared definition).
+ */
+export function lesKFromCs(cs: number): number {
+  return 18 * Math.SQRT2 * cs * cs;
+}
+
+/** Inverse of `lesKFromCs` — recovers the Cs a solver actually used from its own `lesK`. */
+export function csFromLesK(lesK: number): number {
+  return Math.sqrt(lesK / (18 * Math.SQRT2));
+}
+
+/**
+ * Which Π^neq norm the Smagorinsky closure uses. `'spec'` is the Frobenius norm
+ * (`piNeqNormSpec`) docs/PHYSICS.md §5 specifies, paired with `lesK`'s `18√2·Cs²`.
+ * `'legacy'` is `piNeqNormLegacy` (√2 too large) — the pre-existing behavior, preserved
+ * for reproducibility of results already recorded in docs/VALIDATION.md. Default
+ * `'legacy'` until every affected case is re-baselined under `'spec'`
+ * (openspec/changes/fix-confirmed-physics-defects, les-subgrid-closure).
+ *
+ * **2026-08-14, attempt 1: flip, reverted same day.** V5/V6 held on real GPU, but the CPU
+ * reduced-grid Re=1000 LES stability test (`les.test.ts`) went non-finite under `'spec'` —
+ * a genuine destabilization outside the tested canary set, because that test's operating
+ * point (`τ₀=0.503`) was calibrated only against `'legacy'`'s excess damping.
+ *
+ * **2026-08-14, attempt 2: recalibrate `les.test.ts` to `Re=300` (`τ₀=0.51`, holds with a
+ * clean margin under `'spec'` through 12,000 steps), flip, reverted same day.** With V5,
+ * V6, and the recalibrated proxy all holding, the default was flipped again — and
+ * `pressureOutlet3d.test.ts`'s M9 empty-tunnel harness went non-finite between step 3000
+ * and 3500 under `'spec'`, at `τ₀=0.5000005` — deliberately the actual acceptance-tier
+ * near-floor operating point (matching Ahmed/AIJ's real `τ₀≈0.5000042`, not a proxy for
+ * it), so this case cannot be recalibrated away the way the cylinder proxy was without
+ * defeating the point of the test. `'legacy'` is stable at this exact `τ₀` (confirmed:
+ * `rhoMean` grows smoothly to ~1.4 over 6,000 steps, stays finite throughout).
+ *
+ * Two independent near-floor cases have now destabilized under `'spec'`, and the second is
+ * much closer to the real acceptance operating point than anything in the V5/V6 canary
+ * set. Reverted to `'legacy'` again.
+ *
+ * **Task 6.9 is DEFERRED to M6, not merely blocked.** At τ₀→0.5, τ_eff = τ₀ + τ_t and the
+ * subgrid model supplies essentially all the stabilizing viscosity — τ₀ itself contributes
+ * almost nothing. `'legacy'`'s excess eddy viscosity was, in effect, an accidental
+ * stability margin at every near-floor operating point in this codebase simultaneously, not
+ * an accuracy error at one of them in isolation. Production Ahmed acceptance runs sit at
+ * `τ₀≈0.5000042` — comparably near-floor to the two cases that have already destabilized.
+ * Correcting the closure there without first landing a velocity-stable collision operator
+ * (M6 — already named by `les.test.ts`'s own comment, for the related under-resolved
+ * high-Re instability) removes exactly the margin the current BGK/TRT operator needs to
+ * stay finite at that τ₀. The fix belongs in the collision operator, not in this closure's
+ * norm convention or in further test recalibration — no further diagnostics or
+ * recalibrations on this issue are planned before M6 lands. `'legacy'` stays the default
+ * until then. The `lesNorm` A/B infrastructure built across both attempts stays in place so
+ * the flip can be re-attempted directly once M6 lands. See docs/VALIDATION.md "Smagorinsky
+ * closure A/B" for the full record.
+ */
+export type LesNorm = 'spec' | 'legacy';
+
 export interface CollideContext {
   lat: LatticeSpec;
   tau0: number;
@@ -140,6 +246,8 @@ export interface CollideContext {
   lambda: number;
   /** Precomputed 18·√2·Cs² (0 = LES off). */
   lesK: number;
+  /** Which Π^neq norm `lesK` is paired with. Irrelevant when `lesK === 0`. */
+  lesNorm: LesNorm;
   /** Projected (Latt–Chopard) regularization of the pre-collision f^neq. See H10. */
   regularize: boolean;
   /** Restore the incoming zeroth moment after finite-precision collision. See H13. */
@@ -164,6 +272,8 @@ export function makeCollideContext(
     collision?: Collision;
     lambda?: number;
     lesCs?: number;
+    /** See `LesNorm`. Default `'legacy'` — irrelevant when `lesCs` is unset. */
+    lesNorm?: LesNorm;
     forcing?: Forcing;
     gravity?: readonly number[];
     regularize?: boolean;
@@ -177,7 +287,7 @@ export function makeCollideContext(
   const hasG = gx !== 0 || gy !== 0 || gz !== 0;
   const forcing: Forcing = !hasG ? 'none' : (opts.forcing ?? 'guo');
   const collision = opts.collision ?? 'bgk';
-  const lesK = opts.lesCs ? 18 * Math.SQRT2 * opts.lesCs * opts.lesCs : 0;
+  const lesK = opts.lesCs ? lesKFromCs(opts.lesCs) : 0;
   if (forcing === 'shift' && (collision !== 'bgk' || lesK !== 0)) {
     // Legacy compatibility mode only — its τ-dependent error defeats TRT exactness
     // and its interaction with per-cell τ_eff is undefined (H1 §4).
@@ -196,6 +306,7 @@ export function makeCollideContext(
     collision,
     lambda: opts.lambda ?? 3 / 16,
     lesK,
+    lesNorm: opts.lesNorm ?? 'legacy',
     regularize: opts.regularize ?? false,
     conserveMass: opts.conserveMass ?? false,
     forcing,
@@ -264,11 +375,14 @@ export function collideCell(f: Float64Array, ctx: CollideContext): void {
     const pxz = p[4];
     const pyz = p[5];
 
-    // Smagorinsky LES (Hou et al. 1996): τ_eff from ‖Π^neq‖ = √(2 Π:Π); off-diagonals
-    // count twice (symmetric tensor). The projection below preserves Π^neq, so τ_eff is
-    // identical whether computed before or after regularization (H10 "Ordering vs LES").
+    // Smagorinsky LES (Hou et al. 1996): τ_eff from ‖Π^neq‖, norm selected by ctx.lesNorm
+    // (see LesNorm docstring — 'spec' is docs/PHYSICS.md §5's Frobenius norm, 'legacy' is
+    // √2 too large and exists only for reproducibility of pre-fix results). The projection
+    // below preserves Π^neq, so τ_eff is identical whether computed before or after
+    // regularization (H10 "Ordering vs LES").
     if (ctx.lesK !== 0) {
-      tauEff = smagorinskyTauEff(ctx.tau0, ctx.lesK, piNeqNorm(p), rho);
+      const qNorm = ctx.lesNorm === 'spec' ? piNeqNormSpec(p) : piNeqNormLegacy(p);
+      tauEff = smagorinskyTauEff(ctx.tau0, ctx.lesK, qNorm, rho);
     }
 
     // Projected regularization (Latt & Chopard 2005, Eq. 10; H10): overwrite the gathered

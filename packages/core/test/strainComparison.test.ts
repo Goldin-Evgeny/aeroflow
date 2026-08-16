@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compareStrain } from '../src/index.js';
+import { compareStrain, lesKFromCs } from '../src/index.js';
 
 function fields(nx: number, ny: number, nz: number) {
   const n = nx * ny * nz;
@@ -13,12 +13,16 @@ function fields(nx: number, ny: number, nz: number) {
   };
 }
 
+// Every case below builds `tauEff` with the legacy inversion factor (`/ 6`, not `/ 6√2`
+// — see collide.ts's `LesNorm` doc) and pins `lesNorm: 'legacy'` on the matching
+// `compareStrain` call to match, independent of whichever convention is the solver's
+// current default (fix-confirmed-physics-defects task 6.9).
 describe('finite-difference versus Pi-implied strain', () => {
   const nx = 5;
   const ny = 5;
   const nz = 5;
   const tau0 = 0.5001;
-  const lesK = 18 * Math.SQRT2 * 0.1 * 0.1;
+  const lesK = lesKFromCs(0.1);
   const at = (x: number, y: number, z: number): number => x + nx * (y + ny * z);
 
   it('uses |S| = sqrt(2 S:S) with all symmetric off-diagonal terms', () => {
@@ -37,7 +41,7 @@ describe('finite-difference versus Pi-implied strain', () => {
       }
     }
 
-    const result = compareStrain({ nx, ny, nz, tau0, lesK, ...data });
+    const result = compareStrain({ nx, ny, nz, tau0, lesK, lesNorm: 'legacy', ...data });
     expect(result.stencilCells).toBe(27);
     expect(result.finiteDifference.mean).toBeCloseTo(expected, 14);
     expect(result.piImplied.mean).toBeCloseTo(expected, 14);
@@ -62,7 +66,7 @@ describe('finite-difference versus Pi-implied strain', () => {
       }
     }
 
-    const result = compareStrain({ nx, ny, nz, tau0, lesK, ...data });
+    const result = compareStrain({ nx, ny, nz, tau0, lesK, lesNorm: 'legacy', ...data });
     expect(result.pearsonCorrelation).toBeCloseTo(1, 14);
     expect(result.spearmanRankCorrelation).toBeCloseTo(1, 14);
     expect(result.medianRatioSlope).toBeCloseTo(1.5, 12);
@@ -92,7 +96,7 @@ describe('finite-difference versus Pi-implied strain', () => {
       }
     }
 
-    const result = compareStrain({ nx, ny, nz, tau0, lesK, ...data });
+    const result = compareStrain({ nx, ny, nz, tau0, lesK, lesNorm: 'legacy', ...data });
     expect(result.finiteDifference.max).toBe(0);
     expect(result.densityWeighted.finiteDifference.mean).toBeGreaterThan(0);
     expect(result.densityWeighted.pearsonCorrelation).toBeCloseTo(1, 12);

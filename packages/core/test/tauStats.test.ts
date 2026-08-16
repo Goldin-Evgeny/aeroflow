@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   TAU_PERCENTILES,
   ahmedTauRegions,
+  lesKFromCs,
   smagorinskyTauEff,
   tauLayersAt,
   tauStats,
@@ -96,7 +97,7 @@ describe('τ_eff statistics (M9)', () => {
   it('agrees with the solver formula on a hand-computed cell', () => {
     // Independent check that the ratio really is ν_LES/ν_mol: build τ_eff from the shared
     // Smagorinsky helper, then confirm the statistic recovers (τ_eff − τ₀)/(τ₀ − ½).
-    const lesK = 18 * Math.SQRT2 * 0.1 * 0.1;
+    const lesK = lesKFromCs(0.1);
     const tEff = smagorinskyTauEff(tau0, lesK, 1e-3, 1.0);
     expect(tEff).toBeGreaterThan(tau0);
     const s = tauStats(new Float64Array([tEff]), tau0, () => true);

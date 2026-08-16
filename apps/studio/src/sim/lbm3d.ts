@@ -1,4 +1,11 @@
-import { CellType, D3Q19, type Outlet3D } from '@aeroflow/core';
+import {
+  CellType,
+  D3Q19,
+  lesKFromCs,
+  validateEsotericPull3DFlags,
+  validateFreeSlip,
+  type Outlet3D,
+} from '@aeroflow/core';
 import shader3d from './shaders/stream_collide_3d.wgsl?raw';
 import reduceForces3dWgsl from './shaders/reduce_forces_3d.wgsl?raw';
 import { preprocessShader } from './shaderPreprocess';
@@ -41,7 +48,7 @@ export interface Lbm3DOptions {
   /** Opt-in H14 diagnostic: accumulate the exact signed fluid-mass effect of shell links. */
   boundaryMassLedger?: boolean;
   /** Smagorinsky LES; off when undefined. Cs≈0.1 (M7). */
-  les?: { cs: number };
+  les?: { cs: number; norm?: 'spec' | 'legacy' };
   /**
    * Enable the momentum-exchange force pass (M7, H2). Compiles the FORCES shader variant,
    * allocates the per-cell force + reduction buffers, and enables `sampleForce`. When
@@ -58,8 +65,8 @@ export interface Lbm3DOptions {
   allowNoMeasuredBody?: boolean;
   /**
    * H11 free-slip domain faces (y/z only; x carries inlet/outlet). Uniform-only config —
-   * no extra buffers. Cells flagged CellType.FreeSlip must lie on configured faces
-   * (validate CPU-side with validateFreeSlip before uploadFlags).
+   * no extra buffers. Cells flagged CellType.FreeSlip must lie on configured faces —
+   * `uploadFlags` validates this itself (`validateFreeSlip`), no separate CPU-side call needed.
    */
   freeSlip?: { yMin?: boolean; yMax?: boolean; zMin?: boolean; zMax?: boolean };
   /**
@@ -93,7 +100,9 @@ export interface Lbm3DOptions {
   hasTimestamp?: boolean;
 }
 
-const PARAMS_SIZE = 48; // 4×u32 + omegaPlus/Minus/inletVel/lambda/lesK (f32) + collectForces/freeSlipMask/profileAxis (u32)
+// 4×u32 + omegaPlus/Minus/inletVel/lambda/lesK (f32) + collectForces/freeSlipMask/
+// profileAxis/lesNormSpec (u32) — the last is fix-confirmed-physics-defects's addition.
+const PARAMS_SIZE = 52;
 
 /**
  * GPU D3Q19 wind tunnel — the fused Esoteric-Pull stream-collide kernel (M6).
@@ -112,6 +121,14 @@ export class Lbm3D {
   readonly n: number;
   readonly precision: Precision;
   readonly flags: Uint8Array;
+  /**
+   * Whether the H13 mass-conservation correction can actually take effect (false when
+   * `conserveMass` was requested but `precision === 'fp16'` quantizes it away — see the
+   * constructor comment and docs/WGSL-NOTES.md #23). Report this, not the raw
+   * `conserveMass` option, alongside `massDriftRel` so a healthy-looking drift number is
+   * never misread as evidence the correction held.
+   */
+  readonly conserveMassEffective: boolean;
   totalSteps = 0;
 
   private readonly device: GPUDevice;
@@ -151,6 +168,12 @@ export class Lbm3D {
   private readonly inletProfileBuf: GPUBuffer | undefined;
   private readonly velInletRhoBuf: GPUBuffer | undefined;
   private readonly freeSlipMask: number;
+  private readonly freeSlipFaces: {
+    yMin?: boolean;
+    yMax?: boolean;
+    zMin?: boolean;
+    zMax?: boolean;
+  };
   private readonly profileAxis: number;
   private readonly boundaryMassLedgerEnabled: boolean;
   private readonly boundaryMassSurfaceCells: number;
@@ -173,7 +196,7 @@ export class Lbm3D {
     >
   >;
   /** Smagorinsky LES config; undefined = off. Kept off the Required opts (LES-off is valid). */
-  private readonly les: { cs: number } | undefined;
+  private readonly les: { cs: number; norm?: 'spec' | 'legacy' } | undefined;
   private readonly querySet: GPUQuerySet | undefined;
   private readonly queryResolve: GPUBuffer | undefined;
   private readonly queryStaging: GPUBuffer | undefined;
@@ -192,6 +215,7 @@ export class Lbm3D {
     this.boundaryMassSurfaceCells =
       2 * o.ny * o.nz + 2 * (o.nx - 2) * o.nz + 2 * (o.nx - 2) * (o.ny - 2);
     const fs = o.freeSlip ?? {};
+    this.freeSlipFaces = fs;
     this.freeSlipMask =
       (fs.yMin ? 1 : 0) | (fs.yMax ? 2 : 0) | (fs.zMin ? 4 : 0) | (fs.zMax ? 8 : 0);
     this.profileAxis = o.inletProfile ? (o.inletProfile.axis === 'y' ? 1 : 2) : 0;
@@ -208,6 +232,14 @@ export class Lbm3D {
     if (this.precision === 'fp16' && !o.hasF16) {
       throw new Error('Lbm3D: fp16 precision requested but shader-f16 not available');
     }
+    // H13's CONSERVE_MASS correction (rho − rhoOut, typically ~1e-7) is quantized away by
+    // the very next f16 store — its magnitude sits far below f16's ULP at a typical stored
+    // value (docs/WGSL-NOTES.md #23). Rather than reject the combination outright (the M9
+    // Ahmed acceptance config runs conserveMass+fp16 together deliberately, per the H13
+    // handoff's "default-on in the Ahmed runner"), report it honestly: `conserveMassEffective`
+    // tells a caller whether the correction is actually doing anything, so `massDriftRel`
+    // is never read as evidence the correction held when it could not have.
+    this.conserveMassEffective = (o.conserveMass ?? false) && this.precision !== 'fp16';
     this.flags = new Uint8Array(this.n);
     this.allowNoMeasuredBody = o.allowNoMeasuredBody ?? false;
     this.opts = {
@@ -523,7 +555,7 @@ export class Lbm3D {
     // TRT: Λ = (τ⁺−½)(τ⁻−½) ⇒ ω⁻ = 1/(½ + Λ/(τ−½)). BGK: ω⁻ = ω⁺.
     const omegaMinus = collision === 'trt' ? 1 / (0.5 + lambda / (tau - 0.5)) : omegaPlus;
     // Smagorinsky lesK = 18√2·Cs² (matches makeCollideContext); 0 when LES is off.
-    const lesK = this.les ? 18 * Math.SQRT2 * this.les.cs * this.les.cs : 0;
+    const lesK = this.les ? lesKFromCs(this.les.cs) : 0;
     const build = (parity: 0 | 1, collectForces: 0 | 1): ArrayBuffer => {
       const buf = new ArrayBuffer(PARAMS_SIZE);
       const dv = new DataView(buf);
@@ -539,6 +571,7 @@ export class Lbm3D {
       dv.setUint32(36, collectForces, true);
       dv.setUint32(40, this.freeSlipMask, true);
       dv.setUint32(44, this.profileAxis, true);
+      dv.setUint32(48, this.les?.norm === 'spec' ? 1 : 0, true);
       return buf;
     };
     for (let parity = 0 as 0 | 1; parity <= 1; parity++) {
@@ -552,6 +585,12 @@ export class Lbm3D {
 
   /** Upload the CPU flags mirror (packed 4 cells per u32 word). */
   uploadFlags(): void {
+    // Scene legality: the same checks the CPU reference (EsotericPull3D) runs at
+    // construction, since this kernel mirrors its Esoteric-Pull layout 1:1. Run here, not
+    // left to the caller, so a scene the CPU refuses cannot silently run on the GPU with a
+    // different wrong answer (fix-confirmed-physics-defects, scene-boundary-legality).
+    validateEsotericPull3DFlags(this.flags, this.nx, this.ny, this.nz);
+    validateFreeSlip(this.flags, this.nx, this.ny, this.nz, this.freeSlipFaces);
     const words = new Uint32Array(Math.ceil(this.n / 4));
     let firstFreeSlip = -1;
     let measured = 0;
@@ -917,7 +956,7 @@ export class Lbm3D {
    * buffer. The τ_eff oracle needs it to reproduce the kernel's per-cell relaxation time.
    */
   get lesK(): number {
-    return this.les ? 18 * Math.SQRT2 * this.les.cs * this.les.cs : 0;
+    return this.les ? lesKFromCs(this.les.cs) : 0;
   }
 
   /** Base relaxation time τ₀ = 1/ω. ν_mol = (τ₀ − ½)/3. */

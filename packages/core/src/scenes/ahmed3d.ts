@@ -271,8 +271,7 @@ export function ahmedScene(opts: AhmedSceneOptions = {}): AhmedScene {
     }
   for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) flags[at(x, ny - 1, z)] = lateral;
   for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) flags[at(x, 0, z)] = CellType.Solid;
-  for (let z = 0; z < nz; z++)
-    for (let y = 1; y < ny; y++) flags[at(0, y, z)] = CellType.Inlet;
+  for (let z = 0; z < nz; z++) for (let y = 1; y < ny; y++) flags[at(0, y, z)] = CellType.Inlet;
   if (inletBC === 'velocity') {
     // H12 §2: VelocityInlet only on the x=0 face, and only where the +x neighbour is Fluid.
     // The strict interior satisfies that (the body starts a full body length downstream);
@@ -284,19 +283,17 @@ export function ahmedScene(opts: AhmedSceneOptions = {}): AhmedScene {
         flags[at(0, y, z)] = CellType.VelocityInlet;
       }
   }
-  if (lateralBC === 'freeslip') {
-    // The outlet must be STRICTLY INTERIOR here. `validateFreeSlip` (H11 §3.2) rejects an
-    // Outlet with a FreeSlip upstream neighbor — its zero-gradient copy would read a passive
-    // cell's scratch — so the outlet face's slip-adjacent ring stays FreeSlip and the outlet
-    // starts one row in, exactly as sphereScene and caseAScene do. This ring is the ONLY cell
-    // set that differs between the arms beyond the three lateral faces themselves, and it is
-    // a consequence of the boundary condition rather than a second variable.
-    for (let z = 1; z < nz - 1; z++)
-      for (let y = 1; y < ny - 1; y++) flags[at(nx - 1, y, z)] = CellType.Outlet;
-  } else {
-    for (let z = 0; z < nz; z++)
-      for (let y = 1; y < ny; y++) flags[at(nx - 1, y, z)] = CellType.Outlet;
-  }
+  // The outlet must be STRICTLY INTERIOR on every arm: `validateEsotericPull3DFlags` (H4
+  // §10.9 extended) rejects an Outlet on a domain edge/corner in y or z, because its
+  // odd-parity snapshot reads crosswise populations that Esoteric-Pull's scatter never
+  // writes there. `validateFreeSlip` (H11 §3.2) separately rejects an Outlet with a
+  // FreeSlip upstream neighbor. Both land on the same fix: inset the outlet face one row
+  // in y and z, exactly as sphereScene and caseAScene do, and leave the ring to whatever
+  // the lateral BC would otherwise put there (FreeSlip, or Inlet for freestream/wall).
+  // This ring is the only cell set that differs between the arms beyond the three lateral
+  // faces themselves, and it is a consequence of scene legality, not a second variable.
+  for (let z = 1; z < nz - 1; z++)
+    for (let y = 1; y < ny - 1; y++) flags[at(nx - 1, y, z)] = CellType.Outlet;
   if (lateralBC === 'freeslip') {
     // Throw at construction, like the body-touches-shell guard below: a scene whose FreeSlip
     // cells sit off a configured face, or whose outlet reads one, is ill-posed and must not

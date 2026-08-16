@@ -311,16 +311,16 @@ PHASE3C_E3=1 npx playwright test -c apps/studio/playwright.config.ts --project=g
 ```
 
 | window `T_conv` | max \|drift\| | max fluxMismatch | center-rho amplitude | mirror max\|du\| | mirror max\|dRho\| |
-| ---------------- | ------------: | ----------------: | --------------------: | ----------------: | ------------------: |
-| 5–10              |       3.27e-2 |           9.78e-1 |               1.64e-2 |            9.94e-2 |              1.03e-2 |
-| 10–20             |       4.32e-2 |           6.57e-1 |               5.04e-2 |            1.00e-1 |              5.15e-3 |
-| 20–40             |       2.41e-2 |           3.87e-1 |               2.48e-2 |            6.82e-2 |              1.10e-1 |
-| 40–60             |       7.42e-3 |           2.02e-1 |               9.83e-3 |            8.92e-2 |              1.95e-1 |
-| 60–90             |       3.07e-3 |           6.10e-2 |               4.87e-3 |            7.67e-2 |              1.60e-1 |
-| 90–120            |       7.65e-4 |           9.25e-3 |               1.10e-3 |            7.15e-2 |              1.23e-1 |
+| --------------- | ------------: | ---------------: | -------------------: | ---------------: | -----------------: |
+| 5–10            |       3.27e-2 |          9.78e-1 |              1.64e-2 |          9.94e-2 |            1.03e-2 |
+| 10–20           |       4.32e-2 |          6.57e-1 |              5.04e-2 |          1.00e-1 |            5.15e-3 |
+| 20–40           |       2.41e-2 |          3.87e-1 |              2.48e-2 |          6.82e-2 |            1.10e-1 |
+| 40–60           |       7.42e-3 |          2.02e-1 |              9.83e-3 |          8.92e-2 |            1.95e-1 |
+| 60–90           |       3.07e-3 |          6.10e-2 |              4.87e-3 |          7.67e-2 |            1.60e-1 |
+| 90–120          |       7.65e-4 |          9.25e-3 |              1.10e-3 |          7.15e-2 |            1.23e-1 |
 
 `massDrift`/`fluxMismatch`/`centerRhoAmplitude` reproduce E2's 250k shape almost exactly: a
-5-20 `T_conv` transient peak, then monotonic decay to a final window comparable in *magnitude*
+5-20 `T_conv` transient peak, then monotonic decay to a final window comparable in _magnitude_
 to the 250k result (250k final window: 5.73e-4 / 9.46e-3; 2M final window: 7.65e-4 / 9.25e-3).
 Decay from peak to final window is 56.6x (drift), 105.7x (flux), 45.7x (center-rho) — same
 order as E2's 49x/81x/53x. The four late-window slope fits are all unresolved from zero

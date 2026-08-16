@@ -7,6 +7,7 @@ import {
   bounds3,
   buildAijUrbanReport,
   interpolateInflowToLattice,
+  latticeRowHeight,
   planUrbanDomain,
   powerLawProfile,
   prepareUrbanScene,
@@ -149,7 +150,7 @@ export function buildAijUrbanInflow(
   }
   const profile = new Float64Array(nCells);
   for (let y = 0; y < nCells; y++) {
-    profile[y] = powerLawProfile((y + 0.5) * dx, zRef, 1, data.inflow.alpha);
+    profile[y] = powerLawProfile(latticeRowHeight(y, dx), zRef, 1, data.inflow.alpha);
   }
   return profile;
 }

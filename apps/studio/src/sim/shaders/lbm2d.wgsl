@@ -42,7 +42,11 @@ struct Params {
   periodicY: u32,    // 1 = wrap the y edges (M4 cylinder: periodicY)
   regularize: u32,   // 1 = project f^neq onto the 2nd-order Hermite subspace (H10)
   conserveMass: u32, // 1 = restore incoming rho through f0 after collision (H13)
-  _pad0: u32,
+  // fix-confirmed-physics-defects, les-subgrid-closure: 1 = Frobenius norm ('spec'),
+  // 0 = legacy √2-too-large norm (pre-existing default). 1:1 with collide.ts's
+  // CollideContext.lesNorm and stream_collide_3d.wgsl's P.lesNormSpec. Irrelevant when
+  // lesK == 0. Repurposes what was _pad0 — no buffer size change.
+  lesNormSpec: u32,
   _pad1: u32,
   _pad2: u32,
 }
@@ -174,8 +178,11 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
       if (solidNb >= 0) {
         // + 6·w_i·(e_i·u_wall); zero for a stationary wall (bit-identical to before).
         streamed += 6.0 * W[i] * dot(vec2f(E[i]), wallVel[u32(solidNb)]);
-        // Force ON the solid from this link: 2·e_ī·f*_ī (only solid links, not edges).
-        force += 2.0 * vec2f(E[OPP[i]]) * bounced;
+        // Force ON the solid from this link (PHYSICS.md §8, 1:1 with solver2d.ts):
+        // F_link = e_ī·(f̃_ī(t) + f_i(t+1)) = e_ī·(bounced + streamed). At a stationary wall
+        // streamed === bounced, collapsing to the old 2·e_ī·bounced — a generalization, not
+        // a behavior change there.
+        force += vec2f(E[OPP[i]]) * (bounced + streamed);
       }
       f[i] = streamed;
     } else {
@@ -217,7 +224,15 @@ fn step(@builtin(global_invocation_id) gid: vec3u) {
   }
 
   if (P.lesK != 0.0) {
-    let qn = sqrt(2.0 * (pxx * pxx + pyy * pyy + 2.0 * pxy * pxy));
+    // Norm selected by P.lesNormSpec (fix-confirmed-physics-defects, les-subgrid-closure):
+    // 1 = Frobenius (docs/PHYSICS.md §5's paired convention), 0 = legacy √2-too-large norm.
+    // Legacy computes the original single-sqrt expression, NOT sqrt(2)*sqrt(Frobenius) —
+    // see stream_collide_3d.wgsl's identical comment for why that reordering matters.
+    let qn = select(
+      sqrt(2.0 * (pxx * pxx + pyy * pyy + 2.0 * pxy * pxy)),
+      sqrt(pxx * pxx + pyy * pyy + 2.0 * pxy * pxy),
+      P.lesNormSpec == 1u,
+    );
     let tauT = 0.5 * (sqrt(tau0 * tau0 + P.lesK * qn / rho) - tau0);
     tauEff = tau0 + tauT;
   }

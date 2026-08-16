@@ -86,6 +86,10 @@ struct Params {
   freeSlipMask: u32,
   // H12 inlet profile axis: 0 = scalar P.inletVel, 1 = index by y, 2 = index by z.
   profileAxis: u32,
+  // fix-confirmed-physics-defects, les-subgrid-closure: 1 = Frobenius norm (docs/PHYSICS.md
+  // §5's 'spec'), 0 = legacy √2-too-large norm (the pre-existing default). 1:1 with
+  // collide.ts's CollideContext.lesNorm. Irrelevant when lesK == 0.
+  lesNormSpec: u32,
 };
 
 @group(0) @binding(0) var<uniform> P: Params;
@@ -258,26 +262,51 @@ fn inletU(y: u32, z: u32) -> f32 {
 // source (slip∩solid edge, §3.1) falls back to plain local bounce-back of the original
 // direction, with no force contribution (far-field wall). Scene validity (FreeSlip only on
 // configured faces) is enforced CPU-side by validateFreeSlip before flags upload.
+// Non-finite sentinel for "this scene is ill-posed and the kernel cannot throw" (matches
+// tauOracle.ts's own 0x7f800000 Inf/NaN construction for the same reason). fieldStats
+// already counts poisoned (non-finite) cells rather than silently folding them into the
+// field's statistics, so this is picked up by the existing detection path, not a new one
+// (solver-failure-visibility: undefined state is never reported as a plausible value).
+// WGSL classifies `bitcast<f32>(0x7fc00000u)` as a const-expression whenever every operand
+// is a literal — regardless of whether it's bound via `const` or a function-scope `let` —
+// and Dawn rejects any const-expression that evaluates to NaN at CreateShaderModule time
+// ("value nan cannot be represented as 'f32'"), confirmed on real hardware for both forms.
+// XORing with a runtime parameter that is always numerically 0 (`idx & 0u`) keeps the bit
+// pattern identical but makes the expression depend on a non-const operand, so the compiler
+// evaluates it at runtime instead of folding it at shader-creation time.
 fn freeSlipRead(x: u32, y: u32, z: u32, i: u32, even: bool, idx: u32, nIdx: u32) -> f32 {
+  let FREESLIP_UNRESOLVED = bitcast<f32>(0x7fc00000u ^ (idx & 0u));
   let sx = i32(x) - EX[i]; // x faces never free-slip: the x component never reflects
   var sy = i32(y) - EY[i];
   var sz = i32(z) - EZ[i];
   var dir = i;
   var flag = FREESLIP;
+  var resolved = false;
   for (var iter = 0u; iter < 3u; iter++) {
     flag = getFlag(cellIndex(u32(sx), u32(sy), u32(sz)));
-    if (flag != FREESLIP) { break; }
+    if (flag != FREESLIP) { resolved = true; break; }
+    var reflected = false;
     if (((sy == 0 && (P.freeSlipMask & 1u) != 0u)
       || (sy == i32(P.ny) - 1 && (P.freeSlipMask & 2u) != 0u)) && EY[dir] != 0) {
       sy += EY[dir];
       dir = REFY[dir];
+      reflected = true;
     }
     if (((sz == 0 && (P.freeSlipMask & 4u) != 0u)
       || (sz == i32(P.nz) - 1 && (P.freeSlipMask & 8u) != 0u)) && EZ[dir] != 0) {
       sz += EZ[dir];
       dir = REFZ[dir];
+      reflected = true;
     }
+    // CPU (cpu/freeslip.ts): `resolveFreeSlipPull` throws "not on a configured face
+    // reachable by direction" here — a FreeSlip source that neither axis' reflection rule
+    // covers means flags/config disagree. WGSL cannot throw; surface the sentinel instead
+    // of falling through to read an unrelated cell's scratch.
+    if (!reflected) { return FREESLIP_UNRESOLVED; }
   }
+  // CPU: "reflection did not resolve in 3 passes" — the loop kept reflecting without ever
+  // reaching a non-FreeSlip source.
+  if (!resolved) { return FREESLIP_UNRESOLVED; }
   if (isSolidFlag(flag)) {
     return select(ld(i, nIdx), ld(OPP[i], idx), even);
   }
@@ -323,11 +352,21 @@ fn collide(f: ptr<function, array<f32,19>>) {
 //#endif
 
 //#ifdef LES
-  // Smagorinsky (Hou et al. 1996): τ_eff = τ₀ + τ_t from ‖Π^neq‖ = √(2 Π:Π); off-diagonals
-  // count twice. lesK = 18√2·Cs². 1:1 with collide.ts. Per-cell; FP32 arithmetic always.
+  // Smagorinsky (Hou et al. 1996): τ_eff = τ₀ + τ_t from ‖Π^neq‖, lesK = 18√2·Cs². 1:1 with
+  // collide.ts. Per-cell; FP32 arithmetic always. Norm selected by P.lesNormSpec: 1 =
+  // Frobenius (docs/PHYSICS.md §5's paired convention, 'spec'), 0 = legacy √2-too-large
+  // norm (fix-confirmed-physics-defects, les-subgrid-closure).
   let tau0 = 1.0 / P.omegaPlus;
-  let qNorm = sqrt(2.0 * (pxx * pxx + pyy * pyy + pzz * pzz
-    + 2.0 * (pxy * pxy + pxz * pxz + pyz * pyz)));
+  // Legacy computes the original single-sqrt expression, NOT sqrt(2)*sqrt(Frobenius) —
+  // those are mathematically equal but not bit-identical, and the CPU reference (see
+  // piNeqNormLegacy's docstring) measured that difference flip a marginal stability case
+  // from converging to diverging. Bit-for-bit reproducibility of pre-existing results is
+  // the entire point of the legacy path.
+  let qNorm = select(
+    sqrt(2.0 * (pxx * pxx + pyy * pyy + pzz * pzz + 2.0 * (pxy * pxy + pxz * pxz + pyz * pyz))),
+    sqrt(pxx * pxx + pyy * pyy + pzz * pzz + 2.0 * (pxy * pxy + pxz * pxz + pyz * pyz)),
+    P.lesNormSpec == 1u,
+  );
   let tauT = 0.5 * (sqrt(tau0 * tau0 + P.lesK * qNorm / rho) - tau0);
   let tauEff = tau0 + tauT;
 //#endif
@@ -615,6 +654,15 @@ fn stream_collide(@builtin(global_invocation_id) gid: vec3u) {
       my += f32(EY[i]) * f[i];
       mz += f32(EZ[i]) * f[i];
     }
+    // NOTE (fix-confirmed-physics-defects, solver-failure-visibility): cpu/outlet3d.ts's
+    // `reconstructPressureOutlet3D` subtracts the Guo half-force shift here
+    // (ux = mx/rho − 0.5·gx) when forcing is active. This kernel has NO gravity params at
+    // all — collide() mirrors collide.ts "with forcing off" by construction — so the shift
+    // is correctly omitted today; it is not a bug because there is no way to reach it. If
+    // GPU-side forcing is ever added, this block must gain the same shift or every
+    // pressure-outlet run under a body force will silently diverge from its CPU parity
+    // oracle. Do not add gx/gy/gz here ahead of that work — dead params with no collide()
+    // counterpart would be worse than this comment.
     let ux = mx / rho;
     let uy = my / rho;
     let uz = mz / rho;
@@ -698,7 +746,8 @@ fn write_macro(@builtin(global_invocation_id) gid: vec3u) {
   if (x >= P.nx || y >= P.ny || z >= P.nz) { return; }
   let idx = cellIndex(x, y, z);
   var rho = 0.0; var mx = 0.0; var my = 0.0; var mz = 0.0;
-  if (getFlag(idx) == FLUID) {
+  let isFluid = getFlag(idx) == FLUID;
+  if (isFluid) {
     let even = P.parity == 0u;
     var f: array<f32,19>;
     if (even) {
@@ -720,7 +769,14 @@ fn write_macro(@builtin(global_invocation_id) gid: vec3u) {
     }
   }
   macroRho[idx] = rho;
-  if (rho > 0.0) {
+  // Guard on cell type, not on `rho > 0.0`: a non-Fluid cell legitimately never accumulated
+  // a density (rho stays the 0.0 initializer) and reports u=0. A Fluid cell whose rho has
+  // gone non-finite must NOT take that same branch — `NaN > 0.0` is false in IEEE754, so
+  // the old guard silently reported a diverged cell as quiescent (u=0) to every consumer
+  // that reduces over velocity alone. Divide unconditionally for Fluid cells instead, so a
+  // non-finite rho produces a non-finite velocity that field diagnostics can detect
+  // (solver-failure-visibility) — matching the CPU reference, which has no such guard at all.
+  if (isFluid) {
     macroUx[idx] = mx / rho; macroUy[idx] = my / rho; macroUz[idx] = mz / rho;
   } else {
     macroUx[idx] = 0.0; macroUy[idx] = 0.0; macroUz[idx] = 0.0;

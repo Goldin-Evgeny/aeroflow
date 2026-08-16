@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CellType } from '../src/lattice.js';
-import { EsotericPull3D } from '../src/cpu/esoteric.js';
+import { EsotericPull3D, validateEsotericPull3DFlags } from '../src/cpu/esoteric.js';
 import { Solver3D } from '../src/cpu/solver3d.js';
 
 /**
@@ -119,5 +119,96 @@ describe('EsotericPull3D invariants', () => {
   it('rejects fluid on the shell and outlets off the +x face', () => {
     const flags = new Uint8Array(4 * 4 * 4); // all fluid — shell violated
     expect(() => new EsotericPull3D({ nx: 4, ny: 4, nz: 4, omega: 1.0, flags })).toThrow(/shell/);
+  });
+});
+
+/**
+ * fix-confirmed-physics-defects, scene-boundary-legality: an Outlet on a domain edge/corner
+ * in y or z has no well-defined odd-parity source under Esoteric Pull — its scatter skips
+ * out-of-domain crosswise writes, so the population would be read from wherever CPU/GPU
+ * happen to land (never the same place — see docs/WGSL-NOTES.md #22). This is a THIRD case
+ * of "outlet has no defined upstream source", alongside the pre-existing Solid-upstream and
+ * FreeSlip-upstream rejections below.
+ */
+describe('validateEsotericPull3DFlags: outlet legality (H4 §10.9 extended)', () => {
+  // Every domain face is Inlet, not Solid: Inlet has no upstream constraint of its own, so
+  // an outlet placed on a y/z edge trips the new domain-edge/corner rule ALONE, not the
+  // pre-existing Solid-upstream rule too (which the last test below exercises separately,
+  // by injecting one Solid cell on purpose).
+  function tunnel(nx: number, ny: number, nz: number): Uint8Array {
+    const flags = new Uint8Array(nx * ny * nz);
+    const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+    for (let z = 0; z < nz; z++) {
+      for (let y = 0; y < ny; y++) {
+        for (let x = 0; x < nx; x++) {
+          const onShell =
+            x === 0 || x === nx - 1 || y === 0 || y === ny - 1 || z === 0 || z === nz - 1;
+          flags[at(x, y, z)] = onShell ? CellType.Inlet : CellType.Fluid;
+        }
+      }
+    }
+    return flags;
+  }
+
+  it('accepts a strictly-interior outlet plane', () => {
+    const nx = 8;
+    const ny = 6;
+    const nz = 5;
+    const flags = tunnel(nx, ny, nz);
+    const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+    for (let z = 1; z < nz - 1; z++)
+      for (let y = 1; y < ny - 1; y++) flags[at(nx - 1, y, z)] = CellType.Outlet;
+    expect(() => validateEsotericPull3DFlags(flags, nx, ny, nz)).not.toThrow();
+  });
+
+  it('rejects an outlet on a y-edge (y=0)', () => {
+    const nx = 8;
+    const ny = 6;
+    const nz = 5;
+    const flags = tunnel(nx, ny, nz);
+    const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+    for (let z = 1; z < nz - 1; z++) flags[at(nx - 1, 0, z)] = CellType.Outlet;
+    expect(() => validateEsotericPull3DFlags(flags, nx, ny, nz)).toThrow(/domain edge\/corner/);
+  });
+
+  it('rejects an outlet on a y-edge (y=ny-1)', () => {
+    const nx = 8;
+    const ny = 6;
+    const nz = 5;
+    const flags = tunnel(nx, ny, nz);
+    const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+    for (let z = 1; z < nz - 1; z++) flags[at(nx - 1, ny - 1, z)] = CellType.Outlet;
+    expect(() => validateEsotericPull3DFlags(flags, nx, ny, nz)).toThrow(/domain edge\/corner/);
+  });
+
+  it('rejects an outlet on a z-edge (z=0)', () => {
+    const nx = 8;
+    const ny = 6;
+    const nz = 5;
+    const flags = tunnel(nx, ny, nz);
+    const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+    for (let y = 1; y < ny - 1; y++) flags[at(nx - 1, y, 0)] = CellType.Outlet;
+    expect(() => validateEsotericPull3DFlags(flags, nx, ny, nz)).toThrow(/domain edge\/corner/);
+  });
+
+  it('rejects an outlet on a corner (y=0, z=0)', () => {
+    const nx = 8;
+    const ny = 6;
+    const nz = 5;
+    const flags = tunnel(nx, ny, nz);
+    const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+    flags[at(nx - 1, 0, 0)] = CellType.Outlet;
+    expect(() => validateEsotericPull3DFlags(flags, nx, ny, nz)).toThrow(/domain edge\/corner/);
+  });
+
+  it('still rejects a Solid upstream neighbor (pre-existing H4 §10.9)', () => {
+    const nx = 8;
+    const ny = 6;
+    const nz = 5;
+    const flags = tunnel(nx, ny, nz);
+    const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+    flags[at(nx - 1, 2, 2)] = CellType.Outlet;
+    flags[at(nx - 2, 2, 2)] = CellType.Solid;
+    expect(() => validateEsotericPull3DFlags(flags, nx, ny, nz)).toThrow(/Solid upstream/);
   });
 });

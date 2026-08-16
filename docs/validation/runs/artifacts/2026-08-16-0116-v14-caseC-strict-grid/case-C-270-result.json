@@ -1,0 +1,27 @@
+{
+  "ready": true,
+  "caseId": "C",
+  "direction": 270,
+  "resumed": false,
+  "underResolved": false,
+  "grid": {
+    "nx": 883,
+    "ny": 303,
+    "nz": 701
+  },
+  "dx": 0.007929767566090647,
+  "requiredCells": 183254820,
+  "totalSteps": 365560,
+  "averagingFlowThroughs": 10,
+  "q": 0.4583333333333333,
+  "r": 0.8032441156694273,
+  "verdict": "fail",
+  "reportRows": 120,
+  "complete": true,
+  "elapsedMs": 21071386.80000004,
+  "voxelizationMs": 1778.300000011921,
+  "wallMs": 21588444.800000012,
+  "checkpointCount": 64,
+  "checkpointTotalMs": 512292.30000042915,
+  "lastCheckpointBytes": 7126970300
+}

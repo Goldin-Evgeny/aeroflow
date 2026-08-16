@@ -1,0 +1,44 @@
+{
+  "analysis": "q27-momentum-drift-scaling",
+  "source": "central-moment-d3q27-gpu-conservation-audit.json (GPU run 2026-08-14 07:40)",
+  "harnessMomentum": 3.2,
+  "absoluteGate": 0.00005,
+  "cases": [
+    {
+      "wavelength": 3.2,
+      "absDriftMax": 0.000044908553627296714,
+      "relDriftMax": 0.000014033923008530222,
+      "powerLawExponent": 0.8545938627194358,
+      "rSquared": 0.992467010454918,
+      "driftAt10": 0.000005720256642613331,
+      "driftAt60": 0.0000251569448946523,
+      "driftAt120": 0.000044908553627296714,
+      "ratio120over60": 1.7851354294154806,
+      "streamingContribution": 0
+    },
+    {
+      "wavelength": 8,
+      "absDriftMax": 0.00004827461902389385,
+      "relDriftMax": 0.000015085818444966827,
+      "powerLawExponent": 0.7021307110856363,
+      "rSquared": 0.9475138330072692,
+      "driftAt10": 0.000005922428977596954,
+      "driftAt60": 0.000026683139865953978,
+      "driftAt120": 0.00004827461902389385,
+      "ratio120over60": 1.8091806011738991,
+      "streamingContribution": 0
+    },
+    {
+      "wavelength": 16,
+      "absDriftMax": 0.0000769743531544646,
+      "relDriftMax": 0.000024054485360770188,
+      "powerLawExponent": 1.2465106095933873,
+      "rSquared": 0.9085252670904443,
+      "driftAt10": 0.000005623799213301106,
+      "driftAt60": 0.000017284823509420648,
+      "driftAt120": 0.0000769743531544646,
+      "ratio120over60": 4.453291242025799,
+      "streamingContribution": 0
+    }
+  ]
+}

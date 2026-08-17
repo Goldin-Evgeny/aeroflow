@@ -1,0 +1,32 @@
+{
+  "writtenAtUtc": "2026-08-17T18:48:25.605Z",
+  "predictions": {
+    "statedBefore": "Written to disk before the first arm executes; see runFactorial().",
+    "d1Result": "The ω⁻-inertness null test returned BIT-IDENTICAL over a Λ sweep (Λ = 3/16 vs 3, regularize:true, 300 steps, 0 of 13,300 populations differing), so mechanism (A) cannot operate in any regularize:true arm. The two ω⁻ arms in the regularize:true half are therefore predicted DYNAMICALLY identical, and are kept as a regression detector for that invariant (task 4.3).",
+    "d1Qualification": "Measured while building this harness, and NOT known when D1 was run: the projection is even exactly, but is reconstructed as fl(f_eq + 4.5·w·Q:Π), and the two roundings of an opposite-direction pair do not cancel — leaving an O(ulp) antisymmetric residual that ω⁻ multiplies. On this scene at 20 steps it changes NO population for ω⁻ ∈ {1e-3, 1e-2, 0.1, 0.5} and changes populations at the 1e-15 relative level for ω⁻ ∈ {1.0, 1.9}: a threshold at ω⁻ ≈ 1, where ω⁻ × (½-ulp-scale residual) first reaches half an ulp of the population. The raised arm here uses ω⁻ = 1.0, i.e. just above that threshold, so its regularize:true half is expected to agree to rounding, not bit for bit. This is a roundoff-magnitude effect and carries no dynamical content; it does not reinstate mechanism (A).",
+    "hypotheses": [
+      {
+        "mechanism": "(A) ω⁻ collapse",
+        "raisingOmegaMinusWithRegularizeOff": "stabilizes, and freestream ν_t falls",
+        "regularizeOffAtLesNormSpec": "still unstable — regularization was not the cause"
+      },
+      {
+        "mechanism": "(B) projected-regularization anti-dissipation",
+        "raisingOmegaMinusWithRegularizeOff": "no effect on stability",
+        "regularizeOffAtLesNormSpec": "stabilizes — the projection was the cause"
+      },
+      {
+        "mechanism": "Both, additively",
+        "raisingOmegaMinusWithRegularizeOff": "partial improvement",
+        "regularizeOffAtLesNormSpec": "partial improvement"
+      },
+      {
+        "mechanism": "Neither",
+        "raisingOmegaMinusWithRegularizeOff": "no effect",
+        "regularizeOffAtLesNormSpec": "no effect — a third mechanism is indicated"
+      }
+    ],
+    "invariant": "Every regularize:true arm must be DYNAMICALLY identical across its two ω⁻ settings (equal to floating-point rounding; see d1Qualification for why bit-identity is the wrong bar at ω⁻ = 1.0). A dynamical difference there falsifies the D1 null test and outranks everything else in this factorial.",
+    "outletAxisProvenance": "The outlet axis is NOT from D4. It was added after D4s 2x2x2 was run and its reproduction control failed: with the pressure outlet, no regularize:true arm destabilizes under spec on either scene, so the harness was not reproducing the phenomenon under investigation. See the OUTLETS docstring for the measurement that established the zero-gradient outlet as the reproducing configuration. Predictions above were stated for the D4 axes and are compared on the reproducing (zero-gradient) half."
+  }
+}

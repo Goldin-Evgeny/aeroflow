@@ -1,0 +1,29 @@
+# LEDGER SCENE (reproduction control) 10x8x7, budget 6000
+reg=on norm=legacy om=derived      FINITE         steps=  6000 nu_t/nu_mol p50=10826.2 p99=22853.3 cells=72 strainRatio=8.38711 omega+=1.97265 omega-=0.0362680 
+reg=on norm=legacy om=raised(1)    FINITE         steps=  6000 nu_t/nu_mol p50=10826.2 p99=22853.3 cells=72 strainRatio=8.38711 omega+=1.97265 omega-=1.00000 
+reg=on norm=spec om=derived        FINITE         steps=  6000 nu_t/nu_mol p50=11516.6 p99=20064.1 cells=72 strainRatio=14.4776 omega+=1.97244 omega-=0.0365479 
+reg=on norm=spec om=raised(1)      FINITE         steps=  6000 nu_t/nu_mol p50=11516.6 p99=20064.1 cells=72 strainRatio=14.4776 omega+=1.97244 omega-=1.00000 
+reg=off norm=legacy om=derived     DIVERGED@806   steps=   806 nu_t/nu_mol p50=56698.9 p99=120591 cells=72 strainRatio=4.94094 omega+=1.89583 omega-=0.136266 
+reg=off norm=legacy om=raised(1)   FINITE         steps=  6000 nu_t/nu_mol p50=12601.4 p99=22504.7 cells=72 strainRatio=6.45481 omega+=1.97185 omega-=1.00000 
+reg=off norm=spec om=derived       DIVERGED@351   steps=   351 nu_t/nu_mol p50=30562.2 p99=101769 cells=72 strainRatio=3.59363 omega+=1.93156 omega-=0.0898570 
+reg=off norm=spec om=raised(1)     FINITE         steps=  6000 nu_t/nu_mol p50=9328.82 p99=21388.2 cells=72 strainRatio=4.55852 omega+=1.97857 omega-=1.00000 
+
+# PROBE SCENE 24x16x14, budget 4000
+reg=on norm=legacy om=derived      FINITE         steps=  4000 nu_t/nu_mol p50=5331.51 p99=14646.5 cells=1440 strainRatio=25.0307 omega+=1.98713 omega-=0.0171072 
+reg=on norm=legacy om=raised(1)    FINITE         steps=  4000 nu_t/nu_mol p50=5331.51 p99=14646.5 cells=1440 strainRatio=25.0307 omega+=1.98713 omega-=1.00000 
+reg=on norm=spec om=derived        FINITE         steps=  4000 nu_t/nu_mol p50=5105.61 p99=14993.0 cells=1440 strainRatio=22.8619 omega+=1.98768 omega-=0.0163833 
+reg=on norm=spec om=raised(1)      FINITE         steps=  4000 nu_t/nu_mol p50=5105.61 p99=14993.0 cells=1440 strainRatio=22.8619 omega+=1.98768 omega-=1.00000 
+reg=off norm=legacy om=derived     DIVERGED@697   steps=   697 nu_t/nu_mol p50=11654.7 p99=52177.3 cells=1440 strainRatio=4.63629 omega+=1.96712 omega-=0.0434645 
+reg=off norm=legacy om=raised(1)   FINITE         steps=  4000 nu_t/nu_mol p50=5530.20 p99=11082.6 cells=1440 strainRatio=5.15692 omega+=1.98707 omega-=1.00000 
+reg=off norm=spec om=derived       DIVERGED@390   steps=   390 nu_t/nu_mol p50=11454.0 p99=103048 cells=1440 strainRatio=3.17067 omega+=1.95555 omega-=0.0583102 
+reg=off norm=spec om=raised(1)     FINITE         steps=  4000 nu_t/nu_mol p50=5841.91 p99=16091.0 cells=1440 strainRatio=4.83972 omega+=1.98506 omega-=1.00000 
+
+# PROBE SCENE, budget 20000 (flow-through matched)
+reg=on norm=legacy om=derived      FINITE         steps= 20000 nu_t/nu_mol p50=5286.39 p99=14370.5 cells=1440 strainRatio=22.3943 omega+=1.98713 omega-=0.0171083 
+reg=on norm=legacy om=raised(1)    FINITE         steps= 20000 nu_t/nu_mol p50=5286.39 p99=14370.5 cells=1440 strainRatio=22.3943 omega+=1.98713 omega-=1.00000 
+reg=on norm=spec om=derived        FINITE         steps= 20000 nu_t/nu_mol p50=5344.29 p99=13879.8 cells=1440 strainRatio=28.5995 omega+=1.98721 omega-=0.0170013 
+reg=on norm=spec om=raised(1)      FINITE         steps= 20000 nu_t/nu_mol p50=5344.29 p99=13879.8 cells=1440 strainRatio=28.5995 omega+=1.98721 omega-=1.00000 
+reg=off norm=legacy om=derived     DIVERGED@697   steps=   697 nu_t/nu_mol p50=NaN p99=NaN cells=0 strainRatio=NaN omega+=NaN omega-=NaN 
+reg=off norm=legacy om=raised(1)   FINITE         steps= 20000 nu_t/nu_mol p50=5880.54 p99=13513.7 cells=1440 strainRatio=6.61726 omega+=1.98634 omega-=1.00000 
+reg=off norm=spec om=derived       DIVERGED@390   steps=   390 nu_t/nu_mol p50=NaN p99=NaN cells=0 strainRatio=NaN omega+=NaN omega-=NaN 
+reg=off norm=spec om=raised(1)     FINITE         steps= 20000 nu_t/nu_mol p50=4533.00 p99=11790.3 cells=1440 strainRatio=5.44249 omega+=1.98804 omega-=1.00000 

@@ -1,0 +1,8 @@
+reg=on norm=legacy om=derived      FINITE   steps= 4000 nu_t/nu_mol p50=5331.51 p99=14646.5 strainRatio=25.0307 omega+=1.98713 omega-=0.0171072 
+reg=on norm=legacy om=raised(1)    FINITE   steps= 4000 nu_t/nu_mol p50=5331.51 p99=14646.5 strainRatio=25.0307 omega+=1.98713 omega-=1.00000 
+reg=on norm=spec om=derived        FINITE   steps= 4000 nu_t/nu_mol p50=5105.61 p99=14993.0 strainRatio=22.8619 omega+=1.98768 omega-=0.0163833 
+reg=on norm=spec om=raised(1)      FINITE   steps= 4000 nu_t/nu_mol p50=5105.61 p99=14993.0 strainRatio=22.8619 omega+=1.98768 omega-=1.00000 
+reg=off norm=legacy om=derived     DIVERGED@697 steps=  697 nu_t/nu_mol p50=11654.7 p99=52177.3 strainRatio=4.63629 omega+=1.96712 omega-=0.0434645 
+reg=off norm=legacy om=raised(1)   FINITE   steps= 4000 nu_t/nu_mol p50=5530.20 p99=11082.6 strainRatio=5.15692 omega+=1.98707 omega-=1.00000 
+reg=off norm=spec om=derived       DIVERGED@390 steps=  390 nu_t/nu_mol p50=11454.0 p99=103048 strainRatio=3.17067 omega+=1.95555 omega-=0.0583102 
+reg=off norm=spec om=raised(1)     FINITE   steps= 4000 nu_t/nu_mol p50=5841.91 p99=16091.0 strainRatio=4.83972 omega+=1.98506 omega-=1.00000 

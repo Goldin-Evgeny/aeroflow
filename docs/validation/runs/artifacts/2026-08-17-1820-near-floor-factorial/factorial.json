@@ -1,0 +1,1252 @@
+{
+  "completedAtUtc": "2026-08-17T15:21:29.703Z",
+  "predictions": {
+    "statedBefore": "Written to disk before the first arm executes; see runFactorial().",
+    "d1Result": "The ω⁻-inertness null test returned BIT-IDENTICAL over a Λ sweep (Λ = 3/16 vs 3, regularize:true, 300 steps, 0 of 13,300 populations differing), so mechanism (A) cannot operate in any regularize:true arm. The two ω⁻ arms in the regularize:true half are therefore predicted DYNAMICALLY identical, and are kept as a regression detector for that invariant (task 4.3).",
+    "d1Qualification": "Measured while building this harness, and NOT known when D1 was run: the projection is even exactly, but is reconstructed as fl(f_eq + 4.5·w·Q:Π), and the two roundings of an opposite-direction pair do not cancel — leaving an O(ulp) antisymmetric residual that ω⁻ multiplies. On this scene at 20 steps it changes NO population for ω⁻ ∈ {1e-3, 1e-2, 0.1, 0.5} and changes populations at the 1e-15 relative level for ω⁻ ∈ {1.0, 1.9}: a threshold at ω⁻ ≈ 1, where ω⁻ × (½-ulp-scale residual) first reaches half an ulp of the population. The raised arm here uses ω⁻ = 1.0, i.e. just above that threshold, so its regularize:true half is expected to agree to rounding, not bit for bit. This is a roundoff-magnitude effect and carries no dynamical content; it does not reinstate mechanism (A).",
+    "hypotheses": [
+      {
+        "mechanism": "(A) ω⁻ collapse",
+        "raisingOmegaMinusWithRegularizeOff": "stabilizes, and freestream ν_t falls",
+        "regularizeOffAtLesNormSpec": "still unstable — regularization was not the cause"
+      },
+      {
+        "mechanism": "(B) projected-regularization anti-dissipation",
+        "raisingOmegaMinusWithRegularizeOff": "no effect on stability",
+        "regularizeOffAtLesNormSpec": "stabilizes — the projection was the cause"
+      },
+      {
+        "mechanism": "Both, additively",
+        "raisingOmegaMinusWithRegularizeOff": "partial improvement",
+        "regularizeOffAtLesNormSpec": "partial improvement"
+      },
+      {
+        "mechanism": "Neither",
+        "raisingOmegaMinusWithRegularizeOff": "no effect",
+        "regularizeOffAtLesNormSpec": "no effect — a third mechanism is indicated"
+      }
+    ],
+    "invariant": "Every regularize:true arm must be bit-identical across its two ω⁻ settings. A difference there falsifies the D1 null test and outranks everything else in this factorial."
+  },
+  "configuration": {
+    "tau0": 0.5000005,
+    "cs": 0.1,
+    "lesK": 0.25455844122715715,
+    "inletVelocity": 0.05,
+    "collision": "trt",
+    "conserveMass": true,
+    "outlet": "pressure",
+    "freeSlip": {
+      "yMax": true,
+      "zMin": true,
+      "zMax": true
+    },
+    "scene": {
+      "nx": 24,
+      "ny": 16,
+      "nz": 14
+    },
+    "cellCount": 5376,
+    "exclusionDistance": 3,
+    "omegaMinusRaised": 1,
+    "stepBudget": 4000,
+    "sampleInterval": 250
+  },
+  "cells": [
+    {
+      "arm": {
+        "regularize": true,
+        "lesNorm": "legacy",
+        "omegaMinusRaised": false
+      },
+      "label": "reg=on norm=legacy om=derived",
+      "finite": true,
+      "divergenceStep": null,
+      "stepsCompleted": 4000,
+      "lastSample": {
+        "step": 4000,
+        "rhoMean": 1.000090086837476,
+        "rhoMin": 0.9972503664175255,
+        "rhoMax": 1.006431716201628,
+        "maxSpeed": 0.07265193809189922,
+        "freestream": {
+          "exclusionDistance": 3,
+          "tau0": 0.5000005,
+          "molecularViscosity": 1.6666666665295557e-7,
+          "totalCells": 5376,
+          "evaluatedCells": 3696,
+          "excludedByBoundaryDistance": 2256,
+          "invalidCells": 0,
+          "survivingCells": 1440,
+          "ratio": {
+            "cells": 1440,
+            "min": 1371.6967423469857,
+            "mean": 6050.195416489324,
+            "p50": 5331.5066446596,
+            "p95": 11955.617420838505,
+            "p99": 14646.475889818923,
+            "max": 14816.836113831794
+          },
+          "fractionAboveMolecular": 1,
+          "byBoundaryDistance": [
+            {
+              "distance": 3,
+              "cells": 672,
+              "meanRatio": 6162.610461827602
+            },
+            {
+              "distance": 4,
+              "cells": 432,
+              "meanRatio": 5997.022739498197
+            },
+            {
+              "distance": 5,
+              "cells": 240,
+              "meanRatio": 5931.602044017283
+            },
+            {
+              "distance": 6,
+              "cells": 96,
+              "meanRatio": 5799.050576761478
+            }
+          ]
+        },
+        "medianRatioSlope": 25.030673381075342,
+        "omegaPlus": {
+          "min": 1.9563723190936213,
+          "mean": 1.9871307363044939,
+          "max": 1.9972583699421806
+        },
+        "omegaMinus": {
+          "min": 0.00365383716545925,
+          "mean": 0.017107201962389573,
+          "max": 0.05775032243526398
+        }
+      },
+      "samples": [
+        {
+          "step": 250,
+          "rhoMean": 1.0170077965429212,
+          "maxSpeed": 0.09435864438862715,
+          "freestreamP50": 269.092450062502
+        },
+        {
+          "step": 500,
+          "rhoMean": 0.9816873957707285,
+          "maxSpeed": 0.0685758900610121,
+          "freestreamP50": 586.0259982548844
+        },
+        {
+          "step": 750,
+          "rhoMean": 1.0196321945478695,
+          "maxSpeed": 0.08698528317090905,
+          "freestreamP50": 2255.123142510199
+        },
+        {
+          "step": 1000,
+          "rhoMean": 0.9832555704716176,
+          "maxSpeed": 0.06838854387201523,
+          "freestreamP50": 4469.600764815722
+        },
+        {
+          "step": 1250,
+          "rhoMean": 1.0154023778867431,
+          "maxSpeed": 0.07771157150126501,
+          "freestreamP50": 4073.3250917006967
+        },
+        {
+          "step": 1500,
+          "rhoMean": 0.9886823684241084,
+          "maxSpeed": 0.07123665584788663,
+          "freestreamP50": 5876.71090118309
+        },
+        {
+          "step": 1750,
+          "rhoMean": 1.009995823179895,
+          "maxSpeed": 0.07318214868232954,
+          "freestreamP50": 4974.889569478597
+        },
+        {
+          "step": 2000,
+          "rhoMean": 0.9931568645990799,
+          "maxSpeed": 0.07236223354608824,
+          "freestreamP50": 5659.332430936583
+        },
+        {
+          "step": 2250,
+          "rhoMean": 1.005935375945315,
+          "maxSpeed": 0.0723429481935935,
+          "freestreamP50": 5150.8438822248345
+        },
+        {
+          "step": 2500,
+          "rhoMean": 0.9963888810605388,
+          "maxSpeed": 0.0727868673240553,
+          "freestreamP50": 5528.585779275579
+        },
+        {
+          "step": 2750,
+          "rhoMean": 1.0032977747609098,
+          "maxSpeed": 0.07211815962216783,
+          "freestreamP50": 5209.6231694834005
+        },
+        {
+          "step": 3000,
+          "rhoMean": 0.9984021633533255,
+          "maxSpeed": 0.07277803985720305,
+          "freestreamP50": 5424.833374538113
+        },
+        {
+          "step": 3250,
+          "rhoMean": 1.0017600990384543,
+          "maxSpeed": 0.07209715847686801,
+          "freestreamP50": 5253.457146178727
+        },
+        {
+          "step": 3500,
+          "rhoMean": 0.9995239904153935,
+          "maxSpeed": 0.07271521821431444,
+          "freestreamP50": 5363.3296350963565
+        },
+        {
+          "step": 3750,
+          "rhoMean": 1.0009486711824893,
+          "maxSpeed": 0.07220708844157218,
+          "freestreamP50": 5285.53795815007
+        },
+        {
+          "step": 4000,
+          "rhoMean": 1.000090086837476,
+          "maxSpeed": 0.07265193809189922,
+          "freestreamP50": 5331.5066446596
+        }
+      ],
+      "wallClockMs": 10260,
+      "error": null
+    },
+    {
+      "arm": {
+        "regularize": true,
+        "lesNorm": "legacy",
+        "omegaMinusRaised": true
+      },
+      "label": "reg=on norm=legacy om=raised(1)",
+      "finite": true,
+      "divergenceStep": null,
+      "stepsCompleted": 4000,
+      "lastSample": {
+        "step": 4000,
+        "rhoMean": 1.000090086837476,
+        "rhoMin": 0.9972503664175254,
+        "rhoMax": 1.0064317162016279,
+        "maxSpeed": 0.0726519380918992,
+        "freestream": {
+          "exclusionDistance": 3,
+          "tau0": 0.5000005,
+          "molecularViscosity": 1.6666666665295557e-7,
+          "totalCells": 5376,
+          "evaluatedCells": 3696,
+          "excludedByBoundaryDistance": 2256,
+          "invalidCells": 0,
+          "survivingCells": 1440,
+          "ratio": {
+            "cells": 1440,
+            "min": 1371.6967423469857,
+            "mean": 6050.195416489328,
+            "p50": 5331.5066446596,
+            "p95": 11955.617420838505,
+            "p99": 14646.475889818923,
+            "max": 14816.836113831794
+          },
+          "fractionAboveMolecular": 1,
+          "byBoundaryDistance": [
+            {
+              "distance": 3,
+              "cells": 672,
+              "meanRatio": 6162.610461827607
+            },
+            {
+              "distance": 4,
+              "cells": 432,
+              "meanRatio": 5997.0227394982
+            },
+            {
+              "distance": 5,
+              "cells": 240,
+              "meanRatio": 5931.602044017289
+            },
+            {
+              "distance": 6,
+              "cells": 96,
+              "meanRatio": 5799.050576761452
+            }
+          ]
+        },
+        "medianRatioSlope": 25.030673381076838,
+        "omegaPlus": {
+          "min": 1.9563723190936213,
+          "mean": 1.9871307363044939,
+          "max": 1.9972583699421806
+        },
+        "omegaMinus": {
+          "min": 1,
+          "mean": 1,
+          "max": 1
+        }
+      },
+      "samples": [
+        {
+          "step": 250,
+          "rhoMean": 1.0170077965429214,
+          "maxSpeed": 0.09435864438862805,
+          "freestreamP50": 269.092450062724
+        },
+        {
+          "step": 500,
+          "rhoMean": 0.9816873957707286,
+          "maxSpeed": 0.0685758900610127,
+          "freestreamP50": 586.025998252664
+        },
+        {
+          "step": 750,
+          "rhoMean": 1.0196321945478692,
+          "maxSpeed": 0.08698528317090408,
+          "freestreamP50": 2255.1231425104206
+        },
+        {
+          "step": 1000,
+          "rhoMean": 0.9832555704716177,
+          "maxSpeed": 0.06838854387201572,
+          "freestreamP50": 4469.600764815722
+        },
+        {
+          "step": 1250,
+          "rhoMean": 1.0154023778867425,
+          "maxSpeed": 0.07771157150126955,
+          "freestreamP50": 4073.325091701141
+        },
+        {
+          "step": 1500,
+          "rhoMean": 0.9886823684241087,
+          "maxSpeed": 0.07123665584788694,
+          "freestreamP50": 5876.710901182647
+        },
+        {
+          "step": 1750,
+          "rhoMean": 1.0099958231798947,
+          "maxSpeed": 0.07318214868232938,
+          "freestreamP50": 4974.889569478374
+        },
+        {
+          "step": 2000,
+          "rhoMean": 0.9931568645990805,
+          "maxSpeed": 0.07236223354608837,
+          "freestreamP50": 5659.332430936583
+        },
+        {
+          "step": 2250,
+          "rhoMean": 1.005935375945315,
+          "maxSpeed": 0.07234294819359376,
+          "freestreamP50": 5150.8438822248345
+        },
+        {
+          "step": 2500,
+          "rhoMean": 0.9963888810605387,
+          "maxSpeed": 0.07278686732405516,
+          "freestreamP50": 5528.585779275579
+        },
+        {
+          "step": 2750,
+          "rhoMean": 1.0032977747609095,
+          "maxSpeed": 0.07211815962216779,
+          "freestreamP50": 5209.6231694834005
+        },
+        {
+          "step": 3000,
+          "rhoMean": 0.9984021633533253,
+          "maxSpeed": 0.07277803985720305,
+          "freestreamP50": 5424.833374538113
+        },
+        {
+          "step": 3250,
+          "rhoMean": 1.001760099038454,
+          "maxSpeed": 0.0720971584768677,
+          "freestreamP50": 5253.457146178727
+        },
+        {
+          "step": 3500,
+          "rhoMean": 0.9995239904153933,
+          "maxSpeed": 0.07271521821431447,
+          "freestreamP50": 5363.3296350963565
+        },
+        {
+          "step": 3750,
+          "rhoMean": 1.000948671182489,
+          "maxSpeed": 0.07220708844157268,
+          "freestreamP50": 5285.53795815007
+        },
+        {
+          "step": 4000,
+          "rhoMean": 1.000090086837476,
+          "maxSpeed": 0.0726519380918992,
+          "freestreamP50": 5331.5066446596
+        }
+      ],
+      "wallClockMs": 10155,
+      "error": null
+    },
+    {
+      "arm": {
+        "regularize": true,
+        "lesNorm": "spec",
+        "omegaMinusRaised": false
+      },
+      "label": "reg=on norm=spec om=derived",
+      "finite": true,
+      "divergenceStep": null,
+      "stepsCompleted": 4000,
+      "lastSample": {
+        "step": 4000,
+        "rhoMean": 1.0001793792310862,
+        "rhoMin": 0.9969121653657621,
+        "rhoMax": 1.0076948136805381,
+        "maxSpeed": 0.08163087157593929,
+        "freestream": {
+          "exclusionDistance": 3,
+          "tau0": 0.5000005,
+          "molecularViscosity": 1.6666666665295557e-7,
+          "totalCells": 5376,
+          "evaluatedCells": 3696,
+          "excludedByBoundaryDistance": 2256,
+          "invalidCells": 0,
+          "survivingCells": 1440,
+          "ratio": {
+            "cells": 1440,
+            "min": 1282.6278385776232,
+            "mean": 5831.417176046325,
+            "p50": 5105.612064754707,
+            "p95": 11393.298801288624,
+            "p99": 14992.99264212702,
+            "max": 15770.487481405504
+          },
+          "fractionAboveMolecular": 1,
+          "byBoundaryDistance": [
+            {
+              "distance": 3,
+              "cells": 672,
+              "meanRatio": 5975.914284982873
+            },
+            {
+              "distance": 4,
+              "cells": 432,
+              "meanRatio": 5729.850843085021
+            },
+            {
+              "distance": 5,
+              "cells": 240,
+              "meanRatio": 5733.512678694946
+            },
+            {
+              "distance": 6,
+              "cells": 96,
+              "meanRatio": 5521.74715519485
+            }
+          ]
+        },
+        "medianRatioSlope": 22.861858776757984,
+        "omegaPlus": {
+          "min": 1.9518815447361049,
+          "mean": 1.9876755351702933,
+          "max": 1.9974579525881924
+        },
+        "omegaMinus": {
+          "min": 0.003387961156095411,
+          "mean": 0.0163833430751445,
+          "max": 0.06364750375815277
+        }
+      },
+      "samples": [
+        {
+          "step": 250,
+          "rhoMean": 1.0169882693863215,
+          "maxSpeed": 0.09683079513020629,
+          "freestreamP50": 204.71859712852756
+        },
+        {
+          "step": 500,
+          "rhoMean": 0.9820212954182616,
+          "maxSpeed": 0.07047500264462486,
+          "freestreamP50": 601.6733765194887
+        },
+        {
+          "step": 750,
+          "rhoMean": 1.0192231642879634,
+          "maxSpeed": 0.09136772101824225,
+          "freestreamP50": 2897.1563473479696
+        },
+        {
+          "step": 1000,
+          "rhoMean": 0.983602684398663,
+          "maxSpeed": 0.070980830577827,
+          "freestreamP50": 4445.520278687731
+        },
+        {
+          "step": 1250,
+          "rhoMean": 1.0152633276302832,
+          "maxSpeed": 0.08220865042833848,
+          "freestreamP50": 4186.070876578167
+        },
+        {
+          "step": 1500,
+          "rhoMean": 0.9891766602739499,
+          "maxSpeed": 0.0738224518583663,
+          "freestreamP50": 5952.778898842598
+        },
+        {
+          "step": 1750,
+          "rhoMean": 1.0097242863412697,
+          "maxSpeed": 0.07495152987226547,
+          "freestreamP50": 4902.860533141037
+        },
+        {
+          "step": 2000,
+          "rhoMean": 0.9934256936181938,
+          "maxSpeed": 0.07515249646975797,
+          "freestreamP50": 5781.779936529424
+        },
+        {
+          "step": 2250,
+          "rhoMean": 1.00586294260981,
+          "maxSpeed": 0.07627711428120472,
+          "freestreamP50": 5125.098558802682
+        },
+        {
+          "step": 2500,
+          "rhoMean": 0.9966539739221624,
+          "maxSpeed": 0.07867945230733893,
+          "freestreamP50": 5190.422494488762
+        },
+        {
+          "step": 2750,
+          "rhoMean": 1.003427054961262,
+          "maxSpeed": 0.07979262072824146,
+          "freestreamP50": 5118.611694029035
+        },
+        {
+          "step": 3000,
+          "rhoMean": 0.9985012370084324,
+          "maxSpeed": 0.08090242073736317,
+          "freestreamP50": 5116.75768566516
+        },
+        {
+          "step": 3250,
+          "rhoMean": 1.0019828651510194,
+          "maxSpeed": 0.08070826393385563,
+          "freestreamP50": 5030.810431118503
+        },
+        {
+          "step": 3500,
+          "rhoMean": 0.9996097519044586,
+          "maxSpeed": 0.0816785096866063,
+          "freestreamP50": 5157.321051048218
+        },
+        {
+          "step": 3750,
+          "rhoMean": 1.0011755841585446,
+          "maxSpeed": 0.08075310932877326,
+          "freestreamP50": 5026.851512587844
+        },
+        {
+          "step": 4000,
+          "rhoMean": 1.0001793792310862,
+          "maxSpeed": 0.08163087157593929,
+          "freestreamP50": 5105.612064754707
+        }
+      ],
+      "wallClockMs": 10334,
+      "error": null
+    },
+    {
+      "arm": {
+        "regularize": true,
+        "lesNorm": "spec",
+        "omegaMinusRaised": true
+      },
+      "label": "reg=on norm=spec om=raised(1)",
+      "finite": true,
+      "divergenceStep": null,
+      "stepsCompleted": 4000,
+      "lastSample": {
+        "step": 4000,
+        "rhoMean": 1.0001793792310862,
+        "rhoMin": 0.9969121653657655,
+        "rhoMax": 1.0076948136805381,
+        "maxSpeed": 0.08163087157593951,
+        "freestream": {
+          "exclusionDistance": 3,
+          "tau0": 0.5000005,
+          "molecularViscosity": 1.6666666665295557e-7,
+          "totalCells": 5376,
+          "evaluatedCells": 3696,
+          "excludedByBoundaryDistance": 2256,
+          "invalidCells": 0,
+          "survivingCells": 1440,
+          "ratio": {
+            "cells": 1440,
+            "min": 1282.627838576957,
+            "mean": 5831.417176046501,
+            "p50": 5105.612064754485,
+            "p95": 11393.298801288403,
+            "p99": 14992.99264212702,
+            "max": 15770.487481405504
+          },
+          "fractionAboveMolecular": 1,
+          "byBoundaryDistance": [
+            {
+              "distance": 3,
+              "cells": 672,
+              "meanRatio": 5975.914284982943
+            },
+            {
+              "distance": 4,
+              "cells": 432,
+              "meanRatio": 5729.850843085221
+            },
+            {
+              "distance": 5,
+              "cells": 240,
+              "meanRatio": 5733.512678695375
+            },
+            {
+              "distance": 6,
+              "cells": 96,
+              "meanRatio": 5521.747155195026
+            }
+          ]
+        },
+        "medianRatioSlope": 22.86185877675518,
+        "omegaPlus": {
+          "min": 1.9518815447361055,
+          "mean": 1.9876755351702928,
+          "max": 1.997457952588192
+        },
+        "omegaMinus": {
+          "min": 1,
+          "mean": 1,
+          "max": 1
+        }
+      },
+      "samples": [
+        {
+          "step": 250,
+          "rhoMean": 1.0169882693863215,
+          "maxSpeed": 0.09683079513020729,
+          "freestreamP50": 204.71859712830553
+        },
+        {
+          "step": 500,
+          "rhoMean": 0.9820212954182618,
+          "maxSpeed": 0.07047500264462517,
+          "freestreamP50": 601.6733765199327
+        },
+        {
+          "step": 750,
+          "rhoMean": 1.0192231642879634,
+          "maxSpeed": 0.09136772101824336,
+          "freestreamP50": 2897.156347348858
+        },
+        {
+          "step": 1000,
+          "rhoMean": 0.9836026843986628,
+          "maxSpeed": 0.0709808305778272,
+          "freestreamP50": 4445.520278688175
+        },
+        {
+          "step": 1250,
+          "rhoMean": 1.0152633276302834,
+          "maxSpeed": 0.08220865042834091,
+          "freestreamP50": 4186.0708765795
+        },
+        {
+          "step": 1500,
+          "rhoMean": 0.9891766602739501,
+          "maxSpeed": 0.07382245185836604,
+          "freestreamP50": 5952.778898842598
+        },
+        {
+          "step": 1750,
+          "rhoMean": 1.009724286341269,
+          "maxSpeed": 0.07495152987226647,
+          "freestreamP50": 4902.860533141037
+        },
+        {
+          "step": 2000,
+          "rhoMean": 0.9934256936181937,
+          "maxSpeed": 0.07515249646975787,
+          "freestreamP50": 5781.7799365305345
+        },
+        {
+          "step": 2250,
+          "rhoMean": 1.0058629426098102,
+          "maxSpeed": 0.07627711428120436,
+          "freestreamP50": 5125.0985588024605
+        },
+        {
+          "step": 2500,
+          "rhoMean": 0.996653973922162,
+          "maxSpeed": 0.07867945230733876,
+          "freestreamP50": 5190.422494488984
+        },
+        {
+          "step": 2750,
+          "rhoMean": 1.0034270549612623,
+          "maxSpeed": 0.0797926207282415,
+          "freestreamP50": 5118.611694028813
+        },
+        {
+          "step": 3000,
+          "rhoMean": 0.9985012370084321,
+          "maxSpeed": 0.08090242073736283,
+          "freestreamP50": 5116.757685664273
+        },
+        {
+          "step": 3250,
+          "rhoMean": 1.0019828651510192,
+          "maxSpeed": 0.08070826393385597,
+          "freestreamP50": 5030.810431118503
+        },
+        {
+          "step": 3500,
+          "rhoMean": 0.9996097519044586,
+          "maxSpeed": 0.08167850968660567,
+          "freestreamP50": 5157.32105104844
+        },
+        {
+          "step": 3750,
+          "rhoMean": 1.0011755841585441,
+          "maxSpeed": 0.08075310932877322,
+          "freestreamP50": 5026.8515125874
+        },
+        {
+          "step": 4000,
+          "rhoMean": 1.0001793792310862,
+          "maxSpeed": 0.08163087157593951,
+          "freestreamP50": 5105.612064754485
+        }
+      ],
+      "wallClockMs": 10240,
+      "error": null
+    },
+    {
+      "arm": {
+        "regularize": false,
+        "lesNorm": "legacy",
+        "omegaMinusRaised": false
+      },
+      "label": "reg=off norm=legacy om=derived",
+      "finite": false,
+      "divergenceStep": 697,
+      "stepsCompleted": 697,
+      "lastSample": {
+        "step": 500,
+        "rhoMean": 0.9874348477019086,
+        "rhoMin": 0.9481483520633868,
+        "rhoMax": 1.0297394915271236,
+        "maxSpeed": 0.4263822725271736,
+        "freestream": {
+          "exclusionDistance": 3,
+          "tau0": 0.5000005,
+          "molecularViscosity": 1.6666666665295557e-7,
+          "totalCells": 5376,
+          "evaluatedCells": 3696,
+          "excludedByBoundaryDistance": 2256,
+          "invalidCells": 0,
+          "survivingCells": 1440,
+          "ratio": {
+            "cells": 1440,
+            "min": 2895.4296723222014,
+            "mean": 15078.513171533583,
+            "p50": 11654.726421170164,
+            "p95": 35039.36212943535,
+            "p99": 52177.255016812574,
+            "max": 69155.91939503417
+          },
+          "fractionAboveMolecular": 1,
+          "byBoundaryDistance": [
+            {
+              "distance": 3,
+              "cells": 672,
+              "meanRatio": 16465.232177701168
+            },
+            {
+              "distance": 4,
+              "cells": 432,
+              "meanRatio": 14664.79735703073
+            },
+            {
+              "distance": 5,
+              "cells": 240,
+              "meanRatio": 13278.725281770498
+            },
+            {
+              "distance": 6,
+              "cells": 96,
+              "meanRatio": 11732.671018031235
+            }
+          ]
+        },
+        "medianRatioSlope": 4.636286333515851,
+        "omegaPlus": {
+          "min": 1.712497447144937,
+          "mean": 1.967124800949948,
+          "max": 1.995782470658925
+        },
+        "omegaMinus": {
+          "min": 0.005619422441595662,
+          "mean": 0.04346448879968086,
+          "max": 0.36580826862584703
+        }
+      },
+      "samples": [
+        {
+          "step": 250,
+          "rhoMean": 1.0119220402928835,
+          "maxSpeed": 0.4698873267853258,
+          "freestreamP50": 2792.337231716135
+        },
+        {
+          "step": 500,
+          "rhoMean": 0.9874348477019086,
+          "maxSpeed": 0.4263822725271736,
+          "freestreamP50": 11654.726421170164
+        }
+      ],
+      "wallClockMs": 1650,
+      "error": null
+    },
+    {
+      "arm": {
+        "regularize": false,
+        "lesNorm": "legacy",
+        "omegaMinusRaised": true
+      },
+      "label": "reg=off norm=legacy om=raised(1)",
+      "finite": true,
+      "divergenceStep": null,
+      "stepsCompleted": 4000,
+      "lastSample": {
+        "step": 4000,
+        "rhoMean": 1.001283154125964,
+        "rhoMin": 0.9969458429666362,
+        "rhoMax": 1.0147788170937229,
+        "maxSpeed": 0.08097812046347008,
+        "freestream": {
+          "exclusionDistance": 3,
+          "tau0": 0.5000005,
+          "molecularViscosity": 1.6666666665295557e-7,
+          "totalCells": 5376,
+          "evaluatedCells": 3696,
+          "excludedByBoundaryDistance": 2256,
+          "invalidCells": 0,
+          "survivingCells": 1440,
+          "ratio": {
+            "cells": 1440,
+            "min": 1310.3391215399884,
+            "mean": 5779.567029485283,
+            "p50": 5530.1981867863315,
+            "p95": 9318.84803482621,
+            "p99": 11082.569978350564,
+            "max": 13602.937561773848
+          },
+          "fractionAboveMolecular": 1,
+          "byBoundaryDistance": [
+            {
+              "distance": 3,
+              "cells": 672,
+              "meanRatio": 6084.237504849076
+            },
+            {
+              "distance": 4,
+              "cells": 432,
+              "meanRatio": 5579.597922071949
+            },
+            {
+              "distance": 5,
+              "cells": 240,
+              "meanRatio": 5486.060669282442
+            },
+            {
+              "distance": 6,
+              "cells": 96,
+              "meanRatio": 5280.50058580591
+            }
+          ]
+        },
+        "medianRatioSlope": 5.156924457849599,
+        "omegaPlus": {
+          "min": 1.952014791262323,
+          "mean": 1.9870692222274897,
+          "max": 1.9973807564736406
+        },
+        "omegaMinus": {
+          "min": 1,
+          "mean": 1,
+          "max": 1
+        }
+      },
+      "samples": [
+        {
+          "step": 250,
+          "rhoMean": 1.016873785276642,
+          "maxSpeed": 0.09552590748987204,
+          "freestreamP50": 734.7782977230004
+        },
+        {
+          "step": 500,
+          "rhoMean": 0.9815891558613423,
+          "maxSpeed": 0.07061427496509008,
+          "freestreamP50": 2030.3504743788806
+        },
+        {
+          "step": 750,
+          "rhoMean": 1.0200958564850549,
+          "maxSpeed": 0.09361984206757634,
+          "freestreamP50": 3682.9044957465976
+        },
+        {
+          "step": 1000,
+          "rhoMean": 0.9878136333609195,
+          "maxSpeed": 0.08604935323186838,
+          "freestreamP50": 4958.783578781258
+        },
+        {
+          "step": 1250,
+          "rhoMean": 1.0104737354382092,
+          "maxSpeed": 0.08997535962854845,
+          "freestreamP50": 4541.891742835203
+        },
+        {
+          "step": 1500,
+          "rhoMean": 0.9932267313179366,
+          "maxSpeed": 0.080126210199569,
+          "freestreamP50": 4691.314797419935
+        },
+        {
+          "step": 1750,
+          "rhoMean": 1.0052113654332901,
+          "maxSpeed": 0.08519609658732295,
+          "freestreamP50": 6104.752766173235
+        },
+        {
+          "step": 2000,
+          "rhoMean": 0.9997900755822015,
+          "maxSpeed": 0.08090055305342009,
+          "freestreamP50": 5699.229973378581
+        },
+        {
+          "step": 2250,
+          "rhoMean": 1.0015566931757278,
+          "maxSpeed": 0.08814260957749101,
+          "freestreamP50": 4768.547259533068
+        },
+        {
+          "step": 2500,
+          "rhoMean": 1.0011894599718747,
+          "maxSpeed": 0.09429782892660815,
+          "freestreamP50": 4260.253781260028
+        },
+        {
+          "step": 2750,
+          "rhoMean": 1.0014853879679055,
+          "maxSpeed": 0.094970135313951,
+          "freestreamP50": 5218.177975366237
+        },
+        {
+          "step": 3000,
+          "rhoMean": 1.0004694040043143,
+          "maxSpeed": 0.08421712819949112,
+          "freestreamP50": 5525.70279912451
+        },
+        {
+          "step": 3250,
+          "rhoMean": 1.0018216427212456,
+          "maxSpeed": 0.09671915472132056,
+          "freestreamP50": 6000.395572177935
+        },
+        {
+          "step": 3500,
+          "rhoMean": 1.0009706298582182,
+          "maxSpeed": 0.08311615955504563,
+          "freestreamP50": 5392.536939846629
+        },
+        {
+          "step": 3750,
+          "rhoMean": 1.0012072136063188,
+          "maxSpeed": 0.0842928083071826,
+          "freestreamP50": 5646.787315605886
+        },
+        {
+          "step": 4000,
+          "rhoMean": 1.001283154125964,
+          "maxSpeed": 0.08097812046347008,
+          "freestreamP50": 5530.1981867863315
+        }
+      ],
+      "wallClockMs": 9473,
+      "error": null
+    },
+    {
+      "arm": {
+        "regularize": false,
+        "lesNorm": "spec",
+        "omegaMinusRaised": false
+      },
+      "label": "reg=off norm=spec om=derived",
+      "finite": false,
+      "divergenceStep": 390,
+      "stepsCompleted": 390,
+      "lastSample": {
+        "step": 250,
+        "rhoMean": 1.0027027355552507,
+        "rhoMin": 0.7506725045412539,
+        "rhoMax": 1.283496638329453,
+        "maxSpeed": 0.9975909107351557,
+        "freestream": {
+          "exclusionDistance": 3,
+          "tau0": 0.5000005,
+          "molecularViscosity": 1.6666666665295557e-7,
+          "totalCells": 5376,
+          "evaluatedCells": 3696,
+          "excludedByBoundaryDistance": 2256,
+          "invalidCells": 0,
+          "survivingCells": 1440,
+          "ratio": {
+            "cells": 1440,
+            "min": 286.94238143296656,
+            "mean": 21454.547735208642,
+            "p50": 11454.01192776744,
+            "p95": 66850.94148425086,
+            "p99": 103048.34360052005,
+            "max": 196492.30028897082
+          },
+          "fractionAboveMolecular": 1,
+          "byBoundaryDistance": [
+            {
+              "distance": 3,
+              "cells": 672,
+              "meanRatio": 23563.8449698907
+            },
+            {
+              "distance": 4,
+              "cells": 432,
+              "meanRatio": 21293.114131687576
+            },
+            {
+              "distance": 5,
+              "cells": 240,
+              "meanRatio": 18509.650571219394
+            },
+            {
+              "distance": 6,
+              "cells": 96,
+              "meanRatio": 14778.161218252726
+            }
+          ]
+        },
+        "medianRatioSlope": 3.1706652311314554,
+        "omegaPlus": {
+          "min": 1.459582188870469,
+          "mean": 1.9555453163174508,
+          "max": 1.9997348082181787
+        },
+        "omegaMinus": {
+          "min": 0.00035357341496759624,
+          "mean": 0.058310194364478415,
+          "max": 0.6610193131208549
+        }
+      },
+      "samples": [
+        {
+          "step": 250,
+          "rhoMean": 1.0027027355552507,
+          "maxSpeed": 0.9975909107351557,
+          "freestreamP50": 11454.01192776744
+        }
+      ],
+      "wallClockMs": 933,
+      "error": null
+    },
+    {
+      "arm": {
+        "regularize": false,
+        "lesNorm": "spec",
+        "omegaMinusRaised": true
+      },
+      "label": "reg=off norm=spec om=raised(1)",
+      "finite": true,
+      "divergenceStep": null,
+      "stepsCompleted": 4000,
+      "lastSample": {
+        "step": 4000,
+        "rhoMean": 1.0043178613096475,
+        "rhoMin": 0.9814356124340977,
+        "rhoMax": 1.0260772241381624,
+        "maxSpeed": 0.20509219741546028,
+        "freestream": {
+          "exclusionDistance": 3,
+          "tau0": 0.5000005,
+          "molecularViscosity": 1.6666666665295557e-7,
+          "totalCells": 5376,
+          "evaluatedCells": 3696,
+          "excludedByBoundaryDistance": 2256,
+          "invalidCells": 0,
+          "survivingCells": 1440,
+          "ratio": {
+            "cells": 1440,
+            "min": 1300.8909530951516,
+            "mean": 6587.872063476419,
+            "p50": 5841.913302205716,
+            "p95": 12578.74206855622,
+            "p99": 16091.020486360165,
+            "max": 25566.61033063408
+          },
+          "fractionAboveMolecular": 1,
+          "byBoundaryDistance": [
+            {
+              "distance": 3,
+              "cells": 672,
+              "meanRatio": 7217.965578453694
+            },
+            {
+              "distance": 4,
+              "cells": 432,
+              "meanRatio": 6539.4843591710305
+            },
+            {
+              "distance": 5,
+              "cells": 240,
+              "meanRatio": 5719.009986860671
+            },
+            {
+              "distance": 6,
+              "cells": 96,
+              "meanRatio": 4567.117319549208
+            }
+          ]
+        },
+        "medianRatioSlope": 4.839717292581391,
+        "omegaPlus": {
+          "min": 1.928308598316072,
+          "mean": 1.9850605934528083,
+          "max": 1.9974845030162358
+        },
+        "omegaMinus": {
+          "min": 1,
+          "mean": 1,
+          "max": 1
+        }
+      },
+      "samples": [
+        {
+          "step": 250,
+          "rhoMean": 1.016829421513508,
+          "maxSpeed": 0.09564934906663317,
+          "freestreamP50": 584.6864644286907
+        },
+        {
+          "step": 500,
+          "rhoMean": 0.9817211675414228,
+          "maxSpeed": 0.0788851455066294,
+          "freestreamP50": 2472.061188023986
+        },
+        {
+          "step": 750,
+          "rhoMean": 1.0186327464569764,
+          "maxSpeed": 0.10952932999414643,
+          "freestreamP50": 3610.554936291409
+        },
+        {
+          "step": 1000,
+          "rhoMean": 0.9932080561315332,
+          "maxSpeed": 0.11790472282421904,
+          "freestreamP50": 3947.352622769679
+        },
+        {
+          "step": 1250,
+          "rhoMean": 1.0147588098387281,
+          "maxSpeed": 0.13034684725855586,
+          "freestreamP50": 6459.390980230446
+        },
+        {
+          "step": 1500,
+          "rhoMean": 0.9993936760274151,
+          "maxSpeed": 0.14867394079221435,
+          "freestreamP50": 5845.782675301522
+        },
+        {
+          "step": 1750,
+          "rhoMean": 1.0097906083643255,
+          "maxSpeed": 0.2434901915047079,
+          "freestreamP50": 6000.39607094141
+        },
+        {
+          "step": 2000,
+          "rhoMean": 1.0003982066674966,
+          "maxSpeed": 0.15991850074682679,
+          "freestreamP50": 4508.060893706526
+        },
+        {
+          "step": 2250,
+          "rhoMean": 1.004456830085132,
+          "maxSpeed": 0.12607198427640776,
+          "freestreamP50": 4192.355333098308
+        },
+        {
+          "step": 2500,
+          "rhoMean": 0.9986573826737485,
+          "maxSpeed": 0.12417503404421759,
+          "freestreamP50": 5844.702857214487
+        },
+        {
+          "step": 2750,
+          "rhoMean": 1.0049101077489622,
+          "maxSpeed": 0.14125971688848038,
+          "freestreamP50": 5912.756765925098
+        },
+        {
+          "step": 3000,
+          "rhoMean": 1.0049460176512348,
+          "maxSpeed": 0.10697880712660579,
+          "freestreamP50": 6185.187570790249
+        },
+        {
+          "step": 3250,
+          "rhoMean": 1.0034414442258885,
+          "maxSpeed": 0.15065876162229053,
+          "freestreamP50": 5712.105020783411
+        },
+        {
+          "step": 3500,
+          "rhoMean": 1.0036902609791587,
+          "maxSpeed": 0.19431071038924572,
+          "freestreamP50": 5332.319932775187
+        },
+        {
+          "step": 3750,
+          "rhoMean": 1.0042110150661456,
+          "maxSpeed": 0.10396217955855956,
+          "freestreamP50": 4993.535030204628
+        },
+        {
+          "step": 4000,
+          "rhoMean": 1.0043178613096475,
+          "maxSpeed": 0.20509219741546028,
+          "freestreamP50": 5841.913302205716
+        }
+      ],
+      "wallClockMs": 9510,
+      "error": null
+    }
+  ],
+  "totalWallClockMs": 62555
+}

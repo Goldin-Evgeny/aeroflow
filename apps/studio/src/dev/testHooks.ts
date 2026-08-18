@@ -1,7 +1,8 @@
 import type { ParityReport } from './parity';
 import type { BenchRow } from '../ui/benchmark';
 import type { AhmedWorkerEvent } from '../sim/ahmedRun';
-import type { SphereCaseName, LateralBC } from '@aeroflow/core';
+import type { AijUrbanReport, PhaseWindow, SphereCaseName, LateralBC } from '@aeroflow/core';
+import type { AijUrbanHealthSnapshot } from '../sim/cases/aijUrban';
 import type { CheckpointParityResult } from '../sim/checkpointParity';
 import type { TauOracleCheckResult } from '../sim/tauOracleCheck';
 import type {
@@ -106,6 +107,22 @@ export interface AeroflowHooks {
     /** Grid below the spec's ≥16 cells/b ⇒ no pass/fail verdict is printed. */
     underResolved?: boolean;
     totalSteps?: number;
+    grid?: { nx: number; ny: number; nz: number };
+    materialConfiguration?: Record<string, unknown>;
+    phase?: 'initialization' | 'transient' | 'averaging' | 'evaluation';
+    phaseWindows?: PhaseWindow[];
+    observedAt?: string;
+    health?: {
+      fluidCells: number;
+      totalMass: number;
+      massDriftRel: number;
+      rhoMin: number;
+      rhoMax: number;
+      rhoMean: number;
+      uMax: number;
+      machMax: number;
+      nonFiniteCells: number;
+    };
     windows?: number;
     drift?: number;
     steady?: boolean;
@@ -155,6 +172,8 @@ export interface AeroflowHooks {
     caseId?: 'C' | 'E';
     direction?: number;
     resumed?: boolean;
+    restoredStep?: number | null;
+    restoredSamples?: number | null;
     underResolved?: boolean;
     grid?: { nx: number; ny: number; nz: number };
     dx?: number;
@@ -165,6 +184,22 @@ export interface AeroflowHooks {
     r?: number | null;
     verdict?: 'pass' | 'fail' | 'suppressed';
     reportRows?: number;
+    report?: AijUrbanReport | null;
+    materialConfiguration?: Record<string, unknown>;
+    phase?: 'initialization' | 'transient' | 'averaging' | 'evaluation' | 'terminal';
+    windows?: PhaseWindow[];
+    progress?: { step: number; observedAt: string; wallMs: number };
+    checkpointHistory?: Array<{
+      step: number;
+      samples: number;
+      savedAt: string;
+      bytes: number;
+      writeMs: number;
+      location: string;
+      complete: true;
+    }>;
+    health?: AijUrbanHealthSnapshot[];
+    deviceLoss?: { observed: boolean; reason?: string; message?: string; observedAt?: string };
     complete?: boolean;
     elapsedMs?: number;
     voxelizationMs?: number;
@@ -181,6 +216,7 @@ export interface AeroflowHooks {
     checkpointTotalMs?: number;
     /** Bytes written by the most recent checkpoint (scales with grid, not with time). */
     lastCheckpointBytes?: number;
+    lastCheckpointAt?: string;
     error?: string;
   };
   /** ?spheredrag page: latest per-case run / A/B result (M7 acceptance 1–4). */

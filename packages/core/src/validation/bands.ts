@@ -140,7 +140,8 @@ export const ACCEPTANCE_BANDS: readonly AcceptanceBand[] = [
     band: [-0.02, 0.02],
     status: 'recording',
     source: 'Internal A/B',
-    gateDescription: '≤2% difference on identically pair-averaged Cd values — FAILS 2 of 3 rungs',
+    gateDescription:
+      '≤2% difference on identically pair-averaged Cd values — post-outlet V7 and V9 PASS; V8 FAILS',
   },
   {
     id: 'V11',
@@ -162,7 +163,7 @@ export const ACCEPTANCE_BANDS: readonly AcceptanceBand[] = [
     status: 'recording',
     source: 'Internal — inlet profile vs measured profile at the building station',
     gateDescription:
-      '≤5% profile deviation at the building station — CPU gate passes, GPU re-run outstanding',
+      '≤5% profile deviation at the building station — GPU result MISSES at 66.19%, localized to the near-wall rows',
   },
   {
     id: 'V13',
@@ -172,7 +173,7 @@ export const ACCEPTANCE_BANDS: readonly AcceptanceBand[] = [
     status: 'recording',
     source: 'Meng & Hibi wind-tunnel data via AIJ; VDI 3783 Part 9',
     gateDescription:
-      'VDI hit rate q≥0.66; Pearson r≥0.70 — reopened on |⟨u⟩| vs ⟨|u|⟩ statistic semantics',
+      'VDI hit rate q≥0.66; Pearson r≥0.70 — b=24 settled cumulative time-mean MISSES at 83/126 (q=0.65873); r=0.85156 passes',
   },
   {
     id: 'V14',
@@ -181,7 +182,7 @@ export const ACCEPTANCE_BANDS: readonly AcceptanceBand[] = [
     gateKind: 'hit-rate-correlation',
     status: 'recording',
     source: 'AIJ wind-tunnel data',
-    gateDescription: 'q≥0.66 — currently FAILS at q=0.4583; mechanism unknown',
+    gateDescription: 'q≥0.66 — strict-grid Case C MISSES at 55/120 (q=0.45833); mechanism unknown',
   },
   {
     id: 'V15',

@@ -8,6 +8,7 @@ coverage/
 .vite/
 playwright-report/
 test-results/
+.aeroflow/
 
 # Fixture-conversion tooling (scripts/*.py) — dev-only, not part of the static site build.
 .venv/

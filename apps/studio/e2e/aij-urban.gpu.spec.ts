@@ -1,6 +1,13 @@
-import { test, expect, BASE_URL } from './fixtures/gpu';
+import { test, expect, BASE_URL, type DurableGpuRunFactory } from './fixtures/gpu';
 import { readHooks } from './helpers/hooks';
-import type { Page, TestInfo } from '@playwright/test';
+import {
+  initialUrbanArtifact,
+  syncUrbanArtifact,
+  urbanArtifactCoordinator,
+} from './helpers/urbanArtifact';
+import type { TestInfo } from '@playwright/test';
+import type { AeroflowHooks } from '../src/dev/testHooks';
+import { readArtifact } from './helpers/validationRun';
 
 /**
  * Tier B M11 acceptance. The uniform grid required by the official third-node rule is
@@ -27,7 +34,7 @@ interface AcceptanceCase {
 }
 
 async function runAcceptance(
-  page: Page,
+  durableGpuRun: DurableGpuRunFactory,
   testInfo: TestInfo,
   acceptance: AcceptanceCase,
 ): Promise<void> {
@@ -36,10 +43,25 @@ async function runAcceptance(
     'Set AEROFLOW_M11_CELLS to an acceptance-ready uniform-grid budget.',
   );
   const { caseId, direction, points } = acceptance;
+  const operation = (process.env.AEROFLOW_RUN_OPERATION ?? 'fresh').toLowerCase();
+  if (operation !== 'fresh' && operation !== 'resume') {
+    throw new Error(`AEROFLOW_RUN_OPERATION must be fresh or resume, got ${operation}`);
+  }
+  if (operation === 'resume' && !process.env.AEROFLOW_RUN_ID) {
+    throw new Error('AEROFLOW_RUN_ID is required when AEROFLOW_RUN_OPERATION=resume');
+  }
+  const durable = await durableGpuRun.create({
+    caseId: `urban-${caseId}-${direction}`,
+    configHash: `case=${caseId};direction=${direction};cells=${configuredCells}`,
+    runId: process.env.AEROFLOW_RUN_ID,
+    resume: operation === 'resume',
+    takeOverStale: process.env.AEROFLOW_TAKE_OVER_STALE === '1',
+  });
+  const page = durable.page;
   await page.goto(
     `${BASE_URL}/?urban&case=${caseId}&direction=${direction}&cells=${configuredCells}`,
   );
-  await page.getByTestId('urban-run').click();
+  await page.getByTestId(operation === 'resume' ? 'urban-resume' : 'urban-run').click();
   await expect
     .poll(
       async () => {
@@ -51,6 +73,26 @@ async function runAcceptance(
     )
     .toBeDefined();
   const planned = (await readHooks(page)).urban!;
+  const completionTimeoutMs = caseId === 'C' ? 8 * 60 * 60_000 : 35 * 60_000;
+  const STALL_TIMEOUT_MS = 6 * 60_000;
+  let initial = initialUrbanArtifact({
+    runId: durable.run.layout.runId,
+    hook: planned,
+    timeoutMs: completionTimeoutMs,
+    stallMs: STALL_TIMEOUT_MS,
+  });
+  if (operation === 'resume') {
+    initial = await readArtifact(durable.run.layout.artifactPath);
+    initial.complete = false;
+    initial.termination = null;
+    initial.verdicts.execution = {
+      state: 'unevaluated',
+      reason: 'resume invocation in progress',
+      metrics: { restoredStep: planned.restoredStep ?? null },
+    };
+  }
+  const coordinator = urbanArtifactCoordinator(durable.run.layout, initial);
+  await syncUrbanArtifact(coordinator, planned, 'configured');
   await testInfo.attach(`case-${caseId}-${direction}-plan`, {
     body: JSON.stringify(planned, null, 2),
     contentType: 'application/json',
@@ -70,41 +112,68 @@ async function runAcceptance(
   // ~3261 scene MLUPs at 97–99% duty, on this same RTX 3090 (D1:245). A 2 h poll therefore
   // could not have returned a verdict regardless of solver behaviour, which is exactly what
   // the aborted 2026-08-15-1450 run demonstrated. 8 h is ~1.34× the measured cost.
-  const completionTimeoutMs = caseId === 'C' ? 8 * 60 * 60_000 : 35 * 60_000;
-
   // Stall detector. D1's Wall-3 section records an INTERMITTENT Case C hang whose signature
   // is a run that does healthy work and then freezes — steps and compute duty stop together
   // — and credits a 6-minute no-progress checkpoint-resume detector for the run that did
   // complete. This harness had no equivalent, so a longer budget would have made that hang
   // more expensive rather than less. Fail fast and loudly instead of burning the budget:
   // a stall is an EXECUTION finding, never a physics result.
-  const STALL_TIMEOUT_MS = 6 * 60_000;
   let lastSteps = -1;
   let lastProgressAt = Date.now();
-  await expect
-    .poll(
-      async () => {
-        const urban = (await readHooks(page)).urban;
-        if (urban?.error) throw new Error(urban.error);
-        const steps = urban?.totalSteps ?? -1;
-        if (steps > lastSteps) {
-          lastSteps = steps;
-          lastProgressAt = Date.now();
-        } else if (Date.now() - lastProgressAt > STALL_TIMEOUT_MS) {
-          throw new Error(
-            `STALLED: case ${caseId} made no step progress for ` +
-              `${((Date.now() - lastProgressAt) / 60_000).toFixed(1)} min at step ${lastSteps}. ` +
-              `This matches the intermittent hang recorded in D1 (Wall 3), whose root cause ` +
-              `is unknown and which did not reproduce on the following run. Reported as an ` +
-              `EXECUTION failure, NOT a physics result — q was never evaluated.`,
-          );
-        }
-        return urban?.complete;
-      },
-      { timeout: completionTimeoutMs, intervals: [15_000] },
-    )
-    .toBe(true);
-  const result = (await readHooks(page)).urban!;
+  let terminated = false;
+  let result: NonNullable<Awaited<ReturnType<typeof readHooks>>['urban']>;
+  try {
+    await expect
+      .poll(
+        async () => {
+          const urban = (await readHooks(page)).urban;
+          if (urban) await syncUrbanArtifact(coordinator, urban, 'progress');
+          if (urban?.error) throw new Error(urban.error);
+          const steps = urban?.totalSteps ?? -1;
+          if (steps > lastSteps) {
+            lastSteps = steps;
+            lastProgressAt = Date.now();
+          } else if (Date.now() - lastProgressAt > STALL_TIMEOUT_MS) {
+            throw new Error(
+              `STALLED: case ${caseId} made no step progress for ` +
+                `${((Date.now() - lastProgressAt) / 60_000).toFixed(1)} min at step ${lastSteps}. ` +
+                `This is a no-progress observation; no GPU, CPU, checkpoint, or scoring root ` +
+                `cause was observed. Reported as an EXECUTION failure, NOT a physics result.`,
+            );
+          }
+          return urban?.complete;
+        },
+        { timeout: completionTimeoutMs, intervals: [15_000] },
+      )
+      .toBe(true);
+    result = (await readHooks(page)).urban!;
+    await syncUrbanArtifact(coordinator, result, 'verdict');
+    await coordinator.terminate('completed');
+    terminated = true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const latest = await readHooks(page).catch((): AeroflowHooks => ({}));
+    if (latest.urban) await syncUrbanArtifact(coordinator, latest.urban, 'failure');
+    const reason =
+      latest.urban?.deviceLoss?.observed === true
+        ? 'device-lost'
+        : /STALLED/.test(message)
+          ? 'stalled'
+          : /closed/i.test(message)
+            ? 'browser-closed'
+            : /timeout|exceeded/i.test(message)
+              ? 'timeout'
+              : 'unexpected-error';
+    await coordinator.terminate(reason, error);
+    terminated = true;
+    throw error;
+  } finally {
+    if (!terminated) await coordinator.terminate('aborted');
+    await testInfo.attach(`case-${caseId}-${direction}-durable-artifact`, {
+      path: durable.run.layout.artifactPath,
+      contentType: 'application/json',
+    });
+  }
   await testInfo.attach(`case-${caseId}-${direction}-result`, {
     body: JSON.stringify(result, null, 2),
     contentType: 'application/json',
@@ -130,14 +199,14 @@ async function runAcceptance(
   }
 }
 
-test('V14 Case C at 270 degrees', async ({ gpuPage }, testInfo) => {
+test('V14 Case C at 270 degrees', async ({ durableGpuRun }, testInfo) => {
   test.setTimeout(8.5 * 60 * 60_000); // must exceed the 8 h completion poll
-  await runAcceptance(gpuPage, testInfo, { caseId: 'C', direction: 270, points: 120 });
+  await runAcceptance(durableGpuRun, testInfo, { caseId: 'C', direction: 270, points: 120 });
 });
 
 for (const direction of [0, 90]) {
-  test(`V15 Case E at ${direction} degrees`, async ({ gpuPage }, testInfo) => {
+  test(`V15 Case E at ${direction} degrees`, async ({ durableGpuRun }, testInfo) => {
     test.setTimeout(45 * 60_000);
-    await runAcceptance(gpuPage, testInfo, { caseId: 'E', direction, points: 80 });
+    await runAcceptance(durableGpuRun, testInfo, { caseId: 'E', direction, points: 80 });
   });
 }

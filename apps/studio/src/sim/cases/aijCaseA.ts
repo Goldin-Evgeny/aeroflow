@@ -3,6 +3,7 @@ import {
   ConvergingAverager,
   ConvergingVelocityAverager,
   caseAScene,
+  fieldStats,
   interpolateInflowToLattice,
   latticeRowHeight,
   powerLawProfile,
@@ -14,6 +15,8 @@ import {
   type AijCaseAData,
   type CaseAScene,
   type CaseAScore,
+  type FieldStats,
+  type PhaseWindow,
 } from '@aeroflow/core';
 import { Lbm3D } from '../lbm3d';
 import rawFixture from './data/aij-case-a.json';
@@ -89,6 +92,7 @@ export interface CaseASampleResult {
   /** Convergence trace so far (one entry per completed window). */
   trace?: ConvergenceSample[];
   macro: { rho: Float32Array; ux: Float32Array; uy: Float32Array; uz: Float32Array };
+  health: FieldStats;
 }
 
 /**
@@ -132,6 +136,10 @@ export class CaseARun {
    * landed, `synthetic` alone happened to suppress every verdict; it no longer does.
    */
   readonly underResolved: boolean;
+  readonly precision: 'fp16' | 'fp32';
+  readonly flowThroughSteps: number;
+  readonly transientSteps: number;
+  readonly checkpointSteps: number;
   private readonly gpu: Lbm3D;
   private readonly scalarAverager: ConvergingAverager | null;
   private readonly velocityAverager: ConvergingVelocityAverager | null;
@@ -148,6 +156,7 @@ export class CaseARun {
     this.mode = o.mode;
     this.synthetic = AIJ_FIXTURE.synthetic === true;
     this.underResolved = o.cellsPerB < MIN_CELLS_PER_B;
+    this.precision = o.precision ?? 'fp32';
     const spec = o.demoSpec ?? { kind: 'power', uRef: 6, zRef: 10, alpha: 0.25 };
     this.scene = caseAScene({
       cellsPerB: o.cellsPerB,
@@ -170,7 +179,7 @@ export class CaseARun {
       inletProfile: { axis: 'y', ux: Float32Array.from(s.profile) },
       velocityInlet: true,
       freeSlip: { yMax: true, zMin: true, zMax: true },
-      precision: o.precision ?? 'fp32',
+      precision: this.precision,
       hasF16: o.hasF16,
       maxBindingBytes: o.maxBindingBytes,
       maxStorageBuffersPerStage: o.maxStorageBuffersPerStage,
@@ -199,6 +208,9 @@ export class CaseARun {
     const checkpointSteps = this.underResolved
       ? Math.max(1, Math.round(s.convectiveTimeSteps / 2))
       : flowThrough;
+    this.flowThroughSteps = flowThrough;
+    this.transientSteps = transientSteps;
+    this.checkpointSteps = checkpointSteps;
     this.scalarAverager =
       o.mode === 'fetch'
         ? new ConvergingAverager(this.points.length, transientSteps, checkpointSteps)
@@ -264,6 +276,7 @@ export class CaseARun {
       drift: stats?.drift ?? Infinity,
       steady: stats !== null && stats.driftScaled < STEADY_DRIFT,
       macro: { rho, ux, uy, uz },
+      health: fieldStats(raw, s.flags, s.nx, s.ny, s.nz),
     };
     if (stats) {
       if (this.mode === 'fetch') {
@@ -298,6 +311,61 @@ export class CaseARun {
     }
     result.trace = this.trace;
     return result;
+  }
+
+  phaseWindows(): PhaseWindow[] {
+    return [
+      {
+        phase: 'initialization',
+        startStep: 0,
+        endStep: 0,
+        selectionRule: 'uniform density reset and scene construction',
+      },
+      ...(this.transientSteps > 0
+        ? [
+            {
+              phase: 'transient' as const,
+              startStep: 1,
+              endStep: this.transientSteps,
+              selectionRule: 'discard three declared flow-throughs',
+            },
+          ]
+        : []),
+      {
+        phase: 'averaging',
+        startStep: this.transientSteps + 1,
+        endStep: this.transientSteps + 2 * this.checkpointSteps - 1,
+        selectionRule: 'cumulative time mean sampled at fixed intervals',
+      },
+      {
+        phase: 'evaluation',
+        startStep: this.transientSteps + 2 * this.checkpointSteps,
+        endStep: null,
+        selectionRule: 'latest steady cumulative mean and its complete row/point evidence',
+      },
+    ];
+  }
+
+  materialConfiguration(): Record<string, unknown> {
+    const s = this.scene;
+    return {
+      mode: this.mode,
+      grid: { nx: s.nx, ny: s.ny, nz: s.nz },
+      cellsPerB: s.bCells,
+      dx: s.dx,
+      windDeg: s.windDeg,
+      precision: this.precision,
+      collision: 'trt',
+      regularize: true,
+      les: { cs: 0.1 },
+      velocityInlet: true,
+      outlet: 'zero-gradient',
+      freeSlip: { yMax: true, zMin: true, zMax: true },
+      flowThroughSteps: this.flowThroughSteps,
+      transientSteps: this.transientSteps,
+      checkpointSteps: this.checkpointSteps,
+      measurementStatistic: AIJ_FIXTURE.measurementStatistic,
+    };
   }
 
   destroy(): void {

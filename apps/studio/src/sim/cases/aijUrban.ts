@@ -6,6 +6,7 @@ import {
   aijUrbanProbesInWindFrame,
   bounds3,
   buildAijUrbanReport,
+  fieldStats,
   interpolateInflowToLattice,
   latticeRowHeight,
   planUrbanDomain,
@@ -20,6 +21,8 @@ import {
   type AijUrbanReport,
   type ConvergingVelocityAveragerState,
   type ConvergingVelocityStats,
+  type FieldStats,
+  type PhaseWindow,
   type UrbanDomainPlan,
   type UrbanSceneSetup,
 } from '@aeroflow/core';
@@ -40,7 +43,7 @@ const PRESET_PATHS: Record<AijUrbanCaseId, string> = {
   C: 'benchmarks/aij/case-c',
   E: 'benchmarks/aij/case-e',
 };
-const RUNNER_VERSION = 2;
+const RUNNER_VERSION = 3;
 const TRANSIENT_FLOW_THROUGHS = 3;
 const REQUIRED_AVERAGING_FLOW_THROUGHS = 10;
 const SAMPLES_PER_FLOW_THROUGH = 20;
@@ -91,14 +94,31 @@ export interface AijUrbanRunSnapshot {
   report: AijUrbanReport | null;
   elapsedMs: number;
   complete: boolean;
+  phase: 'initialization' | 'transient' | 'averaging' | 'evaluation' | 'terminal';
+  windows: PhaseWindow[];
+  health: AijUrbanHealthSnapshot[];
+}
+
+export interface AijUrbanHealthSnapshot {
+  boundary: 'checkpoint' | 'pre-score' | 'terminal';
+  sampledAt: string;
+  step: number;
+  phase: AijUrbanRunSnapshot['phase'];
+  readbackMs: number;
+  field: FieldStats;
+  boundaryMassNet: number;
+  boundaryMassCumulative: number;
+  boundaryFluxClosureRel: number;
 }
 
 interface AijUrbanCheckpointState {
-  version: 1;
+  version: 2;
   sceneKey: string;
   totalSteps: number;
   elapsedMs: number;
   averager: ConvergingVelocityAveragerState;
+  cumulativeBoundaryMass: number;
+  health: AijUrbanHealthSnapshot[];
 }
 
 function assetUrl(caseId: AijUrbanCaseId, file: string): string {
@@ -294,7 +314,7 @@ function checkpointState(
   if (
     typeof state !== 'object' ||
     state === null ||
-    state.version !== 1 ||
+    state.version !== 2 ||
     state.sceneKey !== expected.sceneKey ||
     state.totalSteps !== expected.totalSteps ||
     !Number.isFinite(state.elapsedMs) ||
@@ -304,7 +324,9 @@ function checkpointState(
     state.averager.nPoints !== expected.nPoints ||
     state.averager.statistic !== expected.statistic ||
     state.averager.transientSteps !== expected.transientSteps ||
-    state.averager.checkpointSteps !== expected.flowThroughSteps
+    state.averager.checkpointSteps !== expected.flowThroughSteps ||
+    !Number.isFinite(state.cumulativeBoundaryMass) ||
+    !Array.isArray(state.health)
   ) {
     throw new Error('AIJ urban checkpoint state does not match the requested run');
   }
@@ -323,6 +345,8 @@ export class AijUrbanRun {
   readonly sampleIntervalSteps: number;
   readonly targetSteps: number;
   readonly resumed: boolean;
+  readonly restoredStep: number | null;
+  readonly restoredSamples: number | null;
   readonly precision: 'fp16' | 'fp32';
 
   private readonly sim: Lbm3D;
@@ -333,6 +357,8 @@ export class AijUrbanRun {
   private readonly adapterDescription: string;
   private averager: ConvergingVelocityAverager;
   private elapsedMs: number;
+  private cumulativeBoundaryMass = 0;
+  private readonly healthSnapshots: AijUrbanHealthSnapshot[] = [];
 
   private constructor(args: {
     preset: AijUrbanPreset;
@@ -349,11 +375,15 @@ export class AijUrbanRun {
     averager: ConvergingVelocityAverager;
     elapsedMs: number;
     resumed: boolean;
+    restoredStep: number | null;
+    restoredSamples: number | null;
     precision: 'fp16' | 'fp32';
     adapterDescription: string;
     flowThroughSteps: number;
     transientSteps: number;
     sampleIntervalSteps: number;
+    cumulativeBoundaryMass: number;
+    health: AijUrbanHealthSnapshot[];
   }) {
     this.data = args.preset.data;
     this.direction = args.direction;
@@ -369,11 +399,15 @@ export class AijUrbanRun {
     this.averager = args.averager;
     this.elapsedMs = args.elapsedMs;
     this.resumed = args.resumed;
+    this.restoredStep = args.restoredStep;
+    this.restoredSamples = args.restoredSamples;
     this.precision = args.precision;
     this.adapterDescription = args.adapterDescription;
     this.flowThroughSteps = args.flowThroughSteps;
     this.transientSteps = args.transientSteps;
     this.sampleIntervalSteps = args.sampleIntervalSteps;
+    this.cumulativeBoundaryMass = args.cumulativeBoundaryMass;
+    this.healthSnapshots.push(...structuredClone(args.health));
     this.targetSteps =
       args.transientSteps + REQUIRED_AVERAGING_FLOW_THROUGHS * args.flowThroughSteps;
   }
@@ -424,6 +458,7 @@ export class AijUrbanRun {
       les: { cs: 0.1 },
       inletProfile: { axis: 'y', ux: Float32Array.from(setup.profile) },
       velocityInlet: true,
+      boundaryMassLedger: true,
       freeSlip: { yMax: true, zMin: true, zMax: true },
       precision: options.precision,
       hasF16: options.caps.hasF16,
@@ -460,23 +495,34 @@ export class AijUrbanRun {
       db = await openCheckpointDb();
       void requestPersistence();
       let resumed = false;
+      let restoredStep: number | null = null;
+      let restoredSamples: number | null = null;
       let elapsedMs = 0;
+      let cumulativeBoundaryMass = 0;
+      let health: AijUrbanHealthSnapshot[] = [];
       if (options.resume) {
         status('restoring latest matching DDF and averaging checkpoint');
         const meta = await restoreCheckpoint(db, sim, key);
-        if (meta) {
-          const state = checkpointState(meta.runState, {
-            sceneKey: key,
-            totalSteps: meta.totalSteps,
-            nPoints: points.length,
-            statistic: preset.data.measurement.statistic,
-            transientSteps,
-            flowThroughSteps,
-          });
-          averager = ConvergingVelocityAverager.fromState(state.averager);
-          elapsedMs = state.elapsedMs;
-          resumed = true;
+        if (!meta) {
+          throw new Error(
+            `AIJ urban resume requested for ${key}, but no complete compatible checkpoint exists`,
+          );
         }
+        const state = checkpointState(meta.runState, {
+          sceneKey: key,
+          totalSteps: meta.totalSteps,
+          nPoints: points.length,
+          statistic: preset.data.measurement.statistic,
+          transientSteps,
+          flowThroughSteps,
+        });
+        averager = ConvergingVelocityAverager.fromState(state.averager);
+        elapsedMs = state.elapsedMs;
+        resumed = true;
+        restoredStep = meta.totalSteps;
+        restoredSamples = state.averager.samples;
+        cumulativeBoundaryMass = state.cumulativeBoundaryMass;
+        health = state.health;
       }
       return new AijUrbanRun({
         preset,
@@ -493,11 +539,15 @@ export class AijUrbanRun {
         averager,
         elapsedMs,
         resumed,
+        restoredStep,
+        restoredSamples,
         precision: options.precision,
         adapterDescription: options.adapterDescription,
         flowThroughSteps,
         transientSteps,
         sampleIntervalSteps,
+        cumulativeBoundaryMass,
+        health,
       });
     } catch (error) {
       db?.close();
@@ -551,7 +601,118 @@ export class AijUrbanRun {
       report: this.buildReport(means),
       elapsedMs: this.elapsedMs,
       complete: this.sim.totalSteps >= this.targetSteps,
+      phase: this.phase(),
+      windows: this.phaseWindows(),
+      health: structuredClone(this.healthSnapshots),
     };
+  }
+
+  private phase(): AijUrbanRunSnapshot['phase'] {
+    if (this.sim.totalSteps === 0) return 'initialization';
+    if (this.sim.totalSteps <= this.transientSteps) return 'transient';
+    if (this.sim.totalSteps < this.targetSteps) return 'averaging';
+    return this.healthSnapshots.some((sample) => sample.boundary === 'terminal')
+      ? 'terminal'
+      : 'evaluation';
+  }
+
+  phaseWindows(): PhaseWindow[] {
+    return [
+      {
+        phase: 'initialization',
+        startStep: 0,
+        endStep: 0,
+        selectionRule: 'uniform density reset and scene construction',
+      },
+      ...(this.transientSteps > 0
+        ? [
+            {
+              phase: 'transient' as const,
+              startStep: 1,
+              endStep: this.transientSteps,
+              selectionRule: 'discard the declared three-flow-through startup transient',
+              startFlowThrough: 0,
+              endFlowThrough: TRANSIENT_FLOW_THROUGHS,
+            },
+          ]
+        : []),
+      {
+        phase: 'averaging',
+        startStep: this.transientSteps + 1,
+        endStep: this.targetSteps - 1,
+        selectionRule: 'accumulate the fixture-declared velocity statistic',
+        startFlowThrough: TRANSIENT_FLOW_THROUGHS,
+        endFlowThrough: TRANSIENT_FLOW_THROUGHS + REQUIRED_AVERAGING_FLOW_THROUGHS,
+      },
+      {
+        phase: 'evaluation',
+        startStep: this.targetSteps,
+        endStep: this.targetSteps,
+        selectionRule: 'score the completed accumulated mean against every published point',
+      },
+    ];
+  }
+
+  materialConfiguration(): Record<string, unknown> {
+    return {
+      sceneKey: this.key,
+      caseId: this.data.caseId,
+      windFromDegrees: this.direction.windFromDegrees,
+      grid: this.plan.grid,
+      dx: this.plan.dx,
+      precision: this.precision,
+      collision: 'trt',
+      regularize: true,
+      les: { cs: 0.1 },
+      velocityInlet: true,
+      outlet: 'zero-gradient',
+      freeSlip: { yMax: true, zMin: true, zMax: true },
+      measurementStatistic: this.data.measurement.statistic,
+      transientSteps: this.transientSteps,
+      averagingSteps: REQUIRED_AVERAGING_FLOW_THROUGHS * this.flowThroughSteps,
+      sampleIntervalSteps: this.sampleIntervalSteps,
+    };
+  }
+
+  private async sampleHealth(
+    boundary: AijUrbanHealthSnapshot['boundary'],
+  ): Promise<AijUrbanHealthSnapshot> {
+    const previous = this.healthSnapshots.at(-1);
+    if (previous?.step === this.sim.totalSteps && previous.boundary !== boundary) {
+      const reused = {
+        ...structuredClone(previous),
+        boundary,
+        sampledAt: new Date().toISOString(),
+        readbackMs: 0,
+      };
+      this.healthSnapshots.push(reused);
+      return reused;
+    }
+    const started = performance.now();
+    const ledger = await this.sim.drainBoundaryMassLedger();
+    this.cumulativeBoundaryMass += ledger.net;
+    const field = fieldStats(
+      await this.sim.readMacro(),
+      this.sim.flags,
+      this.plan.grid.nx,
+      this.plan.grid.ny,
+      this.plan.grid.nz,
+    );
+    const sample: AijUrbanHealthSnapshot = {
+      boundary,
+      sampledAt: new Date().toISOString(),
+      step: this.sim.totalSteps,
+      phase: this.phase(),
+      readbackMs: performance.now() - started,
+      field,
+      boundaryMassNet: ledger.net,
+      boundaryMassCumulative: this.cumulativeBoundaryMass,
+      boundaryFluxClosureRel:
+        (field.totalMass - field.fluidCells - this.cumulativeBoundaryMass) /
+        Math.max(field.fluidCells, 1),
+    };
+    this.healthSnapshots.push(sample);
+    return sample;
   }
 
   /** Advance one fixed, even sampling interval and accumulate the fixture's stated mean. */
@@ -573,16 +734,23 @@ export class AijUrbanRun {
       }
     }
     this.averager.add(ux, uy, uz, this.sim.totalSteps);
+    if (this.sim.totalSteps >= this.targetSteps) {
+      await this.sampleHealth('pre-score');
+      await this.sampleHealth('terminal');
+    }
     return this.snapshot();
   }
 
   async checkpoint(): Promise<SaveCheckpointResult> {
+    await this.sampleHealth('checkpoint');
     const runState: AijUrbanCheckpointState = {
-      version: 1,
+      version: 2,
       sceneKey: this.key,
       totalSteps: this.sim.totalSteps,
       elapsedMs: this.elapsedMs,
       averager: this.averager.serialize(),
+      cumulativeBoundaryMass: this.cumulativeBoundaryMass,
+      health: structuredClone(this.healthSnapshots),
     };
     return saveCheckpoint(this.db, this.sim, {
       sceneId: this.key,

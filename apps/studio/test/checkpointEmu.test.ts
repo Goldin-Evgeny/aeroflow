@@ -166,6 +166,22 @@ describe('checkpoint orchestration (emulated IDB + sim)', () => {
     await expect(restoreCheckpoint(db, wrongLayout)).rejects.toThrow('layout');
   });
 
+  it('falls back to the previous complete slot without partially applying a torn newest slot', async () => {
+    const db = fakeDb();
+    const sim = fakeSim(SIZES, 5);
+    const first = sim.bufs.map((buffer) => buffer.slice());
+    await saveCheckpoint(db, sim, { sceneId: 's', sceneOptions: null, chunkBytes: 32 });
+    sim.totalSteps = 102;
+    for (const buffer of sim.bufs) buffer.fill(77);
+    await saveCheckpoint(db, sim, { sceneId: 's', sceneOptions: null, chunkBytes: 32 });
+    db.data.delete('B/ddf/1/1');
+
+    const restored = fakeSim(SIZES, 200);
+    const meta = await restoreCheckpoint(db, restored, 's');
+    expect(meta?.totalSteps).toBe(100);
+    expect(restored.bufs).toEqual(first);
+  });
+
   it('restore returns null with no checkpoint; clearCheckpoints removes everything', async () => {
     const db = fakeDb();
     expect(await restoreCheckpoint(db, fakeSim(SIZES, 0))).toBeNull();

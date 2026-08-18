@@ -89,4 +89,18 @@ describe('acceptance band ledger', () => {
       ).toBe(true);
     }
   });
+
+  it('pins the recorded V10–V14 outcomes so stale ledger prose cannot return', () => {
+    expect(acceptanceBand('V10').gateDescription).toContain('V7 and V9 PASS; V8 FAILS');
+    expect(acceptanceBand('V12').gateDescription).toContain('66.19%');
+    expect(acceptanceBand('V12').gateDescription).toContain('near-wall rows');
+    expect(acceptanceBand('V13').gateDescription).toContain('83/126');
+    expect(acceptanceBand('V13').gateDescription).toContain('cumulative time-mean');
+    expect(acceptanceBand('V14').gateDescription).toContain('55/120');
+
+    const doc = readFileSync(resolve(REPO_ROOT, 'docs/VALIDATION.md'), 'utf8');
+    for (const evidence of ['1.967%', '3.517%', '66.19%', '83/126']) {
+      expect(doc, `docs/VALIDATION.md lost recorded evidence ${evidence}`).toContain(evidence);
+    }
+  });
 });

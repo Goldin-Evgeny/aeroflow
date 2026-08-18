@@ -229,6 +229,29 @@ export type { LesNorm } from './cpu/collide.js';
 export { ACCEPTANCE_BANDS, acceptanceBand, AHMED_CD_BAND } from './validation/bands.js';
 export type { AcceptanceBand, BandGateKind, BandStatus } from './validation/bands.js';
 export {
+  VALIDATION_ARTIFACT_SCHEMA_VERSION,
+  validateValidationRunArtifact,
+} from './validation/runArtifact.js';
+export type {
+  CheckpointRecord,
+  DeviceLossRecord,
+  HealthMetric,
+  JsonValue,
+  NumericalHealthRecord,
+  PhaseWindow,
+  ProgressRecord,
+  RunIdentity,
+  RunPhase,
+  RunTermination,
+  SourceProvenance,
+  TerminationReason,
+  ValidationRunArtifact,
+  VerdictAxis,
+  VerdictState,
+} from './validation/runArtifact.js';
+export { phaseAtStep, selectVerdictSamples } from './validation/verdictWindows.js';
+export type { StepSample, VerdictWindow } from './validation/verdictWindows.js';
+export {
   relSpread,
   blocksAgree,
   blockMeans,

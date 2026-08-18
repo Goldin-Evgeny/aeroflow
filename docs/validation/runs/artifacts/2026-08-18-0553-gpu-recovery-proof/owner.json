@@ -1,0 +1,10 @@
+{
+  "runId": "20260818T055301Z-urban-C-270-0bcc6522",
+  "caseId": "urban-C-270",
+  "configHash": "urban-C-270-cells-12000-fp16-or-fp32",
+  "pid": 34344,
+  "host": "Virtue",
+  "acquiredAt": "2026-08-18T05:53:01.453Z",
+  "status": "released",
+  "releasedAt": "2026-08-18T05:53:07.566Z"
+}

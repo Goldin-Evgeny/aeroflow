@@ -318,6 +318,13 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
         synthetic: run.synthetic,
         underResolved: run.underResolved,
         totalSteps: r.totalSteps,
+        grid: { nx: run.scene.nx, ny: run.scene.ny, nz: run.scene.nz },
+        materialConfiguration: run.materialConfiguration(),
+        phase:
+          r.totalSteps <= run.transientSteps ? 'transient' : r.steady ? 'evaluation' : 'averaging',
+        phaseWindows: run.phaseWindows(),
+        observedAt: new Date().toISOString(),
+        health: r.health,
         windows: r.windows,
         drift: r.drift,
         steady: r.steady,

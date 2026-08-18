@@ -323,7 +323,22 @@ export function mountAijUrban(
   let checkpointCount = 0;
   let checkpointTotalMs = 0;
   let lastCheckpointBytes = 0;
+  let lastCheckpointAtIso: string | undefined;
+  const checkpointHistory: NonNullable<ReturnType<typeof hooks>['urban']>['checkpointHistory'] = [];
+  let deviceLoss: NonNullable<ReturnType<typeof hooks>['urban']>['deviceLoss'] = {
+    observed: false,
+  };
   let runStartedAt = 0;
+
+  void device.lost.then((info) => {
+    deviceLoss = {
+      observed: true,
+      reason: info.reason,
+      message: info.message,
+      observedAt: new Date().toISOString(),
+    };
+    hooks().urban = { ...(hooks().urban ?? { ready: true }), deviceLoss };
+  });
 
   const populateDirections = (): void => {
     const previous = Number(query.get('direction'));
@@ -421,6 +436,8 @@ export function mountAijUrban(
       caseId: current.data.caseId,
       direction: current.direction.windFromDegrees,
       resumed: current.resumed,
+      restoredStep: current.restoredStep,
+      restoredSamples: current.restoredSamples,
       underResolved: !plan.acceptanceReady,
       grid: plan.grid,
       dx: plan.dx,
@@ -431,6 +448,18 @@ export function mountAijUrban(
       r: report?.metrics.r,
       verdict: report?.verdict,
       reportRows: report?.rows.length ?? 0,
+      report,
+      materialConfiguration: current.materialConfiguration(),
+      phase: snapshot.phase,
+      windows: snapshot.windows,
+      progress: {
+        step: snapshot.totalSteps,
+        observedAt: new Date().toISOString(),
+        wallMs: runStartedAt > 0 ? performance.now() - runStartedAt : 0,
+      },
+      checkpointHistory: structuredClone(checkpointHistory),
+      health: snapshot.health,
+      deviceLoss,
       complete: snapshot.complete,
       elapsedMs: report?.simulation.elapsedMs ?? snapshot.elapsedMs,
       voxelizationMs: current.voxelizationMs,
@@ -438,6 +467,7 @@ export function mountAijUrban(
       checkpointCount,
       checkpointTotalMs,
       lastCheckpointBytes,
+      lastCheckpointAt: lastCheckpointAtIso,
     };
     updateControls();
   };
@@ -454,6 +484,16 @@ export function mountAijUrban(
     checkpointCount += 1;
     checkpointTotalMs += saved.ms;
     lastCheckpointBytes = saved.bytes;
+    lastCheckpointAtIso = new Date().toISOString();
+    checkpointHistory.push({
+      step: current.snapshot().totalSteps,
+      samples: current.snapshot().samples,
+      savedAt: lastCheckpointAtIso,
+      bytes: saved.bytes,
+      writeMs: saved.ms,
+      location: 'IndexedDB/aeroflow/checkpoints',
+      complete: true,
+    });
     setStatus(
       'Checkpoint saved',
       `${(saved.bytes / 1024 / 1024).toFixed(1)} MiB in ${(saved.ms / 1000).toFixed(1)} s`,
@@ -583,6 +623,6 @@ export function mountAijUrban(
   exportButton.addEventListener('click', () => {
     if (latest?.report) downloadReport(latest.report);
   });
-  hooks().urban = { ready: true };
+  hooks().urban = { ready: true, deviceLoss };
   updateControls();
 }

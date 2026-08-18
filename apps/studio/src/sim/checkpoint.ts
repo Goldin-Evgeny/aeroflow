@@ -151,22 +151,54 @@ export async function restoreCheckpoint(
 ): Promise<CheckpointMeta | null> {
   const latest = await get<CheckpointSlot>(db, LATEST_KEY);
   if (!latest) return null;
-  const meta = await get<CheckpointMeta>(db, metaKey(latest));
-  if (!meta) return null;
-  validateMetaAgainst(meta, sim, sim.ddfBufferSizes(), expectedSceneId);
+  const previous: CheckpointSlot = latest === 'A' ? 'B' : 'A';
+  let selected: { slot: CheckpointSlot; meta: CheckpointMeta } | null = null;
+  let incomplete: string | null = null;
 
-  for (const chunk of planAllChunks(meta.ddfBufferSizes, meta.chunkBytes)) {
-    const data = await get<ArrayBuffer>(db, chunkKey(latest, chunk));
+  // Validate metadata and the COMPLETE chunk set before mutating the new simulation.
+  // This costs a second IndexedDB read pass but does not materialize a multi-gigabyte
+  // checkpoint in memory, and it guarantees a torn newest slot cannot partially apply.
+  for (const slot of [latest, previous]) {
+    const meta = await get<CheckpointMeta>(db, metaKey(slot));
+    if (!meta) {
+      if (slot === latest) incomplete = `checkpoint slot ${slot} has no metadata`;
+      continue;
+    }
+    validateMetaAgainst(meta, sim, sim.ddfBufferSizes(), expectedSceneId);
+    let complete = true;
+    for (const chunk of planAllChunks(meta.ddfBufferSizes, meta.chunkBytes)) {
+      const data = await get<ArrayBuffer>(db, chunkKey(slot, chunk));
+      if (!data || data.byteLength !== chunk.length) {
+        incomplete = `chunk ${chunkKey(slot, chunk)} missing or wrong size`;
+        complete = false;
+        break;
+      }
+    }
+    if (complete) {
+      selected = { slot, meta };
+      break;
+    }
+  }
+  if (!selected) {
+    throw new Error(
+      `restoreCheckpoint: ${incomplete ?? 'no complete checkpoint slot'} — ` +
+        `checkpoint incomplete (evicted storage?)`,
+    );
+  }
+
+  for (const chunk of planAllChunks(selected.meta.ddfBufferSizes, selected.meta.chunkBytes)) {
+    const data = await get<ArrayBuffer>(db, chunkKey(selected.slot, chunk));
+    // The ownership contract prevents a concurrent writer; this guard is for unexpected
+    // external eviction between the validation and application passes.
     if (!data || data.byteLength !== chunk.length) {
       throw new Error(
-        `restoreCheckpoint: chunk ${chunkKey(latest, chunk)} missing or wrong size — ` +
-          `checkpoint incomplete (evicted storage?)`,
+        `restoreCheckpoint: validated chunk ${chunkKey(selected.slot, chunk)} vanished`,
       );
     }
     sim.writeDdfChunk(chunk.bufIndex, chunk.offset, data);
   }
-  sim.restoreStepState(meta.parity, meta.totalSteps);
-  return meta;
+  sim.restoreStepState(selected.meta.parity, selected.meta.totalSteps);
+  return selected.meta;
 }
 
 /** Drop all checkpoint records (both slots + pointer). */

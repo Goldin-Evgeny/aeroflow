@@ -5,6 +5,7 @@ import {
   lateralFlux,
   linearTrend,
   mirrorAsymmetryZ,
+  selectVerdictSamples,
   sectionStats,
   validateFreeSlip,
   type AhmedInletBC,
@@ -14,6 +15,7 @@ import {
   type LinearTrend,
   type MirrorAsymmetry,
   type Outlet3D,
+  type VerdictWindow,
 } from '@aeroflow/core';
 import { Lbm3D } from '../sim/lbm3d';
 import { hooks } from './testHooks';
@@ -331,6 +333,8 @@ export interface EmptyTunnelRun {
   /** `windows.at(-1)` — the window a settled run should be judged by. `undefined` iff
    *  `windows` is empty. */
   finalWindow: WindowEnvelope | undefined;
+  /** Exact inclusive sample interval used by the steady-state verdict. */
+  evaluationWindow: VerdictWindow | undefined;
   /** Worst values over the POST-TRANSIENT samples only — see `TransientDecay`. */
   worst: {
     absMassDrift: number;
@@ -712,6 +716,24 @@ async function runOne(
     worst.rhoSpan = worst.rhoMax - worst.rhoMin;
 
     const windows = computeWindows(steady, tConvTotal);
+    const finalWindow = windows.at(-1);
+    const evaluationWindow: VerdictWindow | undefined = finalWindow
+      ? {
+          phase: 'evaluation',
+          startStep: Math.ceil(finalWindow.fromTConv * T),
+          endStep: Math.floor(finalWindow.toTConv * T),
+          minimumSamples: 1,
+          selectionRule: 'inclusive samples in the final declared T_conv envelope',
+          startFlowThrough: finalWindow.fromTConv,
+          endFlowThrough: finalWindow.toTConv,
+        }
+      : undefined;
+    if (evaluationWindow) {
+      selectVerdictSamples(
+        samples.map((sample) => ({ ...sample, step: sample.steps })),
+        evaluationWindow,
+      );
+    }
 
     return {
       lateralBC: scene.lateralBC,
@@ -737,7 +759,8 @@ async function runOne(
       transient,
       acoustic,
       windows,
-      finalWindow: windows.at(-1),
+      finalWindow,
+      evaluationWindow,
       stagger: {
         totalMass,
         rhoMean,
@@ -845,10 +868,21 @@ function verdictOf(r: EmptyTunnelRun): { ok: boolean; why: string[] } {
   const why: string[] = [];
   {
     if (r.worst.nonFiniteCells > 0) why.push(`${r.worst.nonFiniteCells} non-finite cells`);
-    if (r.worst.absMassDrift > BOUNDS.massDrift)
-      why.push(`mass drift ${r.worst.absMassDrift.toExponential(2)} > ${BOUNDS.massDrift}`);
-    if (r.worst.fluxMismatch > BOUNDS.fluxMismatch)
-      why.push(`flux mismatch ${r.worst.fluxMismatch.toExponential(2)} > ${BOUNDS.fluxMismatch}`);
+    const evaluation = r.finalWindow;
+    if (!evaluation || !r.evaluationWindow) {
+      why.push('insufficient samples to form the declared final evaluation window');
+    } else {
+      if (evaluation.maxAbsMassDrift > BOUNDS.massDrift)
+        why.push(
+          `final-window mass drift ${evaluation.maxAbsMassDrift.toExponential(2)} > ` +
+            `${BOUNDS.massDrift}`,
+        );
+      if (evaluation.maxFluxMismatch > BOUNDS.fluxMismatch)
+        why.push(
+          `final-window flux mismatch ${evaluation.maxFluxMismatch.toExponential(2)} > ` +
+            `${BOUNDS.fluxMismatch}`,
+        );
+    }
     if (r.worst.rhoDeviation > BOUNDS.rhoDeviation)
       why.push(`|rho-1| ${r.worst.rhoDeviation.toExponential(2)} > ${BOUNDS.rhoDeviation}`);
     if (r.worst.rhoGradient > BOUNDS.rhoGradient)

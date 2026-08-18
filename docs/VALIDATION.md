@@ -244,8 +244,10 @@ which this section summarizes. **No tolerance here is relaxed by that finding** 
 rule 3); the point is to state in advance which bars uniform grids are not expected to clear,
 so a FAIL is read as a known limit rather than a regression.
 
-- **Reachable today:** V1 (2D Poiseuille), V7 sphere **Re=100**, V12/V13 AIJ Case A at
-  ≥24 cells/building — measured in band. **Not V1–V6 as a block**: V2 (cavity Re=100)
+- **Reachable today:** V1 (2D Poiseuille) and V7 sphere **Re=100**. V12's completed GPU
+  result misses at **66.19%** (near-wall rows set the maximum); V13 at b=24 reaches its
+  settled cumulative statistic but misses by one point at **83/126** (q=0.65873; r passes).
+  **Not V1–V6 as a block**: V2 (cavity Re=100)
   FAILS on `v_min` at 2.31% against ±1.5% (`packages/core/src/validation/bands.ts`); V4/V5/V6
   (cylinder, LES non-interference) have no automated harness asserting their documented
   bands at all (see `packages/core/src/validation/bands.ts`). Treat this line as recording
@@ -254,9 +256,9 @@ so a FAIL is read as a known limit rather than a regression.
 - **Not reached on the tested uniform grids:** sphere **Re=1000** (pair-averaged Cd 0.5692
   vs 0.47) and **Re=10⁴** (0.6047 freestream / 0.2727 free-slip vs [0.38, 0.50]), and
   **V11 Ahmed** (pair-averaged Cd 0.9011 vs [0.242, 0.328] at 15.7M cells). The corrected
-  results do not establish a unique cause. V10's FP16-vs-FP32 gate passes at
-  Re=10⁴ (**0.6047/0.6066, 0.320%**) and fails at Re=1000
-  (**0.5692/0.5845, 2.702%**) and at the preserved Re=100 result (**2.253%**).
+  results do not establish a unique cause. After the outlet-legality correction, V10's
+  FP16-vs-FP32 gate passes at Re=100 (**1.967%**) and Re=10⁴
+  (**0.6035/0.6060, 0.422%**) and fails at Re=1000 (**3.517%**).
   These three sit at ω⁻ = 0.019, 1.9×10⁻³ and ~10⁻⁵ respectively, i.e. deep in the regime
   where the projected regularization is measured to be anti-dissipative (V11 disposition
   below), so under-resolution is no longer the only candidate explanation for any of them.

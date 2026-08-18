@@ -1,5 +1,21 @@
 import { test as base, chromium, type Page } from '@playwright/test';
 import { BASE_URL } from '../helpers/hooks';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DurableBrowserRun, type DurableBrowserRunOptions } from '../helpers/durableBrowserRun';
+
+export interface DurableGpuRunFactory {
+  create(
+    options: Omit<DurableBrowserRunOptions, 'root'> & { root?: string },
+  ): Promise<DurableBrowserRun>;
+}
+
+const DEFAULT_RUN_ROOT = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../../..',
+  '.aeroflow',
+  'runs',
+);
 
 /**
  * Tier B fixture: a page on a **real GPU**.
@@ -17,7 +33,7 @@ import { BASE_URL } from '../helpers/hooks';
  * from BASE_URL in both modes. `browser.close()` on a CDP connection only disconnects;
  * the external Chrome stays up.
  */
-export const test = base.extend<{ gpuPage: Page }>({
+export const test = base.extend<{ gpuPage: Page; durableGpuRun: DurableGpuRunFactory }>({
   gpuPage: async ({ page }, use) => {
     const cdp = process.env.AEROFLOW_CDP_URL;
     if (!cdp) {
@@ -30,6 +46,20 @@ export const test = base.extend<{ gpuPage: Page }>({
     await use(cdpPage);
     await cdpPage.close();
     await browser.close();
+  },
+  durableGpuRun: async ({}, use) => {
+    const opened: DurableBrowserRun[] = [];
+    await use({
+      async create(options) {
+        const run = await DurableBrowserRun.create({
+          ...options,
+          root: options.root ?? process.env.AEROFLOW_RUN_ROOT ?? DEFAULT_RUN_ROOT,
+        });
+        opened.push(run);
+        return run;
+      },
+    });
+    await Promise.all(opened.map((run) => run.dispose()));
   },
 });
 

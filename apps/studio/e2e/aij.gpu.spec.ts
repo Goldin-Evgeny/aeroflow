@@ -1,5 +1,7 @@
 import { test, expect, BASE_URL } from './fixtures/gpu';
 import { readHooks } from './helpers/hooks';
+import { aijArtifactCoordinator, initialAijArtifact, syncAijArtifact } from './helpers/aijArtifact';
+import { createFreshRun, releaseRun, validationRunRoot } from './helpers/validationRun';
 import type { Page, TestInfo } from '@playwright/test';
 
 /**
@@ -80,12 +82,37 @@ async function awaitSteady(
   // Never re-read a page that may be gone; snapshot as you go.
   let latest: Aij | undefined;
   let failure: unknown;
+  await expect
+    .poll(async () => {
+      latest = (await readHooks(page)).aij;
+      return latest?.materialConfiguration;
+    })
+    .toBeDefined();
+  const mode = latest?.mode === 'fetch' ? 'fetch' : 'score';
+  const durable = await createFreshRun(
+    validationRunRoot(),
+    `aij-${mode}`,
+    JSON.stringify(latest?.materialConfiguration ?? {}),
+  );
+  const coordinator = aijArtifactCoordinator(
+    durable.layout,
+    initialAijArtifact({
+      runId: durable.layout.runId,
+      mode,
+      hook: latest!,
+      timeoutMs,
+    }),
+  );
+  await syncAijArtifact(coordinator, latest!, 'configured');
   try {
     await expect
       .poll(
         async () => {
           const a = (await readHooks(page)).aij;
-          if (a) latest = a;
+          if (a) {
+            latest = a;
+            await syncAijArtifact(coordinator, a, 'progress');
+          }
           return a && a.steady && ready(a) ? a : null;
         },
         { timeout: timeoutMs },
@@ -94,6 +121,18 @@ async function awaitSteady(
   } catch (e) {
     failure = e;
   }
+  if (latest) await syncAijArtifact(coordinator, latest, failure ? 'failure' : 'verdict');
+  if (failure) {
+    const message = failure instanceof Error ? failure.message : String(failure);
+    await coordinator.terminate(/closed/i.test(message) ? 'browser-closed' : 'timeout', failure);
+  } else {
+    await coordinator.terminate('completed');
+  }
+  await testInfo.attach(`${name}-durable-artifact`, {
+    path: durable.layout.artifactPath,
+    contentType: 'application/json',
+  });
+  await releaseRun(durable);
   await testInfo.attach(`${name}-convergence`, {
     body: formatTrace(latest),
     contentType: 'text/plain',

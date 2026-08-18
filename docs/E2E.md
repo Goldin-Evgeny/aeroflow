@@ -88,3 +88,52 @@ with no interaction — so `parity.spec.ts` throws on its first matrix cell
 root-caused**; the suspected trigger is the D2Q9 kernel's pipeline creation under
 SwiftShader. `?parity3d` builds `Lbm3D` and is unaffected. On the real adapter the device
 survives and the spec passes in ~0.6 s.
+
+## Durable GPU runs: fresh, resume, inspect, cleanup
+
+Checkpointed urban acceptance runs use one harness-owned directory per run under
+`.aeroflow/runs/` (override with `AEROFLOW_RUN_ROOT`). It contains the persistent Chromium
+profile/IndexedDB checkpoint, `owner.json`, `lifecycle.json`, and the authoritative atomic
+`validation-artifact.json`. The harness prints the run id and all resume paths at launch.
+Do not use `AEROFLOW_CDP_URL` for these runs: a CDP-attached browser cannot provide an
+isolated, harness-owned persistent profile.
+
+PowerShell examples for V14 Case C:
+
+```powershell
+# Fresh: always allocates a new identity/profile and never discovers old state.
+$env:AEROFLOW_M11_CELLS='190000000'
+$env:AEROFLOW_RUN_OPERATION='fresh'
+npx playwright test -c apps/studio/playwright.config.ts --project=gpu apps/studio/e2e/aij-urban.gpu.spec.ts -g 'V14 Case C'
+
+# Resume after timeout, stall, device loss, browser closure, or operator interruption.
+$env:AEROFLOW_RUN_OPERATION='resume'
+$env:AEROFLOW_RUN_ID='<id printed by the fresh run>'
+npx playwright test -c apps/studio/playwright.config.ts --project=gpu apps/studio/e2e/aij-urban.gpu.spec.ts -g 'V14 Case C'
+
+# Inspect lifecycle, owner, configuration, latest progress/evidence, and termination.
+node scripts/validation-runs.mjs inspect $env:AEROFLOW_RUN_ID
+
+# Cleanup is path-validated and normally requires a committed terminal artifact.
+node scripts/validation-runs.mjs cleanup $env:AEROFLOW_RUN_ID
+```
+
+An active owner rejects resume. A dead owner also rejects resume until the operator makes
+the takeover explicit with `AEROFLOW_TAKE_OVER_STALE=1`; the prior pid/host is retained in
+`lifecycle.json`. Cleanup never runs automatically after failure. `cleanup --force` exists
+only for an explicit operator discard of an incomplete run.
+
+A partial artifact has `complete: false` and a termination reason such as `timeout`,
+`stalled`, `device-lost`, `aborted`, `browser-closed`, or `unexpected-error`. Its lifecycle
+records the last step/phase heartbeat, latest complete checkpoint, last artifact update,
+device-loss observation, and captured error. `stalled` means only that the observed progress
+and phase activity stopped for the configured interval; it does not diagnose a GPU, CPU,
+checkpoint, or scorer root cause. The profile is retained so `resume` can continue from the
+latest verified complete checkpoint.
+
+The recovery contract itself is exercised by the bounded 12,000-cell
+`aij-urban-recovery.gpu.spec.ts`: it checkpoints, replaces the persistent context, verifies
+the exact restored step and averaging-sample count, advances, checks incompatible/fresh
+identity rejection, and corrupts the newest slot to prove fallback to the previous complete
+checkpoint. It runs inside the ordinary ten-minute end-to-end budget. No production-duration
+Case C/M9 run and no naturally occurring intermittent stall is required for this proof.

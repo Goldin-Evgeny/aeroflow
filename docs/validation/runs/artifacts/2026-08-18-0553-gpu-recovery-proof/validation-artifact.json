@@ -1,0 +1,2884 @@
+{
+  "schemaVersion": 1,
+  "complete": true,
+  "identity": {
+    "runId": "20260818T055301Z-urban-C-270-0bcc6522",
+    "caseId": "V14-case-C-270",
+    "createdAt": "2026-08-18T05:53:02.553Z"
+  },
+  "provenance": {
+    "revision": "8466ae8",
+    "dirty": true,
+    "diffSha256": "64f3f944e3e8a80f36b2f50bdb9a56de2411f45ec1be6fd4489d503d60c09ac5"
+  },
+  "configuration": {
+    "scene": "aij-urban-C-270",
+    "grid": {
+      "nx": 35,
+      "ny": 12,
+      "nz": 28,
+      "cells": 11760
+    },
+    "solver": {
+      "sceneKey": "aij-urban-v3:C:270:72b031820ef2c0c46977cb12b0b58dae0579258913b44fac96d89ff2d6cccb73:72b031820ef2c0c46977cb12b0b58dae0579258913b44fac96d89ff2d6cccb73:35x12x28:fp16",
+      "caseId": "C",
+      "windFromDegrees": 270,
+      "grid": {
+        "nx": 35,
+        "ny": 12,
+        "nz": 28
+      },
+      "dx": 0.2001169941906375,
+      "precision": "fp16",
+      "collision": "trt",
+      "regularize": true,
+      "les": {
+        "cs": 0.1
+      },
+      "velocityInlet": true,
+      "outlet": "zero-gradient",
+      "freeSlip": {
+        "yMax": true,
+        "zMin": true,
+        "zMax": true
+      },
+      "measurementStatistic": "time-mean-of-instantaneous-scalar-speed",
+      "transientSteps": 0,
+      "averagingSteps": 11160,
+      "sampleIntervalSteps": 56
+    },
+    "precision": "fp16",
+    "boundaries": {
+      "velocityInlet": true,
+      "outlet": "zero-gradient",
+      "freeSlip": {
+        "yMax": true,
+        "zMin": true,
+        "zMax": true
+      },
+      "ground": "no-slip"
+    },
+    "closures": {
+      "collision": "trt",
+      "les": {
+        "cs": 0.1
+      }
+    },
+    "budgets": {
+      "timeoutMs": 600000,
+      "stallMs": 120000
+    },
+    "acceptance": {
+      "ledgerId": "V14",
+      "status": "recording",
+      "gateDescription": "q≥0.66 — strict-grid Case C MISSES at 55/120 (q=0.45833); mechanism unknown",
+      "qMin": 0.66
+    }
+  },
+  "lifecycle": {
+    "phase": "terminal",
+    "progress": {
+      "step": 3136,
+      "observedAt": "2026-08-18T05:53:05.717Z",
+      "phase": "terminal",
+      "wallMs": 163.30000001192093
+    },
+    "windows": [
+      {
+        "phase": "initialization",
+        "startStep": 0,
+        "endStep": 0,
+        "selectionRule": "uniform density reset and scene construction"
+      },
+      {
+        "phase": "averaging",
+        "startStep": 1,
+        "endStep": 11159,
+        "selectionRule": "accumulate the fixture-declared velocity statistic",
+        "startFlowThrough": 3,
+        "endFlowThrough": 13
+      },
+      {
+        "phase": "evaluation",
+        "startStep": 11160,
+        "endStep": 11160,
+        "selectionRule": "score the completed accumulated mean against every published point"
+      }
+    ],
+    "checkpoints": [
+      {
+        "step": 1568,
+        "savedAt": "2026-08-18T05:53:02.785Z",
+        "location": "IndexedDB/aeroflow/checkpoints",
+        "bytes": 446880,
+        "writeMs": 9.600000023841858,
+        "complete": true
+      },
+      {
+        "step": 2688,
+        "savedAt": "2026-08-18T05:53:04.116Z",
+        "location": "IndexedDB/aeroflow/checkpoints",
+        "bytes": 446880,
+        "writeMs": 9.199999988079071,
+        "complete": true
+      },
+      {
+        "step": 3976,
+        "savedAt": "2026-08-18T05:53:04.459Z",
+        "location": "IndexedDB/aeroflow/checkpoints",
+        "bytes": 446880,
+        "writeMs": 8.400000035762787,
+        "complete": true
+      }
+    ],
+    "recovery": [
+      {
+        "restoredStep": 1568,
+        "resumedAt": "2026-08-18T05:53:03.952Z",
+        "previousRunId": "20260818T055301Z-urban-C-270-0bcc6522"
+      },
+      {
+        "restoredStep": 2688,
+        "resumedAt": "2026-08-18T05:53:05.717Z",
+        "previousRunId": "20260818T055301Z-urban-C-270-0bcc6522"
+      }
+    ],
+    "heartbeatAt": "2026-08-18T05:53:05.717Z",
+    "deviceLoss": {
+      "observed": false
+    },
+    "artifactWriteActivityAt": "2026-08-18T05:53:07.396Z",
+    "checkpointActivityAt": "2026-08-18T05:53:04.459Z"
+  },
+  "verdicts": {
+    "execution": {
+      "state": "pass",
+      "reason": "completed",
+      "metrics": {
+        "lastStep": 3136
+      }
+    },
+    "numericalHealth": {
+      "state": "unevaluated",
+      "reason": "diagnostics were sampled, but V14/V15 declare no density, mass-drift, or closure pass limits",
+      "metrics": {
+        "nonFiniteCells": 0,
+        "densityMin": 1.1700232028961182,
+        "densityMax": 1.1863205432891846,
+        "relativeMassDrift": 0.17576591564870592,
+        "boundaryFluxClosure": 0.0009333785456507953
+      }
+    },
+    "physicsTarget": {
+      "state": "unevaluated",
+      "reason": "under-resolved configuration suppressed scoring",
+      "metrics": {
+        "q": 0.31666666666666665,
+        "r": 0.8024770487942634,
+        "rows": 120
+      }
+    }
+  },
+  "health": [
+    {
+      "sampledAt": "2026-08-18T05:53:02.770Z",
+      "step": 1568,
+      "phase": "averaging",
+      "readbackMs": 16.399999976158142,
+      "nonFiniteCells": {
+        "state": "evaluated",
+        "value": 0,
+        "limit": 0,
+        "pass": true,
+        "unit": "cells"
+      },
+      "densityMin": {
+        "state": "evaluated",
+        "value": 1.1222264766693115
+      },
+      "densityMax": {
+        "state": "evaluated",
+        "value": 1.1391901969909668
+      },
+      "relativeMassDrift": {
+        "state": "evaluated",
+        "value": 0.12861346707804433
+      },
+      "boundaryFluxClosure": {
+        "state": "evaluated",
+        "value": 0.00036783581738596534
+      }
+    },
+    {
+      "sampledAt": "2026-08-18T05:53:04.101Z",
+      "step": 2688,
+      "phase": "averaging",
+      "readbackMs": 16.5,
+      "nonFiniteCells": {
+        "state": "evaluated",
+        "value": 0,
+        "limit": 0,
+        "pass": true,
+        "unit": "cells"
+      },
+      "densityMin": {
+        "state": "evaluated",
+        "value": 1.1460964679718018
+      },
+      "densityMax": {
+        "state": "evaluated",
+        "value": 1.1617653369903564
+      },
+      "relativeMassDrift": {
+        "state": "evaluated",
+        "value": 0.15158126575510894
+      },
+      "boundaryFluxClosure": {
+        "state": "evaluated",
+        "value": 0.0006297219044236994
+      }
+    },
+    {
+      "sampledAt": "2026-08-18T05:53:04.443Z",
+      "step": 3976,
+      "phase": "averaging",
+      "readbackMs": 14.599999964237213,
+      "nonFiniteCells": {
+        "state": "evaluated",
+        "value": 0,
+        "limit": 0,
+        "pass": true,
+        "unit": "cells"
+      },
+      "densityMin": {
+        "state": "evaluated",
+        "value": 1.1700232028961182
+      },
+      "densityMax": {
+        "state": "evaluated",
+        "value": 1.1863205432891846
+      },
+      "relativeMassDrift": {
+        "state": "evaluated",
+        "value": 0.17576591564870592
+      },
+      "boundaryFluxClosure": {
+        "state": "evaluated",
+        "value": 0.0009333785456507953
+      }
+    }
+  ],
+  "evidence": {
+    "aggregate": {
+      "totalSteps": 3136,
+      "averagingFlowThroughs": 2.8100358422939067,
+      "q": 0.31666666666666665,
+      "r": 0.8024770487942634,
+      "verdict": "suppressed",
+      "reportRows": 120,
+      "underResolved": true,
+      "elapsedMs": 535.1999999880791,
+      "voxelizationMs": 18.400000035762787,
+      "lastEvent": "termination"
+    },
+    "detailed": {
+      "report": {
+        "schemaVersion": 1,
+        "generatedAt": "2026-08-18T05:53:05.716Z",
+        "caseId": "C",
+        "geometryVariant": "2H",
+        "windFromDegrees": 270,
+        "provenance": {
+          "measurements": {
+            "url": "https://www.aij.or.jp/jpn/publish/cfdguide/data/CaseC%28City_blocks%29.xls",
+            "file": "CaseC(City_blocks).xls",
+            "sha256": "72b031820ef2c0c46977cb12b0b58dae0579258913b44fac96d89ff2d6cccb73",
+            "retrieved": "2026-07-23"
+          },
+          "geometry": {
+            "url": "https://www.aij.or.jp/jpn/publish/cfdguide/data/CaseC%28City_blocks%29.xls",
+            "file": "CaseC(City_blocks).xls",
+            "sha256": "72b031820ef2c0c46977cb12b0b58dae0579258913b44fac96d89ff2d6cccb73",
+            "retrieved": "2026-07-23",
+            "convertedFile": "geometry.glb",
+            "geometryVariant": "2H",
+            "coordinateTransform": "workbook (X,Y,Z) -> glTF (X,Z,-Y)"
+          },
+          "attribution": {
+            "dataPaper": "Kikumoto, H., Okaze, T., Yoshie, R., Tachibana, T., Ishihara, T., Nonomura, Y., Kiyota, N., Kondo, H., Mochida, A. & Tominaga, Y. (2026), \"Comprehensive Experimental Database for Validating CFD Simulations in Urban Wind Environment: Benchmark Cases Curated by the Architectural Institute of Japan\", Japan Architectural Review 9(1), e70083. https://doi.org/10.1002/2475-8876.70083",
+            "caseSources": [
+              "Nonomura, Y., Kobayashi, N., Tominaga, Y. & Mochida, A. (2003), \"The cross comparison of CFD prediction for flow field around building blocks (part 3)\", Summaries of Technical Papers of Annual Meeting, Japan Association for Wind Engineering 2003, 41. https://doi.org/10.14887/jaweam.2003.0.41.0",
+              "Tominaga, Y., Mochida, A., Yoshie, R., Kataoka, H., Nozu, T., Yoshikawa, M. & Shirasawa, T. (2008), \"AIJ guidelines for practical applications of CFD to pedestrian wind environment around buildings\", J. Wind Eng. Ind. Aerodyn. 96(10-11), 1749-1761. https://doi.org/10.1016/j.jweia.2008.02.058"
+            ],
+            "dataset": {
+              "title": "AIJ UWE Benchmark Dataset - Case C (Blocks): Wind Tunnel Experiment for Flow within Simple Building Blocks (Nonomura, Tominaga, Kikumoto & Okaze, 2025)",
+              "doi": "https://doi.org/10.5281/zenodo.15401792",
+              "license": "CC BY 4.0"
+            },
+            "implementationGuidance": [
+              "Okaze, T., Kikumoto, H., Ikegaya, N., Nakao, K., Ono, H., Nakajima, K., Imano, M., Hasama, T., Tabata, Y., Kishida, T., Yoshie, R. & Tominaga, Y. (2026), \"AIJ guidelines on the applications of large-eddy simulation to pedestrian wind environment: Recommendations and validation benchmarks\", J. Wind Eng. Ind. Aerodyn. 269, 106321. https://doi.org/10.1016/j.jweia.2025.106321"
+            ],
+            "processing": "Converted by scripts/convert-aij-case-c.py from the AIJ Case C workbook: the Inflow and Results(0/22.5/45_deg) sheets transcribed to JSON in the workbook's own units (model meters, m/s), all 0H/1H/2H result columns retained per probe with 2H selected into `speed`, and workbook angles converted to meteorological FROM bearings. No measurement value is rescaled, smoothed or interpolated.",
+            "disclaimer": "These derived files were created and processed independently for AeroFlow. The Architectural Institute of Japan (AIJ) does not guarantee their quality, accuracy, completeness, or suitability for any particular purpose."
+          }
+        },
+        "method": {
+          "measurementStatistic": "time-mean-of-instantaneous-scalar-speed",
+          "inflow": {
+            "kind": "measured",
+            "speedUnit": "m/s",
+            "samples": [
+              {
+                "z": 0.01,
+                "speed": 2.372,
+                "sigmaSpeed": 0.56
+              },
+              {
+                "z": 0.02,
+                "speed": 2.434,
+                "sigmaSpeed": 0.564
+              },
+              {
+                "z": 0.03,
+                "speed": 2.548,
+                "sigmaSpeed": 0.563
+              },
+              {
+                "z": 0.05,
+                "speed": 2.912,
+                "sigmaSpeed": 0.695
+              },
+              {
+                "z": 0.07,
+                "speed": 3.042,
+                "sigmaSpeed": 0.71
+              },
+              {
+                "z": 0.1,
+                "speed": 3.392,
+                "sigmaSpeed": 0.743
+              },
+              {
+                "z": 0.15,
+                "speed": 3.483,
+                "sigmaSpeed": 0.78
+              },
+              {
+                "z": 0.2,
+                "speed": 3.654,
+                "sigmaSpeed": 0.801
+              },
+              {
+                "z": 0.25,
+                "speed": 3.82,
+                "sigmaSpeed": 0.812
+              },
+              {
+                "z": 0.3,
+                "speed": 4.019,
+                "sigmaSpeed": 0.786
+              },
+              {
+                "z": 0.35000000000000003,
+                "speed": 4.205,
+                "sigmaSpeed": 0.83
+              },
+              {
+                "z": 0.4,
+                "speed": 4.343,
+                "sigmaSpeed": 0.809
+              },
+              {
+                "z": 0.6,
+                "speed": 4.985,
+                "sigmaSpeed": 0.796
+              },
+              {
+                "z": 0.8,
+                "speed": 5.713,
+                "sigmaSpeed": 0.587
+              },
+              {
+                "z": 1,
+                "speed": 6.12,
+                "sigmaSpeed": 0.283
+              },
+              {
+                "z": 1.2,
+                "speed": 6.201,
+                "sigmaSpeed": 0.148
+              }
+            ],
+            "note": "Inflow sheet transcribed verbatim (Z(m), U, sigmaU)."
+          },
+          "collision": "trt",
+          "lesCs": 0.1
+        },
+        "simulation": {
+          "grid": {
+            "nx": 35,
+            "ny": 12,
+            "nz": 28
+          },
+          "totalCells": 11760,
+          "dx": 0.2001169941906375,
+          "precision": "fp16",
+          "totalSteps": 3136,
+          "transientSteps": 0,
+          "averagingSteps": 3136,
+          "flowThroughSteps": 1116,
+          "averagingFlowThroughs": 2.8100358422939067,
+          "elapsedMs": 535.1999999880791,
+          "voxelizationMs": 18.400000035762787,
+          "gpu": "nvidia · ampere",
+          "browser": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.7827.55 Safari/537.36",
+          "probeSampling": "nearest-fluid-cell-smoke"
+        },
+        "resolution": {
+          "acceptanceReady": false,
+          "requiredCells": 183254820,
+          "requiredDx": 0.008,
+          "checks": [
+            {
+              "code": "probe-height",
+              "pass": false,
+              "message": "probe plane y=0.60 lattice nodes (gate: >= 2, third fluid-node center; dx <= 0.008 m)"
+            },
+            {
+              "code": "building-resolution",
+              "pass": false,
+              "message": "2.0 cells/Hmax (gate: >= 10)"
+            },
+            {
+              "code": "blockage",
+              "pass": true,
+              "message": "3.00% AABB blockage (gate: <= 3%)"
+            }
+          ]
+        },
+        "metrics": {
+          "q": 0.31666666666666665,
+          "qGate": 0.66,
+          "r": 0.8024770487942634,
+          "rGate": null
+        },
+        "verdict": "suppressed",
+        "suppressionReasons": [
+          "probe plane y=0.60 lattice nodes (gate: >= 2, third fluid-node center; dx <= 0.008 m)",
+          "2.0 cells/Hmax (gate: >= 10)",
+          "2.81 averaged flow-throughs (gate: >= 10)",
+          "under-resolved smoke run samples nearest interior fluid cells, not published probe coordinates"
+        ],
+        "rows": [
+          {
+            "id": "63",
+            "east": -0.3,
+            "north": -0.25,
+            "up": 0.02,
+            "measured": 1.0830552580525286,
+            "simulated": 0.4678296465334004,
+            "delta": -0.6152256115191281,
+            "hit": false
+          },
+          {
+            "id": "54",
+            "east": -0.3,
+            "north": -0.2,
+            "up": 0.02,
+            "measured": 0.954849544993227,
+            "simulated": 0.43903947405034166,
+            "delta": -0.5158100709428854,
+            "hit": false
+          },
+          {
+            "id": "45",
+            "east": -0.3,
+            "north": -0.15,
+            "up": 0.02,
+            "measured": 0.7175767841918969,
+            "simulated": 0.43903947405034166,
+            "delta": -0.2785373101415552,
+            "hit": false
+          },
+          {
+            "id": "31",
+            "east": -0.3,
+            "north": 0.15,
+            "up": 0.02,
+            "measured": 0.7159449237696468,
+            "simulated": 0.4371979273082862,
+            "delta": -0.2787469964613606,
+            "hit": false
+          },
+          {
+            "id": "32",
+            "east": -0.3,
+            "north": 0.2,
+            "up": 0.02,
+            "measured": 0.9032880800494208,
+            "simulated": 0.4659101163332682,
+            "delta": -0.4373779637161527,
+            "hit": false
+          },
+          {
+            "id": "33",
+            "east": -0.3,
+            "north": 0.25,
+            "up": 0.02,
+            "measured": 1.0377607508643336,
+            "simulated": 0.4659101163332682,
+            "delta": -0.5718506345310654,
+            "hit": false
+          },
+          {
+            "id": "66",
+            "east": -0.25,
+            "north": -0.3,
+            "up": 0.02,
+            "measured": 0.9752527861396602,
+            "simulated": 0.47264812448858456,
+            "delta": -0.5026046616510755,
+            "hit": false
+          },
+          {
+            "id": "62",
+            "east": -0.25,
+            "north": -0.25,
+            "up": 0.02,
+            "measured": 1.0591359977289148,
+            "simulated": 0.47264812448858456,
+            "delta": -0.5864878732403302,
+            "hit": false
+          },
+          {
+            "id": "53",
+            "east": -0.25,
+            "north": -0.2,
+            "up": 0.02,
+            "measured": 0.884868204824821,
+            "simulated": 0.47264812448858456,
+            "delta": -0.4122200803362364,
+            "hit": false
+          },
+          {
+            "id": "44",
+            "east": -0.25,
+            "north": -0.15,
+            "up": 0.02,
+            "measured": 0.7776694415172067,
+            "simulated": 0.43903947405034166,
+            "delta": -0.3386299674668651,
+            "hit": false
+          },
+          {
+            "id": "22",
+            "east": -0.25,
+            "north": -0.1,
+            "up": 0.02,
+            "measured": 0.8898307406897744,
+            "simulated": 0.43903947405034166,
+            "delta": -0.45079126663943275,
+            "hit": false
+          },
+          {
+            "id": "23",
+            "east": -0.25,
+            "north": -0.05,
+            "up": 0.02,
+            "measured": 0.9267696028180537,
+            "simulated": 0.43903947405034166,
+            "delta": -0.487730128767712,
+            "hit": false
+          },
+          {
+            "id": "24",
+            "east": -0.25,
+            "north": 0,
+            "up": 0.02,
+            "measured": 0.8283321557274372,
+            "simulated": 0.4371979273082862,
+            "delta": -0.391134228419151,
+            "hit": false
+          },
+          {
+            "id": "25",
+            "east": -0.25,
+            "north": 0.05,
+            "up": 0.02,
+            "measured": 0.9311254898142148,
+            "simulated": 0.4371979273082862,
+            "delta": -0.4939275625059286,
+            "hit": false
+          },
+          {
+            "id": "26",
+            "east": -0.25,
+            "north": 0.1,
+            "up": 0.02,
+            "measured": 0.8482106755083018,
+            "simulated": 0.4371979273082862,
+            "delta": -0.41101274820001554,
+            "hit": false
+          },
+          {
+            "id": "27",
+            "east": -0.25,
+            "north": 0.15,
+            "up": 0.02,
+            "measured": 0.7367534619890385,
+            "simulated": 0.47491682635098553,
+            "delta": -0.26183663563805293,
+            "hit": false
+          },
+          {
+            "id": "28",
+            "east": -0.25,
+            "north": 0.2,
+            "up": 0.02,
+            "measured": 0.8672128916604014,
+            "simulated": 0.47491682635098553,
+            "delta": -0.39229606530941585,
+            "hit": false
+          },
+          {
+            "id": "29",
+            "east": -0.25,
+            "north": 0.25,
+            "up": 0.02,
+            "measured": 1.0344475510101592,
+            "simulated": 0.47491682635098553,
+            "delta": -0.5595307246591736,
+            "hit": false
+          },
+          {
+            "id": "30",
+            "east": -0.25,
+            "north": 0.3,
+            "up": 0.02,
+            "measured": 0.9562566179136651,
+            "simulated": 0.47491682635098553,
+            "delta": -0.4813397915626796,
+            "hit": false
+          },
+          {
+            "id": "65",
+            "east": -0.2,
+            "north": -0.3,
+            "up": 0.02,
+            "measured": 0.9484097812783474,
+            "simulated": 0.47264812448858456,
+            "delta": -0.47576165678976284,
+            "hit": false
+          },
+          {
+            "id": "61",
+            "east": -0.2,
+            "north": -0.25,
+            "up": 0.02,
+            "measured": 0.9645292116660376,
+            "simulated": 0.47264812448858456,
+            "delta": -0.491881087177453,
+            "hit": false
+          },
+          {
+            "id": "52",
+            "east": -0.2,
+            "north": -0.2,
+            "up": 0.02,
+            "measured": 0.8776113961831523,
+            "simulated": 0.47264812448858456,
+            "delta": -0.40496327169456775,
+            "hit": false
+          },
+          {
+            "id": "43",
+            "east": -0.2,
+            "north": -0.15,
+            "up": 0.02,
+            "measured": 0.9957396075240567,
+            "simulated": 0.47264812448858456,
+            "delta": -0.523091483035472,
+            "hit": false
+          },
+          {
+            "id": "13",
+            "east": -0.2,
+            "north": -0.1,
+            "up": 0.02,
+            "measured": 1.1357838739147945,
+            "simulated": 0.43903947405034166,
+            "delta": -0.6967443998644529,
+            "hit": false
+          },
+          {
+            "id": "14",
+            "east": -0.2,
+            "north": -0.05,
+            "up": 0.02,
+            "measured": 1.1010012521043904,
+            "simulated": 0.43903947405034166,
+            "delta": -0.6619617780540488,
+            "hit": false
+          },
+          {
+            "id": "15",
+            "east": -0.2,
+            "north": 0,
+            "up": 0.02,
+            "measured": 0.9762837119220722,
+            "simulated": 0.4371979273082862,
+            "delta": -0.539085784613786,
+            "hit": false
+          },
+          {
+            "id": "16",
+            "east": -0.2,
+            "north": 0.05,
+            "up": 0.02,
+            "measured": 1.0223753911642903,
+            "simulated": 0.4371979273082862,
+            "delta": -0.5851774638560041,
+            "hit": false
+          },
+          {
+            "id": "17",
+            "east": -0.2,
+            "north": 0.1,
+            "up": 0.02,
+            "measured": 1.0866398995963817,
+            "simulated": 0.47491682635098553,
+            "delta": -0.6117230732453962,
+            "hit": false
+          },
+          {
+            "id": "18",
+            "east": -0.2,
+            "north": 0.15,
+            "up": 0.02,
+            "measured": 0.8902089619901681,
+            "simulated": 0.47491682635098553,
+            "delta": -0.41529213563918255,
+            "hit": false
+          },
+          {
+            "id": "19",
+            "east": -0.2,
+            "north": 0.2,
+            "up": 0.02,
+            "measured": 0.8412734782125074,
+            "simulated": 0.47491682635098553,
+            "delta": -0.3663566518615219,
+            "hit": false
+          },
+          {
+            "id": "20",
+            "east": -0.2,
+            "north": 0.25,
+            "up": 0.02,
+            "measured": 0.9768064273279904,
+            "simulated": 0.47491682635098553,
+            "delta": -0.5018896009770049,
+            "hit": false
+          },
+          {
+            "id": "21",
+            "east": -0.2,
+            "north": 0.3,
+            "up": 0.02,
+            "measured": 1.0019072108995772,
+            "simulated": 0.47491682635098553,
+            "delta": -0.5269903845485917,
+            "hit": false
+          },
+          {
+            "id": "64",
+            "east": -0.15,
+            "north": -0.3,
+            "up": 0.02,
+            "measured": 0.7471105894460477,
+            "simulated": 0.47264812448858456,
+            "delta": -0.2744624649574631,
+            "hit": false
+          },
+          {
+            "id": "60",
+            "east": -0.15,
+            "north": -0.25,
+            "up": 0.02,
+            "measured": 0.7707128870971816,
+            "simulated": 0.47264812448858456,
+            "delta": -0.298064762608597,
+            "hit": false
+          },
+          {
+            "id": "51",
+            "east": -0.15,
+            "north": -0.2,
+            "up": 0.02,
+            "measured": 0.758492701747218,
+            "simulated": 0.47264812448858456,
+            "delta": -0.2858445772586334,
+            "hit": false
+          },
+          {
+            "id": "42",
+            "east": -0.15,
+            "north": -0.15,
+            "up": 0.02,
+            "measured": 0.9604373012390651,
+            "simulated": 0.47264812448858456,
+            "delta": -0.48778917675048056,
+            "hit": false
+          },
+          {
+            "id": "4",
+            "east": -0.15,
+            "north": -0.1,
+            "up": 0.02,
+            "measured": 1.157431109212729,
+            "simulated": 0.47264812448858456,
+            "delta": -0.6847829847241445,
+            "hit": false
+          },
+          {
+            "id": "5",
+            "east": -0.15,
+            "north": -0.05,
+            "up": 0.02,
+            "measured": 0.9443020384264739,
+            "simulated": 0.43903947405034166,
+            "delta": -0.5052625643761322,
+            "hit": false
+          },
+          {
+            "id": "6",
+            "east": -0.15,
+            "north": 0,
+            "up": 0.02,
+            "measured": 0.8365892172343785,
+            "simulated": 0.4371979273082862,
+            "delta": -0.3993912899260923,
+            "hit": false
+          },
+          {
+            "id": "7",
+            "east": -0.15,
+            "north": 0.05,
+            "up": 0.02,
+            "measured": 0.9524920637937916,
+            "simulated": 0.47491682635098553,
+            "delta": -0.47757523744280606,
+            "hit": false
+          },
+          {
+            "id": "8",
+            "east": -0.15,
+            "north": 0.1,
+            "up": 0.02,
+            "measured": 1.1274984355527982,
+            "simulated": 0.47491682635098553,
+            "delta": -0.6525816092018126,
+            "hit": false
+          },
+          {
+            "id": "9",
+            "east": -0.15,
+            "north": 0.15,
+            "up": 0.02,
+            "measured": 0.9421716607440362,
+            "simulated": 0.47491682635098553,
+            "delta": -0.4672548343930507,
+            "hit": false
+          },
+          {
+            "id": "10",
+            "east": -0.15,
+            "north": 0.2,
+            "up": 0.02,
+            "measured": 0.8209059974655326,
+            "simulated": 0.47491682635098553,
+            "delta": -0.3459891711145471,
+            "hit": false
+          },
+          {
+            "id": "11",
+            "east": -0.15,
+            "north": 0.25,
+            "up": 0.02,
+            "measured": 0.7975437169488214,
+            "simulated": 0.47491682635098553,
+            "delta": -0.3226268905978359,
+            "hit": false
+          },
+          {
+            "id": "12",
+            "east": -0.15,
+            "north": 0.3,
+            "up": 0.02,
+            "measured": 0.81653085894652,
+            "simulated": 0.47491682635098553,
+            "delta": -0.34161403259553447,
+            "hit": false
+          },
+          {
+            "id": "59",
+            "east": -0.1,
+            "north": -0.25,
+            "up": 0.02,
+            "measured": 0.661420300757509,
+            "simulated": 0.47264812448858456,
+            "delta": -0.18877217626892445,
+            "hit": true
+          },
+          {
+            "id": "50",
+            "east": -0.1,
+            "north": -0.2,
+            "up": 0.02,
+            "measured": 0.6941531989817971,
+            "simulated": 0.47264812448858456,
+            "delta": -0.2215050744932125,
+            "hit": true
+          },
+          {
+            "id": "41",
+            "east": -0.1,
+            "north": -0.15,
+            "up": 0.02,
+            "measured": 0.8703443444854659,
+            "simulated": 0.47264812448858456,
+            "delta": -0.3976962199968814,
+            "hit": false
+          },
+          {
+            "id": "103",
+            "east": -0.1,
+            "north": 0.15,
+            "up": 0.02,
+            "measured": 0.9180005321417666,
+            "simulated": 0.47491682635098553,
+            "delta": -0.44308370579078105,
+            "hit": false
+          },
+          {
+            "id": "112",
+            "east": -0.1,
+            "north": 0.2,
+            "up": 0.02,
+            "measured": 0.649004962238002,
+            "simulated": 0.47491682635098553,
+            "delta": -0.17408813588701644,
+            "hit": true
+          },
+          {
+            "id": "121",
+            "east": -0.1,
+            "north": 0.25,
+            "up": 0.02,
+            "measured": 0.6081035986404906,
+            "simulated": 0.47491682635098553,
+            "delta": -0.13318677228950504,
+            "hit": true
+          },
+          {
+            "id": "58",
+            "east": -0.05,
+            "north": -0.25,
+            "up": 0.02,
+            "measured": 0.645422039580697,
+            "simulated": 0.36175278655487403,
+            "delta": -0.28366925302582296,
+            "hit": false
+          },
+          {
+            "id": "49",
+            "east": -0.05,
+            "north": -0.2,
+            "up": 0.02,
+            "measured": 0.6880329171422208,
+            "simulated": 0.36175278655487403,
+            "delta": -0.3262801305873468,
+            "hit": false
+          },
+          {
+            "id": "40",
+            "east": -0.05,
+            "north": -0.15,
+            "up": 0.02,
+            "measured": 0.7002711075599238,
+            "simulated": 0.36175278655487403,
+            "delta": -0.3385183210050498,
+            "hit": false
+          },
+          {
+            "id": "104",
+            "east": -0.05,
+            "north": 0.15,
+            "up": 0.02,
+            "measured": 0.646869706373961,
+            "simulated": 0.3619445222674127,
+            "delta": -0.2849251841065483,
+            "hit": false
+          },
+          {
+            "id": "113",
+            "east": -0.05,
+            "north": 0.2,
+            "up": 0.02,
+            "measured": 0.5716554477372732,
+            "simulated": 0.3619445222674127,
+            "delta": -0.20971092546986048,
+            "hit": true
+          },
+          {
+            "id": "122",
+            "east": -0.05,
+            "north": 0.25,
+            "up": 0.02,
+            "measured": 0.5971446848526315,
+            "simulated": 0.3619445222674127,
+            "delta": -0.2352001625852188,
+            "hit": true
+          },
+          {
+            "id": "57",
+            "east": 0,
+            "north": -0.25,
+            "up": 0.02,
+            "measured": 0.5432441071061659,
+            "simulated": 0.36175278655487403,
+            "delta": -0.18149132055129186,
+            "hit": true
+          },
+          {
+            "id": "48",
+            "east": 0,
+            "north": -0.2,
+            "up": 0.02,
+            "measured": 0.5689164336865962,
+            "simulated": 0.36175278655487403,
+            "delta": -0.20716364713172214,
+            "hit": true
+          },
+          {
+            "id": "39",
+            "east": 0,
+            "north": -0.15,
+            "up": 0.02,
+            "measured": 0.6406191258339876,
+            "simulated": 0.36175278655487403,
+            "delta": -0.2788663392791136,
+            "hit": false
+          },
+          {
+            "id": "105",
+            "east": 0,
+            "north": 0.15,
+            "up": 0.02,
+            "measured": 0.6524759366818779,
+            "simulated": 0.3619445222674127,
+            "delta": -0.29053141441446517,
+            "hit": false
+          },
+          {
+            "id": "114",
+            "east": 0,
+            "north": 0.2,
+            "up": 0.02,
+            "measured": 0.5448265912737257,
+            "simulated": 0.3619445222674127,
+            "delta": -0.182882069006313,
+            "hit": true
+          },
+          {
+            "id": "123",
+            "east": 0,
+            "north": 0.25,
+            "up": 0.02,
+            "measured": 0.5311123415456936,
+            "simulated": 0.3619445222674127,
+            "delta": -0.16916781927828095,
+            "hit": true
+          },
+          {
+            "id": "56",
+            "east": 0.05,
+            "north": -0.25,
+            "up": 0.02,
+            "measured": 0.5009396967623789,
+            "simulated": 0.36175278655487403,
+            "delta": -0.1391869102075049,
+            "hit": true
+          },
+          {
+            "id": "47",
+            "east": 0.05,
+            "north": -0.2,
+            "up": 0.02,
+            "measured": 0.5682218578873545,
+            "simulated": 0.36175278655487403,
+            "delta": -0.20646907133248044,
+            "hit": true
+          },
+          {
+            "id": "38",
+            "east": 0.05,
+            "north": -0.15,
+            "up": 0.02,
+            "measured": 0.667055853963105,
+            "simulated": 0.3319423997185729,
+            "delta": -0.33511345424453204,
+            "hit": false
+          },
+          {
+            "id": "106",
+            "east": 0.05,
+            "north": 0.15,
+            "up": 0.02,
+            "measured": 0.6480424747569662,
+            "simulated": 0.3619445222674127,
+            "delta": -0.2860979524895535,
+            "hit": false
+          },
+          {
+            "id": "115",
+            "east": 0.05,
+            "north": 0.2,
+            "up": 0.02,
+            "measured": 0.6130846166079885,
+            "simulated": 0.3619445222674127,
+            "delta": -0.2511400943405758,
+            "hit": false
+          },
+          {
+            "id": "124",
+            "east": 0.05,
+            "north": 0.25,
+            "up": 0.02,
+            "measured": 0.5008644057372806,
+            "simulated": 0.3619445222674127,
+            "delta": -0.13891988346986794,
+            "hit": true
+          },
+          {
+            "id": "69",
+            "east": 0.1,
+            "north": -0.25,
+            "up": 0.02,
+            "measured": 0.4923248723815681,
+            "simulated": 0.36175278655487403,
+            "delta": -0.13057208582669405,
+            "hit": true
+          },
+          {
+            "id": "68",
+            "east": 0.1,
+            "north": -0.2,
+            "up": 0.02,
+            "measured": 0.5696989683378939,
+            "simulated": 0.3319423997185729,
+            "delta": -0.23775656861932098,
+            "hit": true
+          },
+          {
+            "id": "67",
+            "east": 0.1,
+            "north": -0.15,
+            "up": 0.02,
+            "measured": 0.6908489532082235,
+            "simulated": 0.3319423997185729,
+            "delta": -0.35890655348965056,
+            "hit": false
+          },
+          {
+            "id": "107",
+            "east": 0.1,
+            "north": 0.15,
+            "up": 0.02,
+            "measured": 0.6376917044018867,
+            "simulated": 0.33350573811729617,
+            "delta": -0.30418596628459055,
+            "hit": false
+          },
+          {
+            "id": "116",
+            "east": 0.1,
+            "north": 0.2,
+            "up": 0.02,
+            "measured": 0.5393041064226212,
+            "simulated": 0.3619445222674127,
+            "delta": -0.17735958415520847,
+            "hit": true
+          },
+          {
+            "id": "125",
+            "east": 0.1,
+            "north": 0.25,
+            "up": 0.02,
+            "measured": 0.510688457503678,
+            "simulated": 0.3619445222674127,
+            "delta": -0.14874393523626528,
+            "hit": true
+          },
+          {
+            "id": "78",
+            "east": 0.15,
+            "north": -0.3,
+            "up": 0.02,
+            "measured": 0.43844492895144455,
+            "simulated": 0.3512064510278245,
+            "delta": -0.08723847792362005,
+            "hit": true
+          },
+          {
+            "id": "77",
+            "east": 0.15,
+            "north": -0.25,
+            "up": 0.02,
+            "measured": 0.517358202367141,
+            "simulated": 0.3512064510278245,
+            "delta": -0.16615175133931653,
+            "hit": true
+          },
+          {
+            "id": "76",
+            "east": 0.15,
+            "north": -0.2,
+            "up": 0.02,
+            "measured": 0.6025339051248455,
+            "simulated": 0.3319423997185729,
+            "delta": -0.2705915054062726,
+            "hit": false
+          },
+          {
+            "id": "75",
+            "east": 0.15,
+            "north": -0.15,
+            "up": 0.02,
+            "measured": 0.6905594668577831,
+            "simulated": 0.3319423997185729,
+            "delta": -0.3586170671392102,
+            "hit": false
+          },
+          {
+            "id": "74",
+            "east": 0.15,
+            "north": -0.1,
+            "up": 0.02,
+            "measured": 0.6534540045977251,
+            "simulated": 0.3319423997185729,
+            "delta": -0.32151160487915215,
+            "hit": false
+          },
+          {
+            "id": "73",
+            "east": 0.15,
+            "north": -0.05,
+            "up": 0.02,
+            "measured": 0.43225342643187653,
+            "simulated": 0.3319423997185729,
+            "delta": -0.10031102671330361,
+            "hit": true
+          },
+          {
+            "id": "72",
+            "east": 0.15,
+            "north": 0,
+            "up": 0.02,
+            "measured": 0.535406051728167,
+            "simulated": 0.33350573811729617,
+            "delta": -0.20190031361087085,
+            "hit": true
+          },
+          {
+            "id": "71",
+            "east": 0.15,
+            "north": 0.05,
+            "up": 0.02,
+            "measured": 0.4059280713031258,
+            "simulated": 0.33350573811729617,
+            "delta": -0.07242233318582963,
+            "hit": true
+          },
+          {
+            "id": "70",
+            "east": 0.15,
+            "north": 0.1,
+            "up": 0.02,
+            "measured": 0.6940205332514587,
+            "simulated": 0.33350573811729617,
+            "delta": -0.36051479513416257,
+            "hit": false
+          },
+          {
+            "id": "108",
+            "east": 0.15,
+            "north": 0.15,
+            "up": 0.02,
+            "measured": 0.6560381238996876,
+            "simulated": 0.33350573811729617,
+            "delta": -0.32253238578239146,
+            "hit": false
+          },
+          {
+            "id": "117",
+            "east": 0.15,
+            "north": 0.2,
+            "up": 0.02,
+            "measured": 0.5935053920184746,
+            "simulated": 0.3566050729588958,
+            "delta": -0.2369003190595788,
+            "hit": true
+          },
+          {
+            "id": "126",
+            "east": 0.15,
+            "north": 0.25,
+            "up": 0.02,
+            "measured": 0.48484241519864596,
+            "simulated": 0.3566050729588958,
+            "delta": -0.12823734223975014,
+            "hit": true
+          },
+          {
+            "id": "130",
+            "east": 0.15,
+            "north": 0.3,
+            "up": 0.02,
+            "measured": 0.4423048565708257,
+            "simulated": 0.3566050729588958,
+            "delta": -0.08569978361192987,
+            "hit": true
+          },
+          {
+            "id": "87",
+            "east": 0.2,
+            "north": -0.3,
+            "up": 0.02,
+            "measured": 0.4642395965021315,
+            "simulated": 0.3512064510278245,
+            "delta": -0.11303314547430698,
+            "hit": true
+          },
+          {
+            "id": "86",
+            "east": 0.2,
+            "north": -0.25,
+            "up": 0.02,
+            "measured": 0.510819097311059,
+            "simulated": 0.3512064510278245,
+            "delta": -0.15961264628323452,
+            "hit": true
+          },
+          {
+            "id": "85",
+            "east": 0.2,
+            "north": -0.2,
+            "up": 0.02,
+            "measured": 0.5719768814278463,
+            "simulated": 0.3319423997185729,
+            "delta": -0.24003448170927338,
+            "hit": true
+          },
+          {
+            "id": "84",
+            "east": 0.2,
+            "north": -0.15,
+            "up": 0.02,
+            "measured": 0.6997633623693122,
+            "simulated": 0.3319423997185729,
+            "delta": -0.3678209626507393,
+            "hit": false
+          },
+          {
+            "id": "83",
+            "east": 0.2,
+            "north": -0.1,
+            "up": 0.02,
+            "measured": 0.6227562258451708,
+            "simulated": 0.3319423997185729,
+            "delta": -0.29081382612659784,
+            "hit": false
+          },
+          {
+            "id": "82",
+            "east": 0.2,
+            "north": -0.05,
+            "up": 0.02,
+            "measured": 0.5885855992240298,
+            "simulated": 0.3319423997185729,
+            "delta": -0.25664319950545683,
+            "hit": false
+          },
+          {
+            "id": "81",
+            "east": 0.2,
+            "north": 0,
+            "up": 0.02,
+            "measured": 0.5498478821357408,
+            "simulated": 0.33350573811729617,
+            "delta": -0.2163421440184446,
+            "hit": true
+          },
+          {
+            "id": "80",
+            "east": 0.2,
+            "north": 0.05,
+            "up": 0.02,
+            "measured": 0.48861378599892025,
+            "simulated": 0.33350573811729617,
+            "delta": -0.15510804788162408,
+            "hit": true
+          },
+          {
+            "id": "79",
+            "east": 0.2,
+            "north": 0.1,
+            "up": 0.02,
+            "measured": 0.6486498381576362,
+            "simulated": 0.33350573811729617,
+            "delta": -0.31514410004034005,
+            "hit": false
+          },
+          {
+            "id": "109",
+            "east": 0.2,
+            "north": 0.15,
+            "up": 0.02,
+            "measured": 0.6721861480399337,
+            "simulated": 0.33350573811729617,
+            "delta": -0.33868040992263754,
+            "hit": false
+          },
+          {
+            "id": "118",
+            "east": 0.2,
+            "north": 0.2,
+            "up": 0.02,
+            "measured": 0.586790630739808,
+            "simulated": 0.3566050729588958,
+            "delta": -0.23018555778091215,
+            "hit": true
+          },
+          {
+            "id": "127",
+            "east": 0.2,
+            "north": 0.25,
+            "up": 0.02,
+            "measured": 0.6133109188629559,
+            "simulated": 0.3566050729588958,
+            "delta": -0.25670584590406004,
+            "hit": false
+          },
+          {
+            "id": "131",
+            "east": 0.2,
+            "north": 0.3,
+            "up": 0.02,
+            "measured": 0.5335657957440061,
+            "simulated": 0.3566050729588958,
+            "delta": -0.17696072278511027,
+            "hit": true
+          },
+          {
+            "id": "96",
+            "east": 0.25,
+            "north": -0.3,
+            "up": 0.02,
+            "measured": 0.5517515131694968,
+            "simulated": 0.3512064510278245,
+            "delta": -0.20054506214167228,
+            "hit": true
+          },
+          {
+            "id": "95",
+            "east": 0.25,
+            "north": -0.25,
+            "up": 0.02,
+            "measured": 0.6110706469185577,
+            "simulated": 0.3512064510278245,
+            "delta": -0.25986419589073323,
+            "hit": false
+          },
+          {
+            "id": "94",
+            "east": 0.25,
+            "north": -0.2,
+            "up": 0.02,
+            "measured": 0.6492186558470253,
+            "simulated": 0.3319423997185729,
+            "delta": -0.3172762561284524,
+            "hit": false
+          },
+          {
+            "id": "93",
+            "east": 0.25,
+            "north": -0.15,
+            "up": 0.02,
+            "measured": 0.6348276812990716,
+            "simulated": 0.3319423997185729,
+            "delta": -0.3028852815804987,
+            "hit": false
+          },
+          {
+            "id": "92",
+            "east": 0.25,
+            "north": -0.1,
+            "up": 0.02,
+            "measured": 0.5734672304439746,
+            "simulated": 0.3319423997185729,
+            "delta": -0.2415248307254017,
+            "hit": true
+          },
+          {
+            "id": "91",
+            "east": 0.25,
+            "north": -0.05,
+            "up": 0.02,
+            "measured": 0.4740271883821677,
+            "simulated": 0.3319423997185729,
+            "delta": -0.14208478866359475,
+            "hit": true
+          },
+          {
+            "id": "90",
+            "east": 0.25,
+            "north": 0,
+            "up": 0.02,
+            "measured": 0.47907352831557376,
+            "simulated": 0.33350573811729617,
+            "delta": -0.1455677901982776,
+            "hit": true
+          },
+          {
+            "id": "89",
+            "east": 0.25,
+            "north": 0.05,
+            "up": 0.02,
+            "measured": 0.4542557927509928,
+            "simulated": 0.33350573811729617,
+            "delta": -0.12075005463369665,
+            "hit": true
+          },
+          {
+            "id": "88",
+            "east": 0.25,
+            "north": 0.1,
+            "up": 0.02,
+            "measured": 0.5024518070264135,
+            "simulated": 0.33350573811729617,
+            "delta": -0.1689460689091173,
+            "hit": true
+          },
+          {
+            "id": "110",
+            "east": 0.25,
+            "north": 0.15,
+            "up": 0.02,
+            "measured": 0.6244491183941403,
+            "simulated": 0.33350573811729617,
+            "delta": -0.29094338027684413,
+            "hit": false
+          },
+          {
+            "id": "119",
+            "east": 0.25,
+            "north": 0.2,
+            "up": 0.02,
+            "measured": 0.6084421996953431,
+            "simulated": 0.3566050729588958,
+            "delta": -0.25183712673644726,
+            "hit": false
+          },
+          {
+            "id": "128",
+            "east": 0.25,
+            "north": 0.25,
+            "up": 0.02,
+            "measured": 0.6372006047877123,
+            "simulated": 0.3566050729588958,
+            "delta": -0.2805955318288165,
+            "hit": false
+          },
+          {
+            "id": "132",
+            "east": 0.25,
+            "north": 0.3,
+            "up": 0.02,
+            "measured": 0.6324022920329315,
+            "simulated": 0.3566050729588958,
+            "delta": -0.2757972190740357,
+            "hit": false
+          },
+          {
+            "id": "99",
+            "east": 0.3,
+            "north": -0.25,
+            "up": 0.02,
+            "measured": 0.6438242054836226,
+            "simulated": 0.3512064510278245,
+            "delta": -0.29261775445579813,
+            "hit": false
+          },
+          {
+            "id": "98",
+            "east": 0.3,
+            "north": -0.2,
+            "up": 0.02,
+            "measured": 0.6404472191587144,
+            "simulated": 0.3319423997185729,
+            "delta": -0.30850481944014146,
+            "hit": false
+          },
+          {
+            "id": "97",
+            "east": 0.3,
+            "north": -0.15,
+            "up": 0.02,
+            "measured": 0.6596415059970014,
+            "simulated": 0.3319423997185729,
+            "delta": -0.3276991062784285,
+            "hit": false
+          },
+          {
+            "id": "111",
+            "east": 0.3,
+            "north": 0.15,
+            "up": 0.02,
+            "measured": 0.6348932419519588,
+            "simulated": 0.33350573811729617,
+            "delta": -0.3013875038346627,
+            "hit": false
+          },
+          {
+            "id": "120",
+            "east": 0.3,
+            "north": 0.2,
+            "up": 0.02,
+            "measured": 0.6304595651369845,
+            "simulated": 0.3566050729588958,
+            "delta": -0.2738544921780887,
+            "hit": false
+          },
+          {
+            "id": "129",
+            "east": 0.3,
+            "north": 0.25,
+            "up": 0.02,
+            "measured": 0.6734288982841855,
+            "simulated": 0.3566050729588958,
+            "delta": -0.3168238253252897,
+            "hit": false
+          }
+        ]
+      },
+      "rows": [
+        {
+          "id": "63",
+          "east": -0.3,
+          "north": -0.25,
+          "up": 0.02,
+          "measured": 1.0830552580525286,
+          "simulated": 0.4678296465334004,
+          "delta": -0.6152256115191281,
+          "hit": false
+        },
+        {
+          "id": "54",
+          "east": -0.3,
+          "north": -0.2,
+          "up": 0.02,
+          "measured": 0.954849544993227,
+          "simulated": 0.43903947405034166,
+          "delta": -0.5158100709428854,
+          "hit": false
+        },
+        {
+          "id": "45",
+          "east": -0.3,
+          "north": -0.15,
+          "up": 0.02,
+          "measured": 0.7175767841918969,
+          "simulated": 0.43903947405034166,
+          "delta": -0.2785373101415552,
+          "hit": false
+        },
+        {
+          "id": "31",
+          "east": -0.3,
+          "north": 0.15,
+          "up": 0.02,
+          "measured": 0.7159449237696468,
+          "simulated": 0.4371979273082862,
+          "delta": -0.2787469964613606,
+          "hit": false
+        },
+        {
+          "id": "32",
+          "east": -0.3,
+          "north": 0.2,
+          "up": 0.02,
+          "measured": 0.9032880800494208,
+          "simulated": 0.4659101163332682,
+          "delta": -0.4373779637161527,
+          "hit": false
+        },
+        {
+          "id": "33",
+          "east": -0.3,
+          "north": 0.25,
+          "up": 0.02,
+          "measured": 1.0377607508643336,
+          "simulated": 0.4659101163332682,
+          "delta": -0.5718506345310654,
+          "hit": false
+        },
+        {
+          "id": "66",
+          "east": -0.25,
+          "north": -0.3,
+          "up": 0.02,
+          "measured": 0.9752527861396602,
+          "simulated": 0.47264812448858456,
+          "delta": -0.5026046616510755,
+          "hit": false
+        },
+        {
+          "id": "62",
+          "east": -0.25,
+          "north": -0.25,
+          "up": 0.02,
+          "measured": 1.0591359977289148,
+          "simulated": 0.47264812448858456,
+          "delta": -0.5864878732403302,
+          "hit": false
+        },
+        {
+          "id": "53",
+          "east": -0.25,
+          "north": -0.2,
+          "up": 0.02,
+          "measured": 0.884868204824821,
+          "simulated": 0.47264812448858456,
+          "delta": -0.4122200803362364,
+          "hit": false
+        },
+        {
+          "id": "44",
+          "east": -0.25,
+          "north": -0.15,
+          "up": 0.02,
+          "measured": 0.7776694415172067,
+          "simulated": 0.43903947405034166,
+          "delta": -0.3386299674668651,
+          "hit": false
+        },
+        {
+          "id": "22",
+          "east": -0.25,
+          "north": -0.1,
+          "up": 0.02,
+          "measured": 0.8898307406897744,
+          "simulated": 0.43903947405034166,
+          "delta": -0.45079126663943275,
+          "hit": false
+        },
+        {
+          "id": "23",
+          "east": -0.25,
+          "north": -0.05,
+          "up": 0.02,
+          "measured": 0.9267696028180537,
+          "simulated": 0.43903947405034166,
+          "delta": -0.487730128767712,
+          "hit": false
+        },
+        {
+          "id": "24",
+          "east": -0.25,
+          "north": 0,
+          "up": 0.02,
+          "measured": 0.8283321557274372,
+          "simulated": 0.4371979273082862,
+          "delta": -0.391134228419151,
+          "hit": false
+        },
+        {
+          "id": "25",
+          "east": -0.25,
+          "north": 0.05,
+          "up": 0.02,
+          "measured": 0.9311254898142148,
+          "simulated": 0.4371979273082862,
+          "delta": -0.4939275625059286,
+          "hit": false
+        },
+        {
+          "id": "26",
+          "east": -0.25,
+          "north": 0.1,
+          "up": 0.02,
+          "measured": 0.8482106755083018,
+          "simulated": 0.4371979273082862,
+          "delta": -0.41101274820001554,
+          "hit": false
+        },
+        {
+          "id": "27",
+          "east": -0.25,
+          "north": 0.15,
+          "up": 0.02,
+          "measured": 0.7367534619890385,
+          "simulated": 0.47491682635098553,
+          "delta": -0.26183663563805293,
+          "hit": false
+        },
+        {
+          "id": "28",
+          "east": -0.25,
+          "north": 0.2,
+          "up": 0.02,
+          "measured": 0.8672128916604014,
+          "simulated": 0.47491682635098553,
+          "delta": -0.39229606530941585,
+          "hit": false
+        },
+        {
+          "id": "29",
+          "east": -0.25,
+          "north": 0.25,
+          "up": 0.02,
+          "measured": 1.0344475510101592,
+          "simulated": 0.47491682635098553,
+          "delta": -0.5595307246591736,
+          "hit": false
+        },
+        {
+          "id": "30",
+          "east": -0.25,
+          "north": 0.3,
+          "up": 0.02,
+          "measured": 0.9562566179136651,
+          "simulated": 0.47491682635098553,
+          "delta": -0.4813397915626796,
+          "hit": false
+        },
+        {
+          "id": "65",
+          "east": -0.2,
+          "north": -0.3,
+          "up": 0.02,
+          "measured": 0.9484097812783474,
+          "simulated": 0.47264812448858456,
+          "delta": -0.47576165678976284,
+          "hit": false
+        },
+        {
+          "id": "61",
+          "east": -0.2,
+          "north": -0.25,
+          "up": 0.02,
+          "measured": 0.9645292116660376,
+          "simulated": 0.47264812448858456,
+          "delta": -0.491881087177453,
+          "hit": false
+        },
+        {
+          "id": "52",
+          "east": -0.2,
+          "north": -0.2,
+          "up": 0.02,
+          "measured": 0.8776113961831523,
+          "simulated": 0.47264812448858456,
+          "delta": -0.40496327169456775,
+          "hit": false
+        },
+        {
+          "id": "43",
+          "east": -0.2,
+          "north": -0.15,
+          "up": 0.02,
+          "measured": 0.9957396075240567,
+          "simulated": 0.47264812448858456,
+          "delta": -0.523091483035472,
+          "hit": false
+        },
+        {
+          "id": "13",
+          "east": -0.2,
+          "north": -0.1,
+          "up": 0.02,
+          "measured": 1.1357838739147945,
+          "simulated": 0.43903947405034166,
+          "delta": -0.6967443998644529,
+          "hit": false
+        },
+        {
+          "id": "14",
+          "east": -0.2,
+          "north": -0.05,
+          "up": 0.02,
+          "measured": 1.1010012521043904,
+          "simulated": 0.43903947405034166,
+          "delta": -0.6619617780540488,
+          "hit": false
+        },
+        {
+          "id": "15",
+          "east": -0.2,
+          "north": 0,
+          "up": 0.02,
+          "measured": 0.9762837119220722,
+          "simulated": 0.4371979273082862,
+          "delta": -0.539085784613786,
+          "hit": false
+        },
+        {
+          "id": "16",
+          "east": -0.2,
+          "north": 0.05,
+          "up": 0.02,
+          "measured": 1.0223753911642903,
+          "simulated": 0.4371979273082862,
+          "delta": -0.5851774638560041,
+          "hit": false
+        },
+        {
+          "id": "17",
+          "east": -0.2,
+          "north": 0.1,
+          "up": 0.02,
+          "measured": 1.0866398995963817,
+          "simulated": 0.47491682635098553,
+          "delta": -0.6117230732453962,
+          "hit": false
+        },
+        {
+          "id": "18",
+          "east": -0.2,
+          "north": 0.15,
+          "up": 0.02,
+          "measured": 0.8902089619901681,
+          "simulated": 0.47491682635098553,
+          "delta": -0.41529213563918255,
+          "hit": false
+        },
+        {
+          "id": "19",
+          "east": -0.2,
+          "north": 0.2,
+          "up": 0.02,
+          "measured": 0.8412734782125074,
+          "simulated": 0.47491682635098553,
+          "delta": -0.3663566518615219,
+          "hit": false
+        },
+        {
+          "id": "20",
+          "east": -0.2,
+          "north": 0.25,
+          "up": 0.02,
+          "measured": 0.9768064273279904,
+          "simulated": 0.47491682635098553,
+          "delta": -0.5018896009770049,
+          "hit": false
+        },
+        {
+          "id": "21",
+          "east": -0.2,
+          "north": 0.3,
+          "up": 0.02,
+          "measured": 1.0019072108995772,
+          "simulated": 0.47491682635098553,
+          "delta": -0.5269903845485917,
+          "hit": false
+        },
+        {
+          "id": "64",
+          "east": -0.15,
+          "north": -0.3,
+          "up": 0.02,
+          "measured": 0.7471105894460477,
+          "simulated": 0.47264812448858456,
+          "delta": -0.2744624649574631,
+          "hit": false
+        },
+        {
+          "id": "60",
+          "east": -0.15,
+          "north": -0.25,
+          "up": 0.02,
+          "measured": 0.7707128870971816,
+          "simulated": 0.47264812448858456,
+          "delta": -0.298064762608597,
+          "hit": false
+        },
+        {
+          "id": "51",
+          "east": -0.15,
+          "north": -0.2,
+          "up": 0.02,
+          "measured": 0.758492701747218,
+          "simulated": 0.47264812448858456,
+          "delta": -0.2858445772586334,
+          "hit": false
+        },
+        {
+          "id": "42",
+          "east": -0.15,
+          "north": -0.15,
+          "up": 0.02,
+          "measured": 0.9604373012390651,
+          "simulated": 0.47264812448858456,
+          "delta": -0.48778917675048056,
+          "hit": false
+        },
+        {
+          "id": "4",
+          "east": -0.15,
+          "north": -0.1,
+          "up": 0.02,
+          "measured": 1.157431109212729,
+          "simulated": 0.47264812448858456,
+          "delta": -0.6847829847241445,
+          "hit": false
+        },
+        {
+          "id": "5",
+          "east": -0.15,
+          "north": -0.05,
+          "up": 0.02,
+          "measured": 0.9443020384264739,
+          "simulated": 0.43903947405034166,
+          "delta": -0.5052625643761322,
+          "hit": false
+        },
+        {
+          "id": "6",
+          "east": -0.15,
+          "north": 0,
+          "up": 0.02,
+          "measured": 0.8365892172343785,
+          "simulated": 0.4371979273082862,
+          "delta": -0.3993912899260923,
+          "hit": false
+        },
+        {
+          "id": "7",
+          "east": -0.15,
+          "north": 0.05,
+          "up": 0.02,
+          "measured": 0.9524920637937916,
+          "simulated": 0.47491682635098553,
+          "delta": -0.47757523744280606,
+          "hit": false
+        },
+        {
+          "id": "8",
+          "east": -0.15,
+          "north": 0.1,
+          "up": 0.02,
+          "measured": 1.1274984355527982,
+          "simulated": 0.47491682635098553,
+          "delta": -0.6525816092018126,
+          "hit": false
+        },
+        {
+          "id": "9",
+          "east": -0.15,
+          "north": 0.15,
+          "up": 0.02,
+          "measured": 0.9421716607440362,
+          "simulated": 0.47491682635098553,
+          "delta": -0.4672548343930507,
+          "hit": false
+        },
+        {
+          "id": "10",
+          "east": -0.15,
+          "north": 0.2,
+          "up": 0.02,
+          "measured": 0.8209059974655326,
+          "simulated": 0.47491682635098553,
+          "delta": -0.3459891711145471,
+          "hit": false
+        },
+        {
+          "id": "11",
+          "east": -0.15,
+          "north": 0.25,
+          "up": 0.02,
+          "measured": 0.7975437169488214,
+          "simulated": 0.47491682635098553,
+          "delta": -0.3226268905978359,
+          "hit": false
+        },
+        {
+          "id": "12",
+          "east": -0.15,
+          "north": 0.3,
+          "up": 0.02,
+          "measured": 0.81653085894652,
+          "simulated": 0.47491682635098553,
+          "delta": -0.34161403259553447,
+          "hit": false
+        },
+        {
+          "id": "59",
+          "east": -0.1,
+          "north": -0.25,
+          "up": 0.02,
+          "measured": 0.661420300757509,
+          "simulated": 0.47264812448858456,
+          "delta": -0.18877217626892445,
+          "hit": true
+        },
+        {
+          "id": "50",
+          "east": -0.1,
+          "north": -0.2,
+          "up": 0.02,
+          "measured": 0.6941531989817971,
+          "simulated": 0.47264812448858456,
+          "delta": -0.2215050744932125,
+          "hit": true
+        },
+        {
+          "id": "41",
+          "east": -0.1,
+          "north": -0.15,
+          "up": 0.02,
+          "measured": 0.8703443444854659,
+          "simulated": 0.47264812448858456,
+          "delta": -0.3976962199968814,
+          "hit": false
+        },
+        {
+          "id": "103",
+          "east": -0.1,
+          "north": 0.15,
+          "up": 0.02,
+          "measured": 0.9180005321417666,
+          "simulated": 0.47491682635098553,
+          "delta": -0.44308370579078105,
+          "hit": false
+        },
+        {
+          "id": "112",
+          "east": -0.1,
+          "north": 0.2,
+          "up": 0.02,
+          "measured": 0.649004962238002,
+          "simulated": 0.47491682635098553,
+          "delta": -0.17408813588701644,
+          "hit": true
+        },
+        {
+          "id": "121",
+          "east": -0.1,
+          "north": 0.25,
+          "up": 0.02,
+          "measured": 0.6081035986404906,
+          "simulated": 0.47491682635098553,
+          "delta": -0.13318677228950504,
+          "hit": true
+        },
+        {
+          "id": "58",
+          "east": -0.05,
+          "north": -0.25,
+          "up": 0.02,
+          "measured": 0.645422039580697,
+          "simulated": 0.36175278655487403,
+          "delta": -0.28366925302582296,
+          "hit": false
+        },
+        {
+          "id": "49",
+          "east": -0.05,
+          "north": -0.2,
+          "up": 0.02,
+          "measured": 0.6880329171422208,
+          "simulated": 0.36175278655487403,
+          "delta": -0.3262801305873468,
+          "hit": false
+        },
+        {
+          "id": "40",
+          "east": -0.05,
+          "north": -0.15,
+          "up": 0.02,
+          "measured": 0.7002711075599238,
+          "simulated": 0.36175278655487403,
+          "delta": -0.3385183210050498,
+          "hit": false
+        },
+        {
+          "id": "104",
+          "east": -0.05,
+          "north": 0.15,
+          "up": 0.02,
+          "measured": 0.646869706373961,
+          "simulated": 0.3619445222674127,
+          "delta": -0.2849251841065483,
+          "hit": false
+        },
+        {
+          "id": "113",
+          "east": -0.05,
+          "north": 0.2,
+          "up": 0.02,
+          "measured": 0.5716554477372732,
+          "simulated": 0.3619445222674127,
+          "delta": -0.20971092546986048,
+          "hit": true
+        },
+        {
+          "id": "122",
+          "east": -0.05,
+          "north": 0.25,
+          "up": 0.02,
+          "measured": 0.5971446848526315,
+          "simulated": 0.3619445222674127,
+          "delta": -0.2352001625852188,
+          "hit": true
+        },
+        {
+          "id": "57",
+          "east": 0,
+          "north": -0.25,
+          "up": 0.02,
+          "measured": 0.5432441071061659,
+          "simulated": 0.36175278655487403,
+          "delta": -0.18149132055129186,
+          "hit": true
+        },
+        {
+          "id": "48",
+          "east": 0,
+          "north": -0.2,
+          "up": 0.02,
+          "measured": 0.5689164336865962,
+          "simulated": 0.36175278655487403,
+          "delta": -0.20716364713172214,
+          "hit": true
+        },
+        {
+          "id": "39",
+          "east": 0,
+          "north": -0.15,
+          "up": 0.02,
+          "measured": 0.6406191258339876,
+          "simulated": 0.36175278655487403,
+          "delta": -0.2788663392791136,
+          "hit": false
+        },
+        {
+          "id": "105",
+          "east": 0,
+          "north": 0.15,
+          "up": 0.02,
+          "measured": 0.6524759366818779,
+          "simulated": 0.3619445222674127,
+          "delta": -0.29053141441446517,
+          "hit": false
+        },
+        {
+          "id": "114",
+          "east": 0,
+          "north": 0.2,
+          "up": 0.02,
+          "measured": 0.5448265912737257,
+          "simulated": 0.3619445222674127,
+          "delta": -0.182882069006313,
+          "hit": true
+        },
+        {
+          "id": "123",
+          "east": 0,
+          "north": 0.25,
+          "up": 0.02,
+          "measured": 0.5311123415456936,
+          "simulated": 0.3619445222674127,
+          "delta": -0.16916781927828095,
+          "hit": true
+        },
+        {
+          "id": "56",
+          "east": 0.05,
+          "north": -0.25,
+          "up": 0.02,
+          "measured": 0.5009396967623789,
+          "simulated": 0.36175278655487403,
+          "delta": -0.1391869102075049,
+          "hit": true
+        },
+        {
+          "id": "47",
+          "east": 0.05,
+          "north": -0.2,
+          "up": 0.02,
+          "measured": 0.5682218578873545,
+          "simulated": 0.36175278655487403,
+          "delta": -0.20646907133248044,
+          "hit": true
+        },
+        {
+          "id": "38",
+          "east": 0.05,
+          "north": -0.15,
+          "up": 0.02,
+          "measured": 0.667055853963105,
+          "simulated": 0.3319423997185729,
+          "delta": -0.33511345424453204,
+          "hit": false
+        },
+        {
+          "id": "106",
+          "east": 0.05,
+          "north": 0.15,
+          "up": 0.02,
+          "measured": 0.6480424747569662,
+          "simulated": 0.3619445222674127,
+          "delta": -0.2860979524895535,
+          "hit": false
+        },
+        {
+          "id": "115",
+          "east": 0.05,
+          "north": 0.2,
+          "up": 0.02,
+          "measured": 0.6130846166079885,
+          "simulated": 0.3619445222674127,
+          "delta": -0.2511400943405758,
+          "hit": false
+        },
+        {
+          "id": "124",
+          "east": 0.05,
+          "north": 0.25,
+          "up": 0.02,
+          "measured": 0.5008644057372806,
+          "simulated": 0.3619445222674127,
+          "delta": -0.13891988346986794,
+          "hit": true
+        },
+        {
+          "id": "69",
+          "east": 0.1,
+          "north": -0.25,
+          "up": 0.02,
+          "measured": 0.4923248723815681,
+          "simulated": 0.36175278655487403,
+          "delta": -0.13057208582669405,
+          "hit": true
+        },
+        {
+          "id": "68",
+          "east": 0.1,
+          "north": -0.2,
+          "up": 0.02,
+          "measured": 0.5696989683378939,
+          "simulated": 0.3319423997185729,
+          "delta": -0.23775656861932098,
+          "hit": true
+        },
+        {
+          "id": "67",
+          "east": 0.1,
+          "north": -0.15,
+          "up": 0.02,
+          "measured": 0.6908489532082235,
+          "simulated": 0.3319423997185729,
+          "delta": -0.35890655348965056,
+          "hit": false
+        },
+        {
+          "id": "107",
+          "east": 0.1,
+          "north": 0.15,
+          "up": 0.02,
+          "measured": 0.6376917044018867,
+          "simulated": 0.33350573811729617,
+          "delta": -0.30418596628459055,
+          "hit": false
+        },
+        {
+          "id": "116",
+          "east": 0.1,
+          "north": 0.2,
+          "up": 0.02,
+          "measured": 0.5393041064226212,
+          "simulated": 0.3619445222674127,
+          "delta": -0.17735958415520847,
+          "hit": true
+        },
+        {
+          "id": "125",
+          "east": 0.1,
+          "north": 0.25,
+          "up": 0.02,
+          "measured": 0.510688457503678,
+          "simulated": 0.3619445222674127,
+          "delta": -0.14874393523626528,
+          "hit": true
+        },
+        {
+          "id": "78",
+          "east": 0.15,
+          "north": -0.3,
+          "up": 0.02,
+          "measured": 0.43844492895144455,
+          "simulated": 0.3512064510278245,
+          "delta": -0.08723847792362005,
+          "hit": true
+        },
+        {
+          "id": "77",
+          "east": 0.15,
+          "north": -0.25,
+          "up": 0.02,
+          "measured": 0.517358202367141,
+          "simulated": 0.3512064510278245,
+          "delta": -0.16615175133931653,
+          "hit": true
+        },
+        {
+          "id": "76",
+          "east": 0.15,
+          "north": -0.2,
+          "up": 0.02,
+          "measured": 0.6025339051248455,
+          "simulated": 0.3319423997185729,
+          "delta": -0.2705915054062726,
+          "hit": false
+        },
+        {
+          "id": "75",
+          "east": 0.15,
+          "north": -0.15,
+          "up": 0.02,
+          "measured": 0.6905594668577831,
+          "simulated": 0.3319423997185729,
+          "delta": -0.3586170671392102,
+          "hit": false
+        },
+        {
+          "id": "74",
+          "east": 0.15,
+          "north": -0.1,
+          "up": 0.02,
+          "measured": 0.6534540045977251,
+          "simulated": 0.3319423997185729,
+          "delta": -0.32151160487915215,
+          "hit": false
+        },
+        {
+          "id": "73",
+          "east": 0.15,
+          "north": -0.05,
+          "up": 0.02,
+          "measured": 0.43225342643187653,
+          "simulated": 0.3319423997185729,
+          "delta": -0.10031102671330361,
+          "hit": true
+        },
+        {
+          "id": "72",
+          "east": 0.15,
+          "north": 0,
+          "up": 0.02,
+          "measured": 0.535406051728167,
+          "simulated": 0.33350573811729617,
+          "delta": -0.20190031361087085,
+          "hit": true
+        },
+        {
+          "id": "71",
+          "east": 0.15,
+          "north": 0.05,
+          "up": 0.02,
+          "measured": 0.4059280713031258,
+          "simulated": 0.33350573811729617,
+          "delta": -0.07242233318582963,
+          "hit": true
+        },
+        {
+          "id": "70",
+          "east": 0.15,
+          "north": 0.1,
+          "up": 0.02,
+          "measured": 0.6940205332514587,
+          "simulated": 0.33350573811729617,
+          "delta": -0.36051479513416257,
+          "hit": false
+        },
+        {
+          "id": "108",
+          "east": 0.15,
+          "north": 0.15,
+          "up": 0.02,
+          "measured": 0.6560381238996876,
+          "simulated": 0.33350573811729617,
+          "delta": -0.32253238578239146,
+          "hit": false
+        },
+        {
+          "id": "117",
+          "east": 0.15,
+          "north": 0.2,
+          "up": 0.02,
+          "measured": 0.5935053920184746,
+          "simulated": 0.3566050729588958,
+          "delta": -0.2369003190595788,
+          "hit": true
+        },
+        {
+          "id": "126",
+          "east": 0.15,
+          "north": 0.25,
+          "up": 0.02,
+          "measured": 0.48484241519864596,
+          "simulated": 0.3566050729588958,
+          "delta": -0.12823734223975014,
+          "hit": true
+        },
+        {
+          "id": "130",
+          "east": 0.15,
+          "north": 0.3,
+          "up": 0.02,
+          "measured": 0.4423048565708257,
+          "simulated": 0.3566050729588958,
+          "delta": -0.08569978361192987,
+          "hit": true
+        },
+        {
+          "id": "87",
+          "east": 0.2,
+          "north": -0.3,
+          "up": 0.02,
+          "measured": 0.4642395965021315,
+          "simulated": 0.3512064510278245,
+          "delta": -0.11303314547430698,
+          "hit": true
+        },
+        {
+          "id": "86",
+          "east": 0.2,
+          "north": -0.25,
+          "up": 0.02,
+          "measured": 0.510819097311059,
+          "simulated": 0.3512064510278245,
+          "delta": -0.15961264628323452,
+          "hit": true
+        },
+        {
+          "id": "85",
+          "east": 0.2,
+          "north": -0.2,
+          "up": 0.02,
+          "measured": 0.5719768814278463,
+          "simulated": 0.3319423997185729,
+          "delta": -0.24003448170927338,
+          "hit": true
+        },
+        {
+          "id": "84",
+          "east": 0.2,
+          "north": -0.15,
+          "up": 0.02,
+          "measured": 0.6997633623693122,
+          "simulated": 0.3319423997185729,
+          "delta": -0.3678209626507393,
+          "hit": false
+        },
+        {
+          "id": "83",
+          "east": 0.2,
+          "north": -0.1,
+          "up": 0.02,
+          "measured": 0.6227562258451708,
+          "simulated": 0.3319423997185729,
+          "delta": -0.29081382612659784,
+          "hit": false
+        },
+        {
+          "id": "82",
+          "east": 0.2,
+          "north": -0.05,
+          "up": 0.02,
+          "measured": 0.5885855992240298,
+          "simulated": 0.3319423997185729,
+          "delta": -0.25664319950545683,
+          "hit": false
+        },
+        {
+          "id": "81",
+          "east": 0.2,
+          "north": 0,
+          "up": 0.02,
+          "measured": 0.5498478821357408,
+          "simulated": 0.33350573811729617,
+          "delta": -0.2163421440184446,
+          "hit": true
+        },
+        {
+          "id": "80",
+          "east": 0.2,
+          "north": 0.05,
+          "up": 0.02,
+          "measured": 0.48861378599892025,
+          "simulated": 0.33350573811729617,
+          "delta": -0.15510804788162408,
+          "hit": true
+        },
+        {
+          "id": "79",
+          "east": 0.2,
+          "north": 0.1,
+          "up": 0.02,
+          "measured": 0.6486498381576362,
+          "simulated": 0.33350573811729617,
+          "delta": -0.31514410004034005,
+          "hit": false
+        },
+        {
+          "id": "109",
+          "east": 0.2,
+          "north": 0.15,
+          "up": 0.02,
+          "measured": 0.6721861480399337,
+          "simulated": 0.33350573811729617,
+          "delta": -0.33868040992263754,
+          "hit": false
+        },
+        {
+          "id": "118",
+          "east": 0.2,
+          "north": 0.2,
+          "up": 0.02,
+          "measured": 0.586790630739808,
+          "simulated": 0.3566050729588958,
+          "delta": -0.23018555778091215,
+          "hit": true
+        },
+        {
+          "id": "127",
+          "east": 0.2,
+          "north": 0.25,
+          "up": 0.02,
+          "measured": 0.6133109188629559,
+          "simulated": 0.3566050729588958,
+          "delta": -0.25670584590406004,
+          "hit": false
+        },
+        {
+          "id": "131",
+          "east": 0.2,
+          "north": 0.3,
+          "up": 0.02,
+          "measured": 0.5335657957440061,
+          "simulated": 0.3566050729588958,
+          "delta": -0.17696072278511027,
+          "hit": true
+        },
+        {
+          "id": "96",
+          "east": 0.25,
+          "north": -0.3,
+          "up": 0.02,
+          "measured": 0.5517515131694968,
+          "simulated": 0.3512064510278245,
+          "delta": -0.20054506214167228,
+          "hit": true
+        },
+        {
+          "id": "95",
+          "east": 0.25,
+          "north": -0.25,
+          "up": 0.02,
+          "measured": 0.6110706469185577,
+          "simulated": 0.3512064510278245,
+          "delta": -0.25986419589073323,
+          "hit": false
+        },
+        {
+          "id": "94",
+          "east": 0.25,
+          "north": -0.2,
+          "up": 0.02,
+          "measured": 0.6492186558470253,
+          "simulated": 0.3319423997185729,
+          "delta": -0.3172762561284524,
+          "hit": false
+        },
+        {
+          "id": "93",
+          "east": 0.25,
+          "north": -0.15,
+          "up": 0.02,
+          "measured": 0.6348276812990716,
+          "simulated": 0.3319423997185729,
+          "delta": -0.3028852815804987,
+          "hit": false
+        },
+        {
+          "id": "92",
+          "east": 0.25,
+          "north": -0.1,
+          "up": 0.02,
+          "measured": 0.5734672304439746,
+          "simulated": 0.3319423997185729,
+          "delta": -0.2415248307254017,
+          "hit": true
+        },
+        {
+          "id": "91",
+          "east": 0.25,
+          "north": -0.05,
+          "up": 0.02,
+          "measured": 0.4740271883821677,
+          "simulated": 0.3319423997185729,
+          "delta": -0.14208478866359475,
+          "hit": true
+        },
+        {
+          "id": "90",
+          "east": 0.25,
+          "north": 0,
+          "up": 0.02,
+          "measured": 0.47907352831557376,
+          "simulated": 0.33350573811729617,
+          "delta": -0.1455677901982776,
+          "hit": true
+        },
+        {
+          "id": "89",
+          "east": 0.25,
+          "north": 0.05,
+          "up": 0.02,
+          "measured": 0.4542557927509928,
+          "simulated": 0.33350573811729617,
+          "delta": -0.12075005463369665,
+          "hit": true
+        },
+        {
+          "id": "88",
+          "east": 0.25,
+          "north": 0.1,
+          "up": 0.02,
+          "measured": 0.5024518070264135,
+          "simulated": 0.33350573811729617,
+          "delta": -0.1689460689091173,
+          "hit": true
+        },
+        {
+          "id": "110",
+          "east": 0.25,
+          "north": 0.15,
+          "up": 0.02,
+          "measured": 0.6244491183941403,
+          "simulated": 0.33350573811729617,
+          "delta": -0.29094338027684413,
+          "hit": false
+        },
+        {
+          "id": "119",
+          "east": 0.25,
+          "north": 0.2,
+          "up": 0.02,
+          "measured": 0.6084421996953431,
+          "simulated": 0.3566050729588958,
+          "delta": -0.25183712673644726,
+          "hit": false
+        },
+        {
+          "id": "128",
+          "east": 0.25,
+          "north": 0.25,
+          "up": 0.02,
+          "measured": 0.6372006047877123,
+          "simulated": 0.3566050729588958,
+          "delta": -0.2805955318288165,
+          "hit": false
+        },
+        {
+          "id": "132",
+          "east": 0.25,
+          "north": 0.3,
+          "up": 0.02,
+          "measured": 0.6324022920329315,
+          "simulated": 0.3566050729588958,
+          "delta": -0.2757972190740357,
+          "hit": false
+        },
+        {
+          "id": "99",
+          "east": 0.3,
+          "north": -0.25,
+          "up": 0.02,
+          "measured": 0.6438242054836226,
+          "simulated": 0.3512064510278245,
+          "delta": -0.29261775445579813,
+          "hit": false
+        },
+        {
+          "id": "98",
+          "east": 0.3,
+          "north": -0.2,
+          "up": 0.02,
+          "measured": 0.6404472191587144,
+          "simulated": 0.3319423997185729,
+          "delta": -0.30850481944014146,
+          "hit": false
+        },
+        {
+          "id": "97",
+          "east": 0.3,
+          "north": -0.15,
+          "up": 0.02,
+          "measured": 0.6596415059970014,
+          "simulated": 0.3319423997185729,
+          "delta": -0.3276991062784285,
+          "hit": false
+        },
+        {
+          "id": "111",
+          "east": 0.3,
+          "north": 0.15,
+          "up": 0.02,
+          "measured": 0.6348932419519588,
+          "simulated": 0.33350573811729617,
+          "delta": -0.3013875038346627,
+          "hit": false
+        },
+        {
+          "id": "120",
+          "east": 0.3,
+          "north": 0.2,
+          "up": 0.02,
+          "measured": 0.6304595651369845,
+          "simulated": 0.3566050729588958,
+          "delta": -0.2738544921780887,
+          "hit": false
+        },
+        {
+          "id": "129",
+          "east": 0.3,
+          "north": 0.25,
+          "up": 0.02,
+          "measured": 0.6734288982841855,
+          "simulated": 0.3566050729588958,
+          "delta": -0.3168238253252897,
+          "hit": false
+        }
+      ]
+    }
+  },
+  "termination": {
+    "reason": "completed",
+    "at": "2026-08-18T05:53:07.396Z"
+  },
+  "lastArtifactUpdateAt": "2026-08-18T05:53:07.396Z"
+}

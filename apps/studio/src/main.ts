@@ -152,6 +152,10 @@ const ROUTES: Record<string, Route> = {
     const { mountCheckpointParity } = await import('./sim/checkpointParity');
     await mountCheckpointParity(gpu.device, app);
   },
+  boundedsubmission: async (app, gpu) => {
+    const { mountBoundedSubmissionProof } = await import('./dev/boundedSubmissionProof');
+    await mountBoundedSubmissionProof(gpu.device, gpu.caps, app);
+  },
   // M9 dev route: validate the τ_eff oracle before any τ_eff number is believed.
   tauoracle: async (app, gpu) => {
     const { mountTauOracleCheck } = await import('./sim/tauOracleCheck');

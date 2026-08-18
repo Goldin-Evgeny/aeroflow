@@ -6,6 +6,12 @@ import {
   updateRecordedDiskUsage,
   type AcquiredRun,
 } from './validationRun';
+import type { OperationClassification } from '@aeroflow/core';
+import {
+  AttemptRecoveryPolicy,
+  type AttemptHistoryEntry,
+  type RecoveryDecision,
+} from './attemptRecovery';
 
 export interface DurableBrowserRunOptions {
   root: string;
@@ -14,6 +20,33 @@ export interface DurableBrowserRunOptions {
   runId?: string;
   resume?: boolean;
   takeOverStale?: boolean;
+  maximumReplacementAttempts?: number;
+  maximumSameCheckpointRetries?: number;
+}
+
+/** Graceful persistent-context teardown with a browser-process close fallback. */
+export async function closeBrowserContextBounded(
+  context: BrowserContext,
+  timeoutMs = 5_000,
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      context.close(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`persistent context close exceeded ${timeoutMs} ms`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } catch (error) {
+    const browser = context.browser();
+    if (!browser) throw error;
+    await browser.close();
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 /** One harness-owned persistent Chromium profile, replaceable without losing IndexedDB. */
@@ -21,7 +54,18 @@ export class DurableBrowserRun {
   private context: BrowserContext | null = null;
   private currentPage: Page | null = null;
 
-  private constructor(readonly run: AcquiredRun) {}
+  private readonly recovery: AttemptRecoveryPolicy;
+
+  private constructor(
+    readonly run: AcquiredRun,
+    options: DurableBrowserRunOptions,
+  ) {
+    this.recovery = new AttemptRecoveryPolicy({
+      logicalRunId: run.layout.runId,
+      maximumReplacementAttempts: options.maximumReplacementAttempts,
+      maximumSameCheckpointRetries: options.maximumSameCheckpointRetries,
+    });
+  }
 
   static async create(options: DurableBrowserRunOptions): Promise<DurableBrowserRun> {
     if (process.env.AEROFLOW_CDP_URL) {
@@ -41,7 +85,7 @@ export class DurableBrowserRun {
       : await createFreshRun(options.root, options.caseId, options.configHash, {
           runId: options.runId,
         });
-    const durable = new DurableBrowserRun(acquired);
+    const durable = new DurableBrowserRun(acquired, options);
     await durable.openContext();
     console.log(
       `AeroFlow durable run ${acquired.layout.runId}: ` +
@@ -53,6 +97,18 @@ export class DurableBrowserRun {
   get page(): Page {
     if (!this.currentPage) throw new Error('durable browser context is not open');
     return this.currentPage;
+  }
+
+  get logicalRunId(): string {
+    return this.recovery.logicalRunId;
+  }
+
+  get activeAttemptId(): string {
+    return this.recovery.activeAttempt.attemptId;
+  }
+
+  attemptHistory(): AttemptHistoryEntry[] {
+    return this.recovery.history();
   }
 
   private async openContext(): Promise<void> {
@@ -69,11 +125,35 @@ export class DurableBrowserRun {
     return this.page;
   }
 
-  async closeContext(): Promise<void> {
+  async closeContext(timeoutMs = 5_000): Promise<void> {
     const context = this.context;
     this.context = null;
     this.currentPage = null;
-    await context?.close();
+    if (!context) return;
+    await closeBrowserContextBounded(context, timeoutMs);
+  }
+
+  observeCompleted(step: number): void {
+    this.recovery.observeCompleted(step);
+  }
+
+  confirmRestoredStep(step: number): void {
+    this.recovery.confirmRestoredStep(step);
+  }
+
+  async recoverAttempt(input: {
+    classification: OperationClassification;
+    latestCompleteCheckpointStep: number | null;
+    completedStep: number;
+  }): Promise<{ decision: RecoveryDecision; page?: Page }> {
+    const decision = this.recovery.fail(input);
+    if (decision.kind === 'terminal') return { decision };
+    const page = await this.replaceContext();
+    return { decision, page };
+  }
+
+  completeAttempt(): void {
+    this.recovery.complete();
   }
 
   async dispose(): Promise<void> {

@@ -43,11 +43,15 @@ export function initialUrbanArtifact(input: {
   const material = (json(hook.materialConfiguration ?? {}) ?? {}) as Record<string, JsonValue>;
   const ledgerId = hook.caseId === 'C' ? 'V14' : 'V15';
   const ledger = ACCEPTANCE_BANDS.find((entry) => entry.id === ledgerId)!;
+  const logicalRunId = hook.logicalRunId ?? input.runId;
+  const attemptId = hook.attemptId ?? `${input.runId}-attempt-1`;
   return {
     schemaVersion: VALIDATION_ARTIFACT_SCHEMA_VERSION,
     complete: false,
     identity: {
       runId: input.runId,
+      logicalRunId,
+      activeAttemptId: attemptId,
       caseId: `${ledgerId}-case-${hook.caseId}-${hook.direction}`,
       createdAt,
     },
@@ -77,6 +81,8 @@ export function initialUrbanArtifact(input: {
       phase: hook.phase ?? 'initialization',
       progress: {
         step: hook.totalSteps ?? 0,
+        submittedStep: hook.submittedSteps ?? hook.totalSteps ?? 0,
+        completedStep: hook.completedSteps ?? hook.totalSteps ?? 0,
         observedAt: hook.progress?.observedAt ?? createdAt,
         phase: hook.phase ?? 'initialization',
         wallMs: hook.progress?.wallMs ?? 0,
@@ -85,8 +91,38 @@ export function initialUrbanArtifact(input: {
       checkpoints: [],
       recovery:
         hook.resumed && hook.restoredStep !== null && hook.restoredStep !== undefined
-          ? [{ restoredStep: hook.restoredStep, resumedAt: createdAt, previousRunId: input.runId }]
+          ? [
+              {
+                restoredStep: hook.restoredStep,
+                resumedAt: createdAt,
+                previousAttemptId: 'prior-attempt',
+                attemptId,
+              },
+            ]
           : [],
+      attempts: [
+        {
+          attemptId,
+          startedAt: createdAt,
+          restoredStep: hook.restoredStep ?? null,
+          status: hook.quarantined ? 'quarantined' : 'active',
+        },
+      ],
+      operations: hook.operations ?? [],
+      batchPolicy: hook.batchPolicy ?? {
+        initialSteps: 8,
+        targetMs: 2_000,
+        minimumSteps: 2,
+        maximumSteps: 256,
+        currentSteps: 8,
+        completedDurationsMs: [],
+      },
+      webgpuErrors: hook.webgpuErrors ?? [],
+      diagnosticConfidence: {
+        directObservations: [],
+        derivedClassifications: [],
+        unconfirmedHypotheses: ['operating-system TDR', 'driver reset', 'silent device loss'],
+      },
       heartbeatAt: hook.progress?.observedAt ?? createdAt,
       deviceLoss: hook.deviceLoss ?? { observed: false },
     },
@@ -132,6 +168,10 @@ export async function syncUrbanArtifact(
     draft.lifecycle.phase = hook.phase ?? draft.lifecycle.phase;
     draft.lifecycle.progress = {
       step: hook.totalSteps ?? draft.lifecycle.progress.step,
+      submittedStep:
+        hook.submittedSteps ?? hook.totalSteps ?? draft.lifecycle.progress.submittedStep,
+      completedStep:
+        hook.completedSteps ?? hook.totalSteps ?? draft.lifecycle.progress.completedStep,
       observedAt,
       phase: hook.phase ?? draft.lifecycle.progress.phase,
       wallMs: hook.progress?.wallMs ?? hook.wallMs ?? draft.lifecycle.progress.wallMs,
@@ -139,6 +179,62 @@ export async function syncUrbanArtifact(
     draft.lifecycle.heartbeatAt = observedAt;
     draft.lifecycle.windows = hook.windows ?? draft.lifecycle.windows;
     draft.lifecycle.deviceLoss = hook.deviceLoss ?? draft.lifecycle.deviceLoss;
+    if (hook.attemptId) {
+      draft.identity.activeAttemptId = hook.attemptId;
+      const knownAttempt = draft.lifecycle.attempts.find(
+        (attempt) => attempt.attemptId === hook.attemptId,
+      );
+      if (!knownAttempt) {
+        draft.lifecycle.attempts.push({
+          attemptId: hook.attemptId,
+          startedAt: observedAt,
+          restoredStep: hook.restoredStep ?? null,
+          status: hook.quarantined ? 'quarantined' : hook.complete ? 'completed' : 'active',
+        });
+      } else {
+        knownAttempt.status = hook.quarantined
+          ? 'quarantined'
+          : hook.complete
+            ? 'completed'
+            : 'active';
+      }
+    }
+    for (const operation of hook.operations ?? []) {
+      const index = draft.lifecycle.operations.findIndex(
+        (known) => known.operationId === operation.operationId,
+      );
+      if (index >= 0) draft.lifecycle.operations[index] = structuredClone(operation);
+      else draft.lifecycle.operations.push(structuredClone(operation));
+    }
+    draft.lifecycle.operations.sort(
+      (left, right) => Date.parse(left.startedAt) - Date.parse(right.startedAt),
+    );
+    draft.lifecycle.batchPolicy = hook.batchPolicy ?? draft.lifecycle.batchPolicy;
+    for (const error of hook.webgpuErrors ?? []) {
+      if (
+        !draft.lifecycle.webgpuErrors.some(
+          (known) =>
+            known.observedAt === error.observedAt &&
+            known.source === error.source &&
+            known.message === error.message,
+        )
+      ) {
+        draft.lifecycle.webgpuErrors.push(structuredClone(error));
+      }
+    }
+    draft.lifecycle.diagnosticConfidence.directObservations = draft.lifecycle.operations.flatMap(
+      (operation) =>
+        operation.directObservations.map(
+          (observation) => `${operation.operationId}:${observation.kind}`,
+        ),
+    );
+    draft.lifecycle.diagnosticConfidence.derivedClassifications = Array.from(
+      new Set(
+        draft.lifecycle.operations.flatMap((operation) =>
+          operation.classification ? [operation.classification] : [],
+        ),
+      ),
+    );
     for (const checkpoint of hook.checkpointHistory ?? []) {
       if (
         !draft.lifecycle.checkpoints.some(
@@ -146,6 +242,7 @@ export async function syncUrbanArtifact(
         )
       ) {
         draft.lifecycle.checkpoints.push({
+          attemptId: hook.attemptId ?? draft.identity.activeAttemptId,
           step: checkpoint.step,
           savedAt: checkpoint.savedAt,
           location: checkpoint.location,
@@ -159,13 +256,28 @@ export async function syncUrbanArtifact(
       hook.resumed &&
       hook.restoredStep !== null &&
       hook.restoredStep !== undefined &&
-      !draft.lifecycle.recovery.some((entry) => entry.restoredStep === hook.restoredStep)
+      !draft.lifecycle.recovery.some(
+        (entry) => entry.restoredStep === hook.restoredStep && entry.attemptId === hook.attemptId,
+      )
     ) {
       draft.lifecycle.recovery.push({
         restoredStep: hook.restoredStep,
         resumedAt: observedAt,
-        previousRunId: draft.identity.runId,
+        previousAttemptId: draft.lifecycle.attempts.at(-2)?.attemptId ?? 'prior-attempt',
+        attemptId: hook.attemptId ?? draft.identity.activeAttemptId,
       });
+    }
+    if (hook.completedSteps !== undefined) {
+      const activeRecovery = [...draft.lifecycle.recovery]
+        .reverse()
+        .find((entry) => entry.attemptId === (hook.attemptId ?? draft.identity.activeAttemptId));
+      if (
+        activeRecovery &&
+        activeRecovery.firstCompletedStepAfterRestore === undefined &&
+        hook.completedSteps > activeRecovery.restoredStep
+      ) {
+        activeRecovery.firstCompletedStepAfterRestore = hook.completedSteps;
+      }
     }
     if (hook.lastCheckpointAt) draft.lifecycle.checkpointActivityAt = hook.lastCheckpointAt;
     for (const sample of healthRecords(hook)) {

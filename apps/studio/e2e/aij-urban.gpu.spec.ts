@@ -8,6 +8,7 @@ import {
 import type { TestInfo } from '@playwright/test';
 import type { AeroflowHooks } from '../src/dev/testHooks';
 import { readArtifact } from './helpers/validationRun';
+import type { OperationClassification } from '@aeroflow/core';
 
 /**
  * Tier B M11 acceptance. The uniform grid required by the official third-node rule is
@@ -31,6 +32,13 @@ interface AcceptanceCase {
   caseId: 'C' | 'E';
   direction: number;
   points: number;
+}
+
+function latestFailureClassification(
+  urban: NonNullable<AeroflowHooks['urban']>,
+): OperationClassification | null {
+  const operations = [...(urban.operations ?? [])].reverse();
+  return operations.find((entry) => entry.classification)?.classification ?? null;
 }
 
 async function runAcceptance(
@@ -57,7 +65,7 @@ async function runAcceptance(
     resume: operation === 'resume',
     takeOverStale: process.env.AEROFLOW_TAKE_OVER_STALE === '1',
   });
-  const page = durable.page;
+  let page = durable.page;
   await page.goto(
     `${BASE_URL}/?urban&case=${caseId}&direction=${direction}&cells=${configuredCells}`,
   );
@@ -128,9 +136,51 @@ async function runAcceptance(
         async () => {
           const urban = (await readHooks(page)).urban;
           if (urban) await syncUrbanArtifact(coordinator, urban, 'progress');
-          if (urban?.error) throw new Error(urban.error);
+          if (urban?.error) {
+            const classification = latestFailureClassification(urban);
+            if (classification) {
+              const checkpoints = coordinator
+                .current()
+                .lifecycle.checkpoints.filter((entry) => entry.complete);
+              const checkpointStep = checkpoints.at(-1)?.step ?? null;
+              const recovery = await durable.recoverAttempt({
+                classification,
+                latestCompleteCheckpointStep: checkpointStep,
+                completedStep: urban.completedSteps ?? urban.totalSteps ?? 0,
+              });
+              if (recovery.decision.kind === 'recover') {
+                page = recovery.page!;
+                await page.goto(
+                  `${BASE_URL}/?urban&case=${caseId}&direction=${direction}&cells=${configuredCells}`,
+                );
+                await page.getByTestId('urban-resume').click();
+                await expect
+                  .poll(
+                    async () => {
+                      const resumed = (await readHooks(page)).urban;
+                      if (resumed?.error) throw new Error(resumed.error);
+                      return resumed?.resumed;
+                    },
+                    { timeout: 10 * 60_000 },
+                  )
+                  .toBe(true);
+                const resumed = (await readHooks(page)).urban!;
+                durable.confirmRestoredStep(resumed.restoredStep!);
+                await syncUrbanArtifact(coordinator, resumed, 'automatic-resume');
+                lastSteps = resumed.completedSteps ?? resumed.totalSteps ?? checkpointStep ?? -1;
+                lastProgressAt = Date.now();
+                return false;
+              }
+              throw new Error(
+                `automatic recovery ${recovery.decision.reason}: ${classification} ` +
+                  `at attempt ${recovery.decision.attemptId}`,
+              );
+            }
+            throw new Error(urban.error);
+          }
           const steps = urban?.totalSteps ?? -1;
           if (steps > lastSteps) {
+            durable.observeCompleted(steps);
             lastSteps = steps;
             lastProgressAt = Date.now();
           } else if (Date.now() - lastProgressAt > STALL_TIMEOUT_MS) {
@@ -154,16 +204,26 @@ async function runAcceptance(
     const message = error instanceof Error ? error.message : String(error);
     const latest = await readHooks(page).catch((): AeroflowHooks => ({}));
     if (latest.urban) await syncUrbanArtifact(coordinator, latest.urban, 'failure');
-    const reason =
-      latest.urban?.deviceLoss?.observed === true
-        ? 'device-lost'
-        : /STALLED/.test(message)
-          ? 'stalled'
-          : /closed/i.test(message)
-            ? 'browser-closed'
-            : /timeout|exceeded/i.test(message)
-              ? 'timeout'
-              : 'unexpected-error';
+    const classification = latest.urban ? latestFailureClassification(latest.urban) : null;
+    const reason = /retry-exhausted/.test(message)
+      ? 'retry-exhausted'
+      : /no-checkpoint/.test(message)
+        ? 'no-checkpoint'
+        : classification === 'queue-timeout' ||
+            classification === 'readback-timeout' ||
+            classification === 'checkpoint-io-timeout' ||
+            classification === 'scoring-timeout' ||
+            classification === 'webgpu-error'
+          ? classification
+          : latest.urban?.deviceLoss?.observed === true
+            ? 'device-lost'
+            : /STALLED/.test(message)
+              ? 'stalled'
+              : /closed/i.test(message)
+                ? 'browser-closed'
+                : /timeout|exceeded/i.test(message)
+                  ? 'timeout'
+                  : 'unexpected-error';
     await coordinator.terminate(reason, error);
     terminated = true;
     throw error;

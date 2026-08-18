@@ -29,7 +29,13 @@ export function initialAijArtifact(input: {
   return {
     schemaVersion: VALIDATION_ARTIFACT_SCHEMA_VERSION,
     complete: false,
-    identity: { runId: input.runId, caseId: `${ledgerId}-aij-${input.mode}`, createdAt: at },
+    identity: {
+      runId: input.runId,
+      logicalRunId: input.runId,
+      activeAttemptId: `${input.runId}-attempt-1`,
+      caseId: `${ledgerId}-aij-${input.mode}`,
+      createdAt: at,
+    },
     provenance: repositoryProvenance(),
     configuration: {
       scene: `aij-case-a-${input.mode}`,
@@ -54,6 +60,8 @@ export function initialAijArtifact(input: {
       phase: input.hook.phase ?? 'initialization',
       progress: {
         step: input.hook.totalSteps ?? 0,
+        submittedStep: input.hook.totalSteps ?? 0,
+        completedStep: input.hook.totalSteps ?? 0,
         observedAt: input.hook.observedAt ?? at,
         phase: input.hook.phase ?? 'initialization',
         wallMs: 0,
@@ -61,6 +69,29 @@ export function initialAijArtifact(input: {
       windows: input.hook.phaseWindows ?? [],
       checkpoints: [],
       recovery: [],
+      attempts: [
+        {
+          attemptId: `${input.runId}-attempt-1`,
+          startedAt: at,
+          restoredStep: null,
+          status: 'active',
+        },
+      ],
+      operations: [],
+      batchPolicy: {
+        initialSteps: 8,
+        targetMs: 2_000,
+        minimumSteps: 2,
+        maximumSteps: 256,
+        currentSteps: 8,
+        completedDurationsMs: [],
+      },
+      webgpuErrors: [],
+      diagnosticConfidence: {
+        directObservations: [],
+        derivedClassifications: [],
+        unconfirmedHypotheses: [],
+      },
       heartbeatAt: input.hook.observedAt ?? at,
       deviceLoss: { observed: false },
     },
@@ -86,6 +117,8 @@ export async function syncAijArtifact(
     draft.lifecycle.phase = hook.phase ?? draft.lifecycle.phase;
     draft.lifecycle.progress = {
       step: hook.totalSteps ?? draft.lifecycle.progress.step,
+      submittedStep: hook.totalSteps ?? draft.lifecycle.progress.submittedStep,
+      completedStep: hook.totalSteps ?? draft.lifecycle.progress.completedStep,
       observedAt: at,
       phase: hook.phase ?? draft.lifecycle.progress.phase,
       wallMs: draft.lifecycle.progress.wallMs,

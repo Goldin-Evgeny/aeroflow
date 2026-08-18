@@ -12,7 +12,13 @@ function fixture(complete: boolean): ValidationRunArtifact {
   return {
     schemaVersion: VALIDATION_ARTIFACT_SCHEMA_VERSION,
     complete,
-    identity: { runId: 'run-1', caseId: 'V14-C-270', createdAt: now },
+    identity: {
+      runId: 'run-1',
+      logicalRunId: 'logical-1',
+      activeAttemptId: 'attempt-1',
+      caseId: 'V14-C-270',
+      createdAt: now,
+    },
     provenance: { revision: 'abc1234', dirty: true, diffSha256: 'f'.repeat(64) },
     configuration: {
       scene: 'aij-urban-C-270',
@@ -28,6 +34,8 @@ function fixture(complete: boolean): ValidationRunArtifact {
       phase: complete ? 'terminal' : 'averaging',
       progress: {
         step: 120,
+        submittedStep: 120,
+        completedStep: 120,
         observedAt: now,
         phase: complete ? 'terminal' : 'averaging',
         wallMs: 42,
@@ -40,6 +48,7 @@ function fixture(complete: boolean): ValidationRunArtifact {
       ],
       checkpoints: [
         {
+          attemptId: 'attempt-1',
           step: 80,
           savedAt: now,
           location: 'profile/IndexedDB',
@@ -49,6 +58,22 @@ function fixture(complete: boolean): ValidationRunArtifact {
         },
       ],
       recovery: [],
+      attempts: [{ attemptId: 'attempt-1', startedAt: now, restoredStep: null, status: 'active' }],
+      operations: [],
+      batchPolicy: {
+        initialSteps: 8,
+        targetMs: 2_000,
+        minimumSteps: 2,
+        maximumSteps: 256,
+        currentSteps: 8,
+        completedDurationsMs: [],
+      },
+      webgpuErrors: [],
+      diagnosticConfidence: {
+        directObservations: [],
+        derivedClassifications: [],
+        unconfirmedHypotheses: ['driver reset'],
+      },
       heartbeatAt: now,
       checkpointActivityAt: now,
       artifactWriteActivityAt: now,
@@ -103,7 +128,7 @@ describe('validation run artifact', () => {
   });
 
   it('rejects unsupported versions and malformed records', () => {
-    expect(() => validateValidationRunArtifact({ ...fixture(true), schemaVersion: 2 })).toThrow(
+    expect(() => validateValidationRunArtifact({ ...fixture(true), schemaVersion: 1 })).toThrow(
       /unsupported.*version/i,
     );
     const malformed = structuredClone(fixture(true)) as ValidationRunArtifact;
@@ -117,6 +142,45 @@ describe('validation run artifact', () => {
     };
     malformed.health[0].relativeMassDrift = { state: 'pass' };
     expect(() => validateValidationRunArtifact(malformed)).toThrow(/state is unsupported/);
+  });
+
+  it('preserves incomplete operations and submitted-but-uncommitted work in partial artifacts', () => {
+    const partial = fixture(false);
+    partial.lifecycle.progress.submittedStep = 128;
+    partial.lifecycle.operations.push({
+      operationId: 'op-1',
+      logicalRunId: 'logical-1',
+      attemptId: 'attempt-1',
+      phase: 'queue-completion',
+      startedAt: partial.lastArtifactUpdateAt,
+      lastActivityAt: partial.lastArtifactUpdateAt,
+      deadline: {
+        initialMs: 30_000,
+        effectiveMs: 30_000,
+        maximumMs: 300_000,
+        activityExtends: false,
+      },
+      terminalState: 'timed-out',
+      classification: 'queue-timeout',
+      directObservations: [{ kind: 'deadline-expired', observedAt: partial.lastArtifactUpdateAt }],
+      submittedRange: { start: 121, end: 128 },
+      wallMs: 30_000,
+    });
+    expect(validateValidationRunArtifact(partial).lifecycle.progress).toMatchObject({
+      submittedStep: 128,
+      completedStep: 120,
+    });
+  });
+
+  it('rejects checkpoints or published evaluations beyond completed GPU work', () => {
+    const checkpoint = fixture(false);
+    checkpoint.lifecycle.progress.submittedStep = 128;
+    checkpoint.lifecycle.checkpoints[0].step = 124;
+    expect(() => validateValidationRunArtifact(checkpoint)).toThrow(/checkpoint.*uncommitted/i);
+
+    const evaluation = fixture(true);
+    evaluation.lifecycle.progress.submittedStep = 128;
+    expect(() => validateValidationRunArtifact(evaluation)).toThrow(/evaluation.*equality/i);
   });
 });
 

@@ -329,6 +329,14 @@ export class ArtifactSnapshotCoordinator {
                 },
               }),
         };
+        const activeAttempt = draft.lifecycle.attempts.find(
+          (attempt) => attempt.attemptId === draft.identity.activeAttemptId,
+        );
+        if (activeAttempt) {
+          activeAttempt.endedAt = now;
+          if (reason === 'completed') activeAttempt.status = 'completed';
+          else if (activeAttempt.status !== 'quarantined') activeAttempt.status = 'terminal';
+        }
         draft.verdicts.execution = {
           state: reason === 'completed' ? 'pass' : 'fail',
           reason,

@@ -35,7 +35,13 @@ function artifact(runId: string, complete = false): ValidationRunArtifact {
   return {
     schemaVersion: VALIDATION_ARTIFACT_SCHEMA_VERSION,
     complete,
-    identity: { runId, caseId: 'case-C', createdAt: at },
+    identity: {
+      runId,
+      logicalRunId: runId,
+      activeAttemptId: `${runId}-attempt-1`,
+      caseId: 'case-C',
+      createdAt: at,
+    },
     provenance: { revision: 'abcdef0', dirty: false },
     configuration: {
       scene: 'urban-C',
@@ -51,6 +57,8 @@ function artifact(runId: string, complete = false): ValidationRunArtifact {
       phase: complete ? 'terminal' : 'initialization',
       progress: {
         step: complete ? 10 : 0,
+        submittedStep: complete ? 10 : 0,
+        completedStep: complete ? 10 : 0,
         observedAt: at,
         phase: complete ? 'terminal' : 'initialization',
         wallMs: 0,
@@ -58,6 +66,29 @@ function artifact(runId: string, complete = false): ValidationRunArtifact {
       windows: [],
       checkpoints: [],
       recovery: [],
+      attempts: [
+        {
+          attemptId: `${runId}-attempt-1`,
+          startedAt: at,
+          restoredStep: null,
+          status: complete ? 'completed' : 'active',
+        },
+      ],
+      operations: [],
+      batchPolicy: {
+        initialSteps: 8,
+        targetMs: 2_000,
+        minimumSteps: 2,
+        maximumSteps: 256,
+        currentSteps: 8,
+        completedDurationsMs: [],
+      },
+      webgpuErrors: [],
+      diagnosticConfidence: {
+        directObservations: [],
+        derivedClassifications: [],
+        unconfirmedHypotheses: [],
+      },
       heartbeatAt: at,
       deviceLoss: { observed: false },
     },
@@ -137,6 +168,8 @@ describe('durable validation-run lifecycle', () => {
 
     const newer = artifact(run.layout.runId);
     newer.lifecycle.progress.step = 10;
+    newer.lifecycle.progress.submittedStep = 10;
+    newer.lifecycle.progress.completedStep = 10;
     await expect(
       writeArtifactAtomic(run.layout, newer, {
         beforeReplace: () => {
@@ -158,6 +191,8 @@ describe('durable validation-run lifecycle', () => {
     const coordinator = new ArtifactSnapshotCoordinator(run.layout, artifact(run.layout.runId));
     await coordinator.update('progress', (draft) => {
       draft.lifecycle.progress.step = 42;
+      draft.lifecycle.progress.submittedStep = 42;
+      draft.lifecycle.progress.completedStep = 42;
       draft.lifecycle.progress.phase = 'averaging';
       draft.lifecycle.phase = 'averaging';
       draft.evidence.detailed = { rows: [{ id: 'p1', hit: false }] };

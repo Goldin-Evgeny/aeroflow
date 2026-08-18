@@ -234,20 +234,31 @@ export {
 } from './validation/runArtifact.js';
 export type {
   CheckpointRecord,
+  DeadlinePolicy,
   DeviceLossRecord,
+  DiagnosticConfidenceRecord,
+  DirectObservation,
+  GpuBatchPolicyRecord,
+  GpuOperationRecord,
   HealthMetric,
   JsonValue,
   NumericalHealthRecord,
+  OperationClassification,
+  OperationPhase,
+  OperationTerminalState,
   PhaseWindow,
   ProgressRecord,
+  RunAttemptRecord,
   RunIdentity,
   RunPhase,
   RunTermination,
   SourceProvenance,
+  StepRange,
   TerminationReason,
   ValidationRunArtifact,
   VerdictAxis,
   VerdictState,
+  WebGpuErrorRecord,
 } from './validation/runArtifact.js';
 export { phaseAtStep, selectVerdictSamples } from './validation/verdictWindows.js';
 export type { StepSample, VerdictWindow } from './validation/verdictWindows.js';

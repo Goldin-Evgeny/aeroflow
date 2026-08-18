@@ -308,6 +308,28 @@ Remaining candidates, none tested, in evidence order:
 is a harness/throughput matter. Wall 1 sets how many cells the answer needs, and the answer
 here had them. V14 is therefore **FAIL, measured** — not blocked, not pending, not deferred.
 
+### 2026-08-18 amendment — Wall 3 now has discriminating operation boundaries
+
+The two historical stops remain **root-cause unknown**. Their evidence established that the step
+heartbeat stopped while CPU and GPU utilization were idle, but it did not observe whether the last
+responsive boundary was command submission, queue completion, staging-buffer mapping, checkpoint
+I/O, or CPU scoring. Neither event establishes Windows TDR, a driver reset, silent device loss,
+Chromium/Dawn failure, hardware failure, or an application deadlock.
+
+The schema-2 harness narrows any future incident without rewriting that history. Simulation
+intervals now cross a supervised queue-completion boundary every bounded batch; probe and health
+copies cross another queue boundary before a separately supervised map; checkpoint chunks and
+scoring have their own deadlines. Submitted and completed steps identify uncommitted in-flight
+work. `device.lost`, uncaptured errors, and short owned error scopes retain direct evidence with the
+active operation identity.
+
+These boundaries can distinguish device loss, queue non-completion, map non-completion, checkpoint
+I/O timeout, scoring timeout, WebGPU validation error, and ordinary application rejection. They
+still cannot identify an operating-system or vendor root cause without a corresponding direct
+signal. Deterministic injected failures establish classification and automatic checkpoint recovery;
+they do not recreate either natural stall. A future successful soak is exposure evidence only and
+does not retroactively assign or disprove a cause for the 2026-07-28 or 2026-08-15 incidents.
+
 ## Decision
 
 1. **No tolerance, band, or probe-height rule is weakened.** CLAUDE.md rule 3 stands. Under-resolved runs keep suppressing their verdicts rather than printing a flattering number; deviations are published as deviations.
@@ -384,13 +406,13 @@ destabilization exactly (divergence at step 3346 against a recorded "between 300
 
    This does not falsify anti-dissipation at high wavenumber as a property; a scheme can be
    anti-dissipative in one band and net stabilizing overall. What it falsifies is the
-   *attribution* — the projection cannot be the cause of the near-floor failures it was offered
+   _attribution_ — the projection cannot be the cause of the near-floor failures it was offered
    as a competing explanation for.
 
 3. **The ω⁻ mechanism this record's amendment relies on is excluded wherever regularization is
    on.** The projection is even in `e_i`, so the antisymmetric non-equilibrium is identically
    zero and ω⁻ multiplies nothing. Verified twice: Λ = 3/16 vs Λ = 3 over 300 steps leaves 0 of
-   13,300 populations differing; and the diverging `'spec'` arm diverges at the *same step 3346*
+   13,300 populations differing; and the diverging `'spec'` arm diverges at the _same step 3346_
    at ω⁻ ≈ 0.042 and at ω⁻ = 1.0.
 
    **This does not touch the M7 withdrawal itself.** The M7 cases were unregularized force

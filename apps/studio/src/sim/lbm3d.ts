@@ -100,6 +100,12 @@ export interface Lbm3DOptions {
   hasTimestamp?: boolean;
 }
 
+export interface LbmReadback<T> {
+  queueCompletion: Promise<void>;
+  map(): Promise<T>;
+  destroy(): void;
+}
+
 // 4×u32 + omegaPlus/Minus/inletVel/lambda/lesK (f32) + collectForces/freeSlipMask/
 // profileAxis/lesNormSpec (u32) — the last is fix-confirmed-physics-defects's addition.
 const PARAMS_SIZE = 52;
@@ -130,6 +136,8 @@ export class Lbm3D {
    */
   readonly conserveMassEffective: boolean;
   totalSteps = 0;
+  /** Last submitted step known to have crossed an observed GPU completion boundary. */
+  gpuCompletedSteps = 0;
 
   private readonly device: GPUDevice;
   /** DDF planes split across 1–4 storage buffers (iOS binding cap, #5). */
@@ -690,6 +698,7 @@ export class Lbm3D {
     }
     this.parity = 0;
     this.totalSteps = 0;
+    this.gpuCompletedSteps = 0;
   }
 
   private encodeStep(pass: GPUComputePassEncoder): void {
@@ -713,12 +722,29 @@ export class Lbm3D {
   }
 
   /** Submit `k` timesteps as a single command buffer (no timing). */
-  submitSteps(k: number): void {
+  submitSteps(k: number): { startStep: number; endStep: number } {
+    if (!Number.isInteger(k) || k <= 0) throw new Error('Lbm3D.submitSteps: k must be positive');
+    const startStep = this.totalSteps + 1;
     const encoder = this.device.createCommandEncoder();
     const pass = encoder.beginComputePass({ label: `lbm3d ${k} steps` });
     for (let s = 0; s < k; s++) this.encodeStep(pass);
     pass.end();
     this.device.queue.submit([encoder.finish()]);
+    return { startStep, endStep: this.totalSteps };
+  }
+
+  /** Commit a submitted range only after its queue-completion promise resolves. */
+  markGpuCompleted(endStep = this.totalSteps): void {
+    if (
+      !Number.isInteger(endStep) ||
+      endStep < this.gpuCompletedSteps ||
+      endStep > this.totalSteps
+    ) {
+      throw new Error(
+        `Lbm3D.markGpuCompleted: ${endStep} outside [${this.gpuCompletedSteps}, ${this.totalSteps}]`,
+      );
+    }
+    this.gpuCompletedSteps = endStep;
   }
 
   /**
@@ -891,6 +917,7 @@ export class Lbm3D {
     const t0 = performance.now();
     this.device.queue.submit([encoder.finish()]);
     await this.device.queue.onSubmittedWorkDone();
+    this.markGpuCompleted();
     const wall = performance.now() - t0;
 
     if (useTs) {
@@ -1026,6 +1053,7 @@ export class Lbm3D {
     }
     this.parity = parity;
     this.totalSteps = totalSteps;
+    this.gpuCompletedSteps = totalSteps;
   }
 
   /** Run the canonical macro readout pass (parity-aware) into the four component buffers. */
@@ -1042,6 +1070,17 @@ export class Lbm3D {
    * canonical macro pass. Allocates/frees a staging buffer each call — parity/probe use.
    */
   async readMacro(): Promise<Float32Array> {
+    const readback = this.beginMacroReadback();
+    try {
+      await readback.queueCompletion;
+      return await readback.map();
+    } finally {
+      readback.destroy();
+    }
+  }
+
+  /** Submit the full macro copy while exposing queue completion separately from mapping. */
+  beginMacroReadback(): LbmReadback<Float32Array> {
     const componentBytes = this.n * MACRO_COMPONENT_BYTES_PER_CELL;
     const staging = this.macroBufs.map((_, component) =>
       this.device.createBuffer({
@@ -1062,20 +1101,27 @@ export class Lbm3D {
       );
     }
     this.device.queue.submit([encoder.finish()]);
-    try {
-      await Promise.all(staging.map((buffer) => buffer.mapAsync(GPUMapMode.READ)));
-      const output = new Float32Array(this.n * 4);
-      for (let component = 0; component < staging.length; component++) {
-        const values = new Float32Array(staging[component].getMappedRange());
-        for (let cell = 0; cell < this.n; cell++) output[cell * 4 + component] = values[cell];
-      }
-      return output;
-    } finally {
-      for (const buffer of staging) {
-        if (buffer.mapState === 'mapped') buffer.unmap();
-        buffer.destroy();
-      }
-    }
+    let destroyed = false;
+    return {
+      queueCompletion: this.device.queue.onSubmittedWorkDone(),
+      map: async () => {
+        await Promise.all(staging.map((buffer) => buffer.mapAsync(GPUMapMode.READ)));
+        const output = new Float32Array(this.n * 4);
+        for (let component = 0; component < staging.length; component++) {
+          const values = new Float32Array(staging[component].getMappedRange());
+          for (let cell = 0; cell < this.n; cell++) output[cell * 4 + component] = values[cell];
+        }
+        return output;
+      },
+      destroy: () => {
+        if (destroyed) return;
+        destroyed = true;
+        for (const buffer of staging) {
+          if (buffer.mapState === 'mapped') buffer.unmap();
+          buffer.destroy();
+        }
+      },
+    };
   }
 
   /**
@@ -1085,6 +1131,24 @@ export class Lbm3D {
    */
   async readMacroPoints(points: readonly MacroSamplePoint[]): Promise<Float32Array> {
     if (points.length === 0) return new Float32Array(0);
+    const readback = this.beginMacroPointReadback(points);
+    try {
+      await readback.queueCompletion;
+      return await readback.map();
+    } finally {
+      readback.destroy();
+    }
+  }
+
+  /** Submit probe macro/copy work and leave its staging-map boundary independently awaitable. */
+  beginMacroPointReadback(points: readonly MacroSamplePoint[]): LbmReadback<Float32Array> {
+    if (points.length === 0) {
+      return {
+        queueCompletion: Promise.resolve(),
+        map: () => Promise.resolve(new Float32Array(0)),
+        destroy: () => {},
+      };
+    }
     const plan = planMacroPointReadback(points, this.nx, this.ny, this.nz);
     const size = plan.cellIndices.length * MACRO_BYTES_PER_CELL;
     const staging = this.device.createBuffer({
@@ -1107,13 +1171,26 @@ export class Lbm3D {
         }
       }
       this.device.queue.submit([encoder.finish()]);
-      await staging.mapAsync(GPUMapMode.READ);
-      const cells = new Float32Array(staging.getMappedRange().slice(0));
-      staging.unmap();
-      return interpolateMacroPointReadback(cells, plan);
-    } finally {
+    } catch (error) {
       staging.destroy();
+      throw error;
     }
+    let destroyed = false;
+    return {
+      queueCompletion: this.device.queue.onSubmittedWorkDone(),
+      map: async () => {
+        await staging.mapAsync(GPUMapMode.READ);
+        const cells = new Float32Array(staging.getMappedRange().slice(0));
+        staging.unmap();
+        return interpolateMacroPointReadback(cells, plan);
+      },
+      destroy: () => {
+        if (destroyed) return;
+        destroyed = true;
+        if (staging.mapState === 'mapped') staging.unmap();
+        staging.destroy();
+      },
+    };
   }
 
   /**

@@ -75,6 +75,10 @@ export interface SaveCheckpointOptions {
   forceHistory?: ForceHistoryState;
   runState?: unknown;
   chunkBytes?: number;
+  /** Qualifying bounded activity used by the liveness supervisor for multi-chunk saves. */
+  onActivity?: (detail: string) => void;
+  superviseTransfer?: (execute: () => Promise<ArrayBuffer>, detail: string) => Promise<ArrayBuffer>;
+  supervisePersistence?: <T>(execute: () => Promise<T>, detail: string) => Promise<T>;
 }
 
 export interface SaveCheckpointResult {
@@ -100,8 +104,20 @@ export async function saveCheckpoint(
 
   let bytes = 0;
   for (const chunk of planAllChunks(sizes, chunkBytes)) {
-    const data = await sim.readDdfChunk(chunk.bufIndex, chunk.offset, chunk.length);
-    await put(db, chunkKey(slot, chunk), data);
+    const read = () => sim.readDdfChunk(chunk.bufIndex, chunk.offset, chunk.length);
+    const readDetail = `read DDF ${chunk.bufIndex}:${chunk.offset}+${chunk.length}`;
+    const data = opts.superviseTransfer
+      ? await opts.superviseTransfer(read, readDetail)
+      : await read();
+    opts.onActivity?.(`read DDF ${chunk.bufIndex}:${chunk.offset}+${chunk.length}`);
+    const persistDetail = `persist DDF ${chunk.bufIndex}:${chunk.offset}+${chunk.length}`;
+    const persist = () => put(db, chunkKey(slot, chunk), data);
+    if (opts.supervisePersistence) {
+      await opts.supervisePersistence(persist, persistDetail);
+    } else {
+      await persist();
+    }
+    opts.onActivity?.(`persisted DDF ${chunk.bufIndex}:${chunk.offset}+${chunk.length}`);
     bytes += chunk.length;
   }
   if (sim.currentParity !== parity || sim.totalSteps !== totalSteps) {
@@ -126,8 +142,20 @@ export async function saveCheckpoint(
     saveMs: 0,
   };
   meta.saveMs = performance.now() - t0;
-  await put(db, metaKey(slot), meta);
-  await put(db, LATEST_KEY, slot);
+  const putMeta = () => put(db, metaKey(slot), meta);
+  if (opts.supervisePersistence) {
+    await opts.supervisePersistence(putMeta, `persist checkpoint metadata for slot ${slot}`);
+  } else {
+    await putMeta();
+  }
+  opts.onActivity?.(`persisted checkpoint metadata for slot ${slot}`);
+  const commit = () => put(db, LATEST_KEY, slot);
+  if (opts.supervisePersistence) {
+    await opts.supervisePersistence(commit, `commit checkpoint slot ${slot}`);
+  } else {
+    await commit();
+  }
+  opts.onActivity?.(`committed checkpoint slot ${slot}`);
   return { slot, bytes, ms: meta.saveMs };
 }
 

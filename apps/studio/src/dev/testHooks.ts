@@ -1,7 +1,15 @@
 import type { ParityReport } from './parity';
 import type { BenchRow } from '../ui/benchmark';
 import type { AhmedWorkerEvent } from '../sim/ahmedRun';
-import type { AijUrbanReport, PhaseWindow, SphereCaseName, LateralBC } from '@aeroflow/core';
+import type {
+  AijUrbanReport,
+  GpuBatchPolicyRecord,
+  GpuOperationRecord,
+  PhaseWindow,
+  SphereCaseName,
+  LateralBC,
+  WebGpuErrorRecord,
+} from '@aeroflow/core';
 import type { AijUrbanHealthSnapshot } from '../sim/cases/aijUrban';
 import type { CheckpointParityResult } from '../sim/checkpointParity';
 import type { TauOracleCheckResult } from '../sim/tauOracleCheck';
@@ -10,6 +18,7 @@ import type {
   AhmedLateralAbReport,
   AhmedMatchReport,
 } from './ahmedCpuGpuMatch';
+import type { BoundedSubmissionProof } from './boundedSubmissionProof';
 import type { EmptyTunnelReport } from './ahmedEmptyTunnel';
 import type {
   Q27GpuAuthorityArtifact,
@@ -78,6 +87,8 @@ export interface AeroflowHooks {
   /** ?checkpointparity: M9 raw-fp16 restore and density-field bit-identity result. */
   checkpointParity?: CheckpointParityResult;
   checkpointParityError?: string;
+  boundedSubmission?: BoundedSubmissionProof;
+  boundedSubmissionError?: string;
   /** ?tauoracle: M9 τ_eff reconstruction validation (moment identity + CPU reference). */
   tauOracleCheck?: TauOracleCheckResult;
   tauOracleCheckError?: string;
@@ -179,6 +190,14 @@ export interface AeroflowHooks {
     dx?: number;
     requiredCells?: number;
     totalSteps?: number;
+    submittedSteps?: number;
+    completedSteps?: number;
+    logicalRunId?: string;
+    attemptId?: string;
+    operations?: GpuOperationRecord[];
+    batchPolicy?: GpuBatchPolicyRecord;
+    webgpuErrors?: WebGpuErrorRecord[];
+    quarantined?: boolean;
     averagingFlowThroughs?: number;
     q?: number;
     r?: number | null;

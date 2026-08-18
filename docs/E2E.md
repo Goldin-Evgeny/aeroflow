@@ -137,3 +137,47 @@ the exact restored step and averaging-sample count, advances, checks incompatibl
 identity rejection, and corrupts the newest slot to prove fallback to the previous complete
 checkpoint. It runs inside the ordinary ten-minute end-to-end budget. No production-duration
 Case C/M9 run and no naturally occurring intermittent stall is required for this proof.
+
+### Operation liveness, committed progress, and automatic retries
+
+Validation artifact schema 2 records `submittedStep` and `completedStep` separately. Encoding
+and queue submission advance the first value; only a successful `queue.onSubmittedWorkDone()`
+boundary advances the second. Checkpoint, probe sampling, health evaluation, scoring, and normal
+completion require equality. A failed attempt with `submittedStep > completedStep` is quarantined;
+its parity and GPU resources are not reused.
+
+The `lifecycle.operations` array is the ordered operation timeline. Each record names the logical
+run, browser/device attempt, phase, deadline, direct observations, terminal outcome, submitted and
+completed ranges, and measured wall/GPU duration when available. Queue work and staging-buffer
+mapping are separate operations, so a successful queue boundary followed by a stuck map is
+`readback-timeout`, not `queue-timeout`.
+
+| Classification          | Direct boundary that failed                               | Automatic retry |
+| ----------------------- | --------------------------------------------------------- | --------------- |
+| `device-lost`           | `device.lost` settled during an owned operation           | yes             |
+| `queue-timeout`         | submitted queue-completion promise missed its deadline    | yes             |
+| `readback-timeout`      | probe or health staging map missed its deadline           | yes             |
+| `checkpoint-io-timeout` | one bounded checkpoint transfer or IndexedDB write failed | no              |
+| `scoring-timeout`       | CPU scoring phase missed its deadline                     | no              |
+| `webgpu-error`          | owned error scope or uncaptured WebGPU error fired        | no              |
+| `application-error`     | an ordinary application promise rejected                  | no              |
+
+Automatic recovery requires a complete compatible checkpoint. The default permits two replacement
+attempts across one logical run and one consecutive recovery from the same checkpoint. Completed
+progress beyond the restored step resets only the same-checkpoint counter; it does not erase total
+attempt history. `no-checkpoint`, `retry-exhausted`, and every non-recoverable classification remain
+terminal and preserve the profile plus partial schema-2 artifact for inspection.
+
+Inspect the last responsive boundary and in-flight range with PowerShell:
+
+```powershell
+$artifact = Get-Content -Raw .aeroflow/runs/<run-id>/validation-artifact.json | ConvertFrom-Json
+$artifact.lifecycle.progress
+$artifact.lifecycle.operations | Select-Object -Last 5
+$artifact.lifecycle.attempts
+$artifact.lifecycle.diagnosticConfidence
+```
+
+`diagnosticConfidence.directObservations` and `derivedClassifications` report what the harness saw.
+TDR, driver reset, browser scheduling, silent device loss, and hardware failure remain in
+`unconfirmedHypotheses` unless external or WebGPU evidence establishes one of them.

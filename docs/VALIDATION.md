@@ -452,6 +452,27 @@ demonstrated correct, not as demonstrated broken. Production remains D3Q19.
 
 ## Recording results
 
+### GPU-operation liveness evidence
+
+Long urban intervals are submitted in adaptive batches beginning at eight steps and targeting two
+seconds, clamped to 2–256 steps. Every submitted batch is fenced before it becomes completed work.
+The durable schema records the batch policy, completed timing samples, operation deadlines,
+queue/map/checkpoint/scoring outcomes, active attempt, WebGPU errors, and direct-versus-derived
+diagnostic confidence. Published checkpoint and verdict steps always refer to the completed
+watermark.
+
+Deterministic promise-boundary injection is the acceptance proof for timeout and recovery behavior.
+The bounded GPU comparison route `?boundedsubmission` checks raw populations, parity, macro fields,
+averaging inputs, health inputs, and score inputs under monolithic and bounded schedules; it also
+records three steady-state timing samples for each schedule and enforces the ten-percent median
+throughput-loss budget. These checks do not change or relax collision, boundary, WGSL, scoring,
+acceptance-band, or physics-verdict logic.
+
+An optional production soak measures exposure on a real adapter but is not a correctness or
+root-cause gate. A successful soak reports its duration, completed steps, operation counts, and zero
+observed stalls; it does not prove that either historical intermittent stall was a driver/TDR event
+or that such an event can no longer occur.
+
 Each executed case is recorded as a row of the shape below, and (from M15) published
 to the public validation page:
 

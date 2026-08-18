@@ -7,6 +7,7 @@ import {
 } from '@aeroflow/core';
 import type { GpuCapabilities } from '../gpu/context';
 import { hooks } from '../dev/testHooks';
+import { consumeUrbanTestFault } from '../dev/urbanFaults';
 import { AijUrbanRun, type AijUrbanRunSnapshot } from '../sim/cases/aijUrban';
 
 /** Canvas2D draw colors mirroring style.css's shared tokens (can't reference CSS vars here). */
@@ -443,6 +444,14 @@ export function mountAijUrban(
       dx: plan.dx,
       requiredCells: plan.requiredCells,
       totalSteps: snapshot.totalSteps,
+      submittedSteps: snapshot.submittedSteps,
+      completedSteps: snapshot.completedSteps,
+      logicalRunId: snapshot.logicalRunId,
+      attemptId: snapshot.attemptId,
+      operations: snapshot.operations,
+      batchPolicy: snapshot.batchPolicy,
+      webgpuErrors: snapshot.webgpuErrors,
+      quarantined: snapshot.quarantined,
       averagingFlowThroughs: snapshot.averagingFlowThroughs,
       q: report?.metrics.q,
       r: report?.metrics.r,
@@ -494,6 +503,7 @@ export function mountAijUrban(
       location: 'IndexedDB/aeroflow/checkpoints',
       complete: true,
     });
+    updateSnapshot(current.snapshot());
     setStatus(
       'Checkpoint saved',
       `${(saved.bytes / 1024 / 1024).toFixed(1)} MiB in ${(saved.ms / 1000).toFixed(1)} s`,
@@ -555,6 +565,12 @@ export function mountAijUrban(
     progressBar.style.width = '0%';
     setStatus('Preparing preset', `Case ${caseId}, ${directionSelect.value} deg from`);
     try {
+      const testFault = consumeUrbanTestFault();
+      const logicalIdentityKey = `aeroflow:urban-logical-run:${selected}`;
+      const logicalRunId = resume
+        ? (localStorage.getItem(logicalIdentityKey) ?? crypto.randomUUID())
+        : crypto.randomUUID();
+      localStorage.setItem(logicalIdentityKey, logicalRunId);
       current = await AijUrbanRun.create(device, {
         caseId,
         windFromDegrees: Number(directionSelect.value),
@@ -563,6 +579,10 @@ export function mountAijUrban(
         caps,
         adapterDescription,
         resume,
+        logicalRunId,
+        attemptId: crypto.randomUUID(),
+        liveness: testFault.liveness,
+        faultInjection: testFault.faultInjection,
         onStatus: (message) => setStatus('Preparing preset', message),
       });
       latest = current.snapshot();
@@ -590,6 +610,7 @@ export function mountAijUrban(
     stopping = false;
     const message = error instanceof Error ? error.message : String(error);
     setStatus('Run failed', message);
+    if (current) updateSnapshot(current.snapshot());
     hooks().urban = { ...(hooks().urban ?? { ready: true }), error: message };
     updateControls();
   };

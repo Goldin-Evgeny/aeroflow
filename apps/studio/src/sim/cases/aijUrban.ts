@@ -22,9 +22,12 @@ import {
   type ConvergingVelocityAveragerState,
   type ConvergingVelocityStats,
   type FieldStats,
+  type GpuBatchPolicyRecord,
+  type GpuOperationRecord,
   type PhaseWindow,
   type UrbanDomainPlan,
   type UrbanSceneSetup,
+  type WebGpuErrorRecord,
 } from '@aeroflow/core';
 import type { GpuCapabilities } from '../../gpu/context';
 import {
@@ -38,6 +41,15 @@ import { Lbm3D } from '../lbm3d';
 import { parseGltf } from '../meshImport';
 import { voxelizeMeshGPU } from '../voxelizer';
 import { deviceBindingCap } from '../../gpu/ddfLayout';
+import {
+  AdaptiveStepBatchController,
+  OperationFailure,
+  OperationSupervisor,
+  WebGpuValidationError,
+  captureWebGpuErrors,
+  withWebGpuErrorScope,
+  type AdaptiveBatchOptions,
+} from '../operationLiveness';
 
 const PRESET_PATHS: Record<AijUrbanCaseId, string> = {
   C: 'benchmarks/aij/case-c',
@@ -79,10 +91,36 @@ export interface AijUrbanRunOptions {
   adapterDescription: string;
   resume?: boolean;
   onStatus?: (message: string) => void;
+  logicalRunId?: string;
+  attemptId?: string;
+  liveness?: Partial<AijUrbanLivenessPolicy>;
+  batch?: AdaptiveBatchOptions;
+  /** Programmatic test seam; never exposed as a production UI control. */
+  faultInjection?: AijUrbanFaultInjection;
+}
+
+export interface AijUrbanLivenessPolicy {
+  queueMs: number;
+  readbackMs: number;
+  checkpointChunkMs: number;
+  scoringMs: number;
+  maximumMs: number;
+}
+
+export interface AijUrbanFaultInjection {
+  queueCompletion?: (real: Promise<void>, range: { start: number; end: number }) => Promise<void>;
+  probeMap?: (real: Promise<Float32Array>) => Promise<Float32Array>;
+  healthMap?: (real: Promise<Float32Array>) => Promise<Float32Array>;
+  checkpointTransfer?: <T>(real: Promise<T>) => Promise<T>;
+  checkpointPersistence?: <T>(real: Promise<T>) => Promise<T>;
+  scoring?: <T>(real: Promise<T>) => Promise<T>;
+  deviceLost?: Promise<{ reason?: string; message?: string }>;
 }
 
 export interface AijUrbanRunSnapshot {
   totalSteps: number;
+  submittedSteps: number;
+  completedSteps: number;
   transientSteps: number;
   flowThroughSteps: number;
   sampleIntervalSteps: number;
@@ -97,6 +135,12 @@ export interface AijUrbanRunSnapshot {
   phase: 'initialization' | 'transient' | 'averaging' | 'evaluation' | 'terminal';
   windows: PhaseWindow[];
   health: AijUrbanHealthSnapshot[];
+  logicalRunId: string;
+  attemptId: string;
+  operations: GpuOperationRecord[];
+  batchPolicy: GpuBatchPolicyRecord;
+  webgpuErrors: WebGpuErrorRecord[];
+  quarantined: boolean;
 }
 
 export interface AijUrbanHealthSnapshot {
@@ -348,7 +392,10 @@ export class AijUrbanRun {
   readonly restoredStep: number | null;
   readonly restoredSamples: number | null;
   readonly precision: 'fp16' | 'fp32';
+  readonly logicalRunId: string;
+  readonly attemptId: string;
 
+  private readonly device: GPUDevice;
   private readonly sim: Lbm3D;
   private readonly db: IDBDatabase;
   private readonly key: string;
@@ -359,6 +406,13 @@ export class AijUrbanRun {
   private elapsedMs: number;
   private cumulativeBoundaryMass = 0;
   private readonly healthSnapshots: AijUrbanHealthSnapshot[] = [];
+  private readonly supervisor: OperationSupervisor;
+  private readonly batchController: AdaptiveStepBatchController;
+  private readonly liveness: AijUrbanLivenessPolicy;
+  private readonly faultInjection: AijUrbanFaultInjection;
+  private readonly webgpuErrors: WebGpuErrorRecord[] = [];
+  private readonly stopErrorCapture: () => void;
+  private quarantined = false;
 
   private constructor(args: {
     preset: AijUrbanPreset;
@@ -368,6 +422,7 @@ export class AijUrbanRun {
     geometryVoxels: number;
     voxelizationMs: number;
     sim: Lbm3D;
+    device: GPUDevice;
     db: IDBDatabase;
     key: string;
     points: { x: number; y: number; z: number }[];
@@ -384,6 +439,11 @@ export class AijUrbanRun {
     sampleIntervalSteps: number;
     cumulativeBoundaryMass: number;
     health: AijUrbanHealthSnapshot[];
+    logicalRunId: string;
+    attemptId: string;
+    liveness: AijUrbanLivenessPolicy;
+    batch?: AdaptiveBatchOptions;
+    faultInjection?: AijUrbanFaultInjection;
   }) {
     this.data = args.preset.data;
     this.direction = args.direction;
@@ -392,6 +452,7 @@ export class AijUrbanRun {
     this.geometryVoxels = args.geometryVoxels;
     this.voxelizationMs = args.voxelizationMs;
     this.sim = args.sim;
+    this.device = args.device;
     this.db = args.db;
     this.key = args.key;
     this.points = args.points;
@@ -408,6 +469,34 @@ export class AijUrbanRun {
     this.sampleIntervalSteps = args.sampleIntervalSteps;
     this.cumulativeBoundaryMass = args.cumulativeBoundaryMass;
     this.healthSnapshots.push(...structuredClone(args.health));
+    this.logicalRunId = args.logicalRunId;
+    this.attemptId = args.attemptId;
+    this.liveness = args.liveness;
+    this.faultInjection = args.faultInjection ?? {};
+    this.batchController = new AdaptiveStepBatchController(args.batch);
+    this.supervisor = new OperationSupervisor({
+      logicalRunId: this.logicalRunId,
+      attemptId: this.attemptId,
+      onTransition: (record) => {
+        if (
+          record.terminalState &&
+          record.terminalState !== 'completed' &&
+          ['device-lost', 'queue-timeout', 'readback-timeout'].includes(record.classification ?? '')
+        ) {
+          this.quarantined = true;
+        }
+      },
+    });
+    this.stopErrorCapture = captureWebGpuErrors(
+      this.device,
+      (record) => {
+        this.webgpuErrors.push(record);
+        if (record.source === 'uncaptured-error') {
+          this.supervisor.reportWebGpuError(new WebGpuValidationError(record.message));
+        }
+      },
+      () => this.supervisor.activeContext(),
+    );
     this.targetSteps =
       args.transientSteps + REQUIRED_AVERAGING_FLOW_THROUGHS * args.flowThroughSteps;
   }
@@ -532,6 +621,7 @@ export class AijUrbanRun {
         geometryVoxels: boundaries.geometryVoxels,
         voxelizationMs: voxelized.ms,
         sim,
+        device,
         db,
         key,
         points,
@@ -548,6 +638,17 @@ export class AijUrbanRun {
         sampleIntervalSteps,
         cumulativeBoundaryMass,
         health,
+        logicalRunId: options.logicalRunId ?? crypto.randomUUID(),
+        attemptId: options.attemptId ?? crypto.randomUUID(),
+        liveness: {
+          queueMs: options.liveness?.queueMs ?? 30_000,
+          readbackMs: options.liveness?.readbackMs ?? 30_000,
+          checkpointChunkMs: options.liveness?.checkpointChunkMs ?? 30_000,
+          scoringMs: options.liveness?.scoringMs ?? 30_000,
+          maximumMs: options.liveness?.maximumMs ?? 300_000,
+        },
+        batch: options.batch,
+        faultInjection: options.faultInjection,
       });
     } catch (error) {
       db?.close();
@@ -569,11 +670,11 @@ export class AijUrbanRun {
   }
 
   private buildReport(normalizedMeans: Float64Array | null): AijUrbanReport | null {
-    if (!normalizedMeans || this.sim.totalSteps < this.transientSteps) return null;
+    if (!normalizedMeans || this.sim.gpuCompletedSteps < this.transientSteps) return null;
     return buildAijUrbanReport(this.data, this.direction, this.plan, normalizedMeans, {
       generatedAt: new Date().toISOString(),
       precision: this.precision,
-      totalSteps: this.sim.totalSteps,
+      totalSteps: this.sim.gpuCompletedSteps,
       transientSteps: this.transientSteps,
       flowThroughSteps: this.flowThroughSteps,
       elapsedMs: this.elapsedMs,
@@ -587,9 +688,11 @@ export class AijUrbanRun {
   snapshot(): AijUrbanRunSnapshot {
     const { stats, means } = this.normalizedStats();
     const averagingFlowThroughs =
-      Math.max(0, this.sim.totalSteps - this.transientSteps) / this.flowThroughSteps;
+      Math.max(0, this.sim.gpuCompletedSteps - this.transientSteps) / this.flowThroughSteps;
     return {
-      totalSteps: this.sim.totalSteps,
+      totalSteps: this.sim.gpuCompletedSteps,
+      submittedSteps: this.sim.totalSteps,
+      completedSteps: this.sim.gpuCompletedSteps,
       transientSteps: this.transientSteps,
       flowThroughSteps: this.flowThroughSteps,
       sampleIntervalSteps: this.sampleIntervalSteps,
@@ -600,17 +703,23 @@ export class AijUrbanRun {
       normalizedMeans: means,
       report: this.buildReport(means),
       elapsedMs: this.elapsedMs,
-      complete: this.sim.totalSteps >= this.targetSteps,
+      complete: this.sim.gpuCompletedSteps >= this.targetSteps && !this.quarantined,
       phase: this.phase(),
       windows: this.phaseWindows(),
       health: structuredClone(this.healthSnapshots),
+      logicalRunId: this.logicalRunId,
+      attemptId: this.attemptId,
+      operations: this.supervisor.snapshot(),
+      batchPolicy: this.batchController.snapshot(),
+      webgpuErrors: structuredClone(this.webgpuErrors),
+      quarantined: this.quarantined,
     };
   }
 
   private phase(): AijUrbanRunSnapshot['phase'] {
-    if (this.sim.totalSteps === 0) return 'initialization';
-    if (this.sim.totalSteps <= this.transientSteps) return 'transient';
-    if (this.sim.totalSteps < this.targetSteps) return 'averaging';
+    if (this.sim.gpuCompletedSteps === 0) return 'initialization';
+    if (this.sim.gpuCompletedSteps <= this.transientSteps) return 'transient';
+    if (this.sim.gpuCompletedSteps < this.targetSteps) return 'averaging';
     return this.healthSnapshots.some((sample) => sample.boundary === 'terminal')
       ? 'terminal'
       : 'evaluation';
@@ -671,6 +780,8 @@ export class AijUrbanRun {
       transientSteps: this.transientSteps,
       averagingSteps: REQUIRED_AVERAGING_FLOW_THROUGHS * this.flowThroughSteps,
       sampleIntervalSteps: this.sampleIntervalSteps,
+      boundedSubmission: this.batchController.snapshot(),
+      operationDeadlines: this.liveness,
     };
   }
 
@@ -678,7 +789,8 @@ export class AijUrbanRun {
     boundary: AijUrbanHealthSnapshot['boundary'],
   ): Promise<AijUrbanHealthSnapshot> {
     const previous = this.healthSnapshots.at(-1);
-    if (previous?.step === this.sim.totalSteps && previous.boundary !== boundary) {
+    this.assertCommitted(`health sampling (${boundary})`);
+    if (previous?.step === this.sim.gpuCompletedSteps && previous.boundary !== boundary) {
       const reused = {
         ...structuredClone(previous),
         boundary,
@@ -689,10 +801,36 @@ export class AijUrbanRun {
       return reused;
     }
     const started = performance.now();
-    const ledger = await this.sim.drainBoundaryMassLedger();
+    const ledger = await this.supervisor.supervise({
+      phase: 'health-readback',
+      deadline: { initialMs: this.liveness.readbackMs, maximumMs: this.liveness.maximumMs },
+      deviceLost: this.deviceLostSignal(),
+      execute: () => this.sim.drainBoundaryMassLedger(),
+    });
     this.cumulativeBoundaryMass += ledger.net;
+    const readback = this.sim.beginMacroReadback();
+    let macros: Float32Array;
+    try {
+      await this.supervisor.supervise({
+        phase: 'queue-completion',
+        deadline: { initialMs: this.liveness.queueMs, maximumMs: this.liveness.maximumMs },
+        deviceLost: this.deviceLostSignal(),
+        execute: () => readback.queueCompletion,
+      });
+      macros = await this.supervisor.supervise({
+        phase: 'health-readback',
+        deadline: { initialMs: this.liveness.readbackMs, maximumMs: this.liveness.maximumMs },
+        deviceLost: this.deviceLostSignal(),
+        execute: () => {
+          const real = readback.map();
+          return this.faultInjection.healthMap?.(real) ?? real;
+        },
+      });
+    } finally {
+      readback.destroy();
+    }
     const field = fieldStats(
-      await this.sim.readMacro(),
+      macros,
       this.sim.flags,
       this.plan.grid.nx,
       this.plan.grid.ny,
@@ -701,7 +839,7 @@ export class AijUrbanRun {
     const sample: AijUrbanHealthSnapshot = {
       boundary,
       sampledAt: new Date().toISOString(),
-      step: this.sim.totalSteps,
+      step: this.sim.gpuCompletedSteps,
       phase: this.phase(),
       readbackMs: performance.now() - started,
       field,
@@ -715,26 +853,136 @@ export class AijUrbanRun {
     return sample;
   }
 
-  /** Advance one fixed, even sampling interval and accumulate the fixture's stated mean. */
-  async advance(): Promise<AijUrbanRunSnapshot> {
-    const started = performance.now();
-    this.sim.submitSteps(this.sampleIntervalSteps);
-    const macros = await this.sim.readMacroPoints(this.points);
-    this.elapsedMs += performance.now() - started;
-    const ux = new Float64Array(this.points.length);
-    const uy = new Float64Array(this.points.length);
-    const uz = new Float64Array(this.points.length);
-    for (let index = 0; index < this.points.length; index++) {
-      const rho = macros[index * 4];
-      ux[index] = macros[index * 4 + 1];
-      uy[index] = macros[index * 4 + 2];
-      uz[index] = macros[index * 4 + 3];
-      if (![rho, ux[index], uy[index], uz[index]].every(Number.isFinite) || rho <= 0) {
-        throw new Error(`AIJ urban solver diverged at probe ${index}, step ${this.sim.totalSteps}`);
-      }
+  private deviceLostSignal(): Promise<{ reason?: string; message?: string }> {
+    return this.faultInjection.deviceLost ?? this.device.lost;
+  }
+
+  private assertCommitted(boundary: string): void {
+    if (this.quarantined) throw new Error(`AIJ urban ${boundary} rejected: attempt is quarantined`);
+    if (this.sim.totalSteps !== this.sim.gpuCompletedSteps) {
+      throw new Error(
+        `AIJ urban ${boundary} rejected: submitted ${this.sim.totalSteps} != completed ` +
+          `${this.sim.gpuCompletedSteps}`,
+      );
     }
-    this.averager.add(ux, uy, uz, this.sim.totalSteps);
-    if (this.sim.totalSteps >= this.targetSteps) {
+  }
+
+  private async submitBoundedBatch(steps: number): Promise<void> {
+    const range = { start: this.sim.totalSteps + 1, end: this.sim.totalSteps + steps };
+    const started = performance.now();
+    try {
+      await this.supervisor.supervise({
+        phase: 'queue-completion',
+        submittedRange: range,
+        completedRange: () => range,
+        deadline: { initialMs: this.liveness.queueMs, maximumMs: this.liveness.maximumMs },
+        deviceLost: this.deviceLostSignal(),
+        execute: async () => {
+          let queueCompletion!: Promise<void>;
+          await withWebGpuErrorScope(
+            this.device,
+            'validation',
+            () => {
+              const actual = this.sim.submitSteps(steps);
+              if (actual.startStep !== range.start || actual.endStep !== range.end) {
+                throw new Error('bounded submission step range changed while encoding');
+              }
+              queueCompletion = this.device.queue.onSubmittedWorkDone();
+            },
+            (record) => this.webgpuErrors.push(record),
+            this.supervisor.activeContext(),
+          );
+          return this.faultInjection.queueCompletion?.(queueCompletion, range) ?? queueCompletion;
+        },
+      });
+      this.sim.markGpuCompleted(range.end);
+      this.batchController.observeCompleted(steps, Math.max(performance.now() - started, 0.001));
+    } catch (error) {
+      if (
+        error instanceof OperationFailure &&
+        ['device-lost', 'queue-timeout', 'readback-timeout'].includes(error.classification)
+      ) {
+        this.quarantined = true;
+      } else if (this.sim.totalSteps !== this.sim.gpuCompletedSteps) {
+        this.quarantined = true;
+      }
+      throw error;
+    }
+  }
+
+  private async readProbeMacros(): Promise<Float32Array> {
+    this.assertCommitted('probe sampling');
+    const readback = this.sim.beginMacroPointReadback(this.points);
+    try {
+      await this.supervisor.supervise({
+        phase: 'queue-completion',
+        deadline: { initialMs: this.liveness.queueMs, maximumMs: this.liveness.maximumMs },
+        deviceLost: this.deviceLostSignal(),
+        execute: () => readback.queueCompletion,
+      });
+      return await this.supervisor.supervise({
+        phase: 'probe-readback',
+        deadline: { initialMs: this.liveness.readbackMs, maximumMs: this.liveness.maximumMs },
+        deviceLost: this.deviceLostSignal(),
+        execute: () => {
+          const real = readback.map();
+          return this.faultInjection.probeMap?.(real) ?? real;
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof OperationFailure &&
+        ['device-lost', 'queue-timeout', 'readback-timeout'].includes(error.classification)
+      ) {
+        this.quarantined = true;
+      }
+      throw error;
+    } finally {
+      readback.destroy();
+    }
+  }
+
+  /** Advance one exact sampling interval through supervised, bounded GPU submissions. */
+  async advance(): Promise<AijUrbanRunSnapshot> {
+    this.assertCommitted('advance');
+    const started = performance.now();
+    let remaining = Math.min(
+      this.sampleIntervalSteps,
+      Math.max(0, this.targetSteps - this.sim.gpuCompletedSteps),
+    );
+    while (remaining > 0) {
+      const steps = this.batchController.next(remaining);
+      await this.submitBoundedBatch(steps);
+      remaining -= steps;
+    }
+    const macros = await this.readProbeMacros();
+    this.elapsedMs += performance.now() - started;
+    await this.supervisor.supervise({
+      phase: 'scoring',
+      deadline: { initialMs: this.liveness.scoringMs, maximumMs: this.liveness.maximumMs },
+      execute: () => {
+        const real = Promise.resolve().then(() => {
+          const ux = new Float64Array(this.points.length);
+          const uy = new Float64Array(this.points.length);
+          const uz = new Float64Array(this.points.length);
+          for (let index = 0; index < this.points.length; index++) {
+            const rho = macros[index * 4];
+            ux[index] = macros[index * 4 + 1];
+            uy[index] = macros[index * 4 + 2];
+            uz[index] = macros[index * 4 + 3];
+            if (![rho, ux[index], uy[index], uz[index]].every(Number.isFinite) || rho <= 0) {
+              throw new Error(
+                `AIJ urban solver diverged at probe ${index}, step ${this.sim.gpuCompletedSteps}`,
+              );
+            }
+          }
+          this.assertCommitted('scoring');
+          this.averager.add(ux, uy, uz, this.sim.gpuCompletedSteps);
+        });
+        return this.faultInjection.scoring?.(real) ?? real;
+      },
+    });
+    if (this.sim.gpuCompletedSteps >= this.targetSteps) {
       await this.sampleHealth('pre-score');
       await this.sampleHealth('terminal');
     }
@@ -742,11 +990,12 @@ export class AijUrbanRun {
   }
 
   async checkpoint(): Promise<SaveCheckpointResult> {
+    this.assertCommitted('checkpoint');
     await this.sampleHealth('checkpoint');
     const runState: AijUrbanCheckpointState = {
       version: 2,
       sceneKey: this.key,
-      totalSteps: this.sim.totalSteps,
+      totalSteps: this.sim.gpuCompletedSteps,
       elapsedMs: this.elapsedMs,
       averager: this.averager.serialize(),
       cumulativeBoundaryMass: this.cumulativeBoundaryMass,
@@ -762,10 +1011,36 @@ export class AijUrbanRun {
         precision: this.precision,
       },
       runState,
+      superviseTransfer: (execute) =>
+        this.supervisor.supervise({
+          phase: 'checkpoint-transfer',
+          deadline: {
+            initialMs: this.liveness.checkpointChunkMs,
+            maximumMs: this.liveness.maximumMs,
+          },
+          deviceLost: this.deviceLostSignal(),
+          execute: () => {
+            const real = execute();
+            return this.faultInjection.checkpointTransfer?.(real) ?? real;
+          },
+        }),
+      supervisePersistence: (execute) =>
+        this.supervisor.supervise({
+          phase: 'checkpoint-persistence',
+          deadline: {
+            initialMs: this.liveness.checkpointChunkMs,
+            maximumMs: this.liveness.maximumMs,
+          },
+          execute: () => {
+            const real = execute();
+            return this.faultInjection.checkpointPersistence?.(real) ?? real;
+          },
+        }),
     });
   }
 
   destroy(): void {
+    this.stopErrorCapture();
     this.sim.destroy();
     this.db.close();
   }

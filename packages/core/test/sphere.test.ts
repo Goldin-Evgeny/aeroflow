@@ -23,10 +23,9 @@ describe('sphereMask', () => {
     expect(rel).toBeLessThanOrEqual(0.02);
   });
 
-  // Explicit timeout: ~5 s of work that trips the 5 s default when the M10 fetch/inlet
-  // tests load all cores in parallel (observed 2026-07-18) — a scheduling margin, not a
-  // tolerance change.
-  it('is symmetric under reflection about the center in x, y, z', { timeout: 30_000 }, () => {
+  // Timeout convention: abl-fetch.test.ts. Worst 11.824 s (20-worker load, 2026-08-17 UTC);
+  // ceil5(max(3*11.824, 11.824+30)) = 45 s.
+  it('is symmetric under reflection about the center in x, y, z', { timeout: 45_000 }, () => {
     const r = 16;
     const n = 4 * r + 1;
     const c = 2 * r;

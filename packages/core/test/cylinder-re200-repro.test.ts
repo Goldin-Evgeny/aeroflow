@@ -69,7 +69,9 @@ const held = (r: { allFinite: boolean; maxSpeed: number }) => r.allFinite && r.m
 describe('cylinder Re=200 divergence repro (diagnostic)', () => {
   it(
     'plain TRT at Re=200 DIVERGES (the V5 GPU failure, on the CPU reference)',
-    { timeout: 60_000 },
+    // Timeout convention: abl-fetch.test.ts. Worst 31.840 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*31.840, 31.840+30)) = 100 s.
+    { timeout: 100_000 },
     async () => {
       const r = await runCase(200, {}, 8000);
       console.log('Re=200 plain TRT:', JSON.stringify(r));
@@ -79,7 +81,9 @@ describe('cylinder Re=200 divergence repro (diagnostic)', () => {
 
   it(
     'LES (Cs=0.1) at Re=200 stays finite — the lever used by the recorded V5 run',
-    { timeout: 60_000 },
+    // Timeout convention: abl-fetch.test.ts. Worst 47.694 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*47.694, 47.694+30)) = 145 s.
+    { timeout: 145_000 },
     async () => {
       // The recorded V5 GPU fix was LES; this proves that configuration tames the same
       // divergence on CPU independently of the later 2D H10 port.
@@ -91,7 +95,9 @@ describe('cylinder Re=200 divergence repro (diagnostic)', () => {
 
   it(
     'plain TRT at Re=100 stays finite (control — same harness, M4-validated Re)',
-    { timeout: 60_000 },
+    // Timeout convention: abl-fetch.test.ts. Worst 34.506 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*34.506, 34.506+30)) = 105 s.
+    { timeout: 105_000 },
     async () => {
       const r = await runCase(100, {}, 8000);
       console.log('Re=100 plain TRT:', JSON.stringify(r));

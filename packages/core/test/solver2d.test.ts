@@ -101,7 +101,9 @@ describe('Solver2D (CPU reference)', () => {
 
   it(
     'T-FORCE: momentum-exchange drag balances the injected body force exactly (≤1e-6)',
-    { timeout: 30_000 },
+    // Timeout convention: abl-fetch.test.ts. Worst 13.197 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*13.197, 13.197+30)) = 45 s.
+    { timeout: 45_000 },
     () => {
       // Machine-precision identity oracle — H2 §4. Forced periodic channel + plate.
       const nx = 12;

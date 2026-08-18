@@ -258,6 +258,11 @@ export type {
   StrainResidualBin,
   StrainSummary,
 } from './analysis/strainComparison.js';
+export { freestreamEddyViscosity } from './analysis/freestreamEddyViscosity.js';
+export type {
+  FreestreamEddyViscosity,
+  FreestreamEddyViscosityInput,
+} from './analysis/freestreamEddyViscosity.js';
 export { compareStressTensors, STRESS_COMPONENTS } from './analysis/stressComparison.js';
 export type {
   StressComponent,

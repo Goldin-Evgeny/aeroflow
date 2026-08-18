@@ -187,7 +187,9 @@ describe('D3Q19 pressure outlet (H14)', () => {
 
   it(
     'anchors density from both sides of rho=1 and closes the signed boundary-mass ledger',
-    { timeout: 30_000 },
+    // Timeout convention: abl-fetch.test.ts. Worst 2.737 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*2.737, 2.737+30)) = 35 s.
+    { timeout: 35_000 },
     () => {
       const finalMeans: number[] = [];
       for (const initialRho of [0.9, 1.1]) {
@@ -302,7 +304,9 @@ describe('D3Q19 pressure outlet (H14)', () => {
     { outlet: 'zero-gradient' as const, initialRho: 1 },
   ])(
     'decomposes the free-slip empty-tunnel boundary budget ($outlet, rho0=$initialRho)',
-    { timeout: 60_000 },
+    // Timeout convention: abl-fetch.test.ts. Worst 4.459 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*4.459, 4.459+30)) = 35 s.
+    { timeout: 35_000 },
     ({ outlet, initialRho }) => {
       const flags = sceneFlags(false);
       const freeSlip: FreeSlipFaces = { yMax: true, zMin: true, zMax: true };

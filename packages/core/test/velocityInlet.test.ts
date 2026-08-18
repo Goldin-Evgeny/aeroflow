@@ -88,8 +88,10 @@ describe('VelocityInlet (H12)', () => {
 
   it(
     'imposes the flux: frictionless duct from rest converges to u_in (plain Inlet: 0.66)',
-    { timeout: 30_000 },
-    () => {
+    // Timeout convention: abl-fetch.test.ts. Worst 28.029 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*28.029, 28.029+30)) = 85 s.
+    { timeout: 85_000 },
+    async () => {
       const [MX, MY, MZ] = [40, 12, 8];
       const m = (x: number, y: number, z: number): number => x + MX * (y + MY * z);
       const U = 0.03;
@@ -112,7 +114,7 @@ describe('VelocityInlet (H12)', () => {
           }
         return f;
       };
-      const run = (inlet: CellType): number => {
+      const run = async (inlet: CellType): Promise<number> => {
         const s = new Solver3D({
           nx: MX,
           ny: MY,
@@ -124,11 +126,15 @@ describe('VelocityInlet (H12)', () => {
           inletVelocity: U,
           freeSlip: { yMin: true, yMax: true, zMin: true, zMax: true },
         });
-        s.step(4000);
+        for (let steps = 0; steps < 4000; steps += 500) {
+          s.step(500);
+          // Chunking preserves 4,000 steps while giving worker IPC a macrotask turn.
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
         return s.macroscopics().ux[m(20, 6, 4)] / U;
       };
-      expect(run(CellType.Inlet)).toBeLessThan(0.75); // the measured impedance sag
-      expect(run(CellType.VelocityInlet)).toBeGreaterThan(0.99); // flux imposed
+      expect(await run(CellType.Inlet)).toBeLessThan(0.75); // the measured impedance sag
+      expect(await run(CellType.VelocityInlet)).toBeGreaterThan(0.99); // flux imposed
     },
   );
 

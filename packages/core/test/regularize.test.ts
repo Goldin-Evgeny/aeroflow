@@ -63,13 +63,17 @@ describe('H10 regularization: O5 stability flip (under-resolved, LES off)', () =
   // viscosity and both diverge — this is a ghost-mode filter, not a viscosity substitute.)
   const opts = { Re: 600, nx: 200, ny: 64, diameter: 12 } as const;
 
-  it('plain TRT diverges here (control)', { timeout: 120_000 }, async () => {
+  // Timeout convention: abl-fetch.test.ts. Worst 15.991 s (20-worker load, 2026-08-17 UTC);
+  // ceil5(max(3*15.991, 15.991+30)) = 50 s.
+  it('plain TRT diverges here (control)', { timeout: 50_000 }, async () => {
     const r = await runCylinder(opts, 4_000, { les: false, regularize: false });
     const held = r.allFinite && r.maxSpeed < 0.3;
     expect(held).toBe(false); // NaN blow-up — the demo3d symptom
   });
 
-  it('regularized TRT holds the same case finite and subsonic', { timeout: 120_000 }, async () => {
+  // Timeout convention: abl-fetch.test.ts. Worst 25.681 s (20-worker load, 2026-08-17 UTC);
+  // ceil5(max(3*25.681, 25.681+30)) = 80 s.
+  it('regularized TRT holds the same case finite and subsonic', { timeout: 80_000 }, async () => {
     const r = await runCylinder(opts, 4_000, { les: false, regularize: true });
     expect(r.allFinite).toBe(true);
     expect(r.maxSpeed).toBeLessThan(0.3); // bounded, Ma < 0.52 — no runaway
@@ -82,7 +86,9 @@ describe('H10 regularization: O6 non-interference (M6 prerequisite gate)', () =>
   // shift Cd by ≤3% — mirrors the M5 LES V6 gate (les.test.ts) for the new operator.
   it(
     'Re=20 cylinder Cd shifts by ≤3% when regularization is enabled',
-    { timeout: 120_000 },
+    // Timeout convention: abl-fetch.test.ts. Worst 82.959 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*82.959, 82.959+30)) = 250 s.
+    { timeout: 250_000 },
     async () => {
       const opts = { Re: 20, nx: 200, ny: 80, diameter: 8 } as const;
       const cd = async (regularize: boolean) => {

@@ -103,8 +103,10 @@ interface WindowTrace {
 describe('AIJ fetch steadiness predicate (M10 acceptance 3, CPU)', () => {
   it(
     'driftScaled is well-conditioned and reachable; the sag is slow and bounded',
-    { timeout: 120_000 },
-    () => {
+    // Timeout convention: abl-fetch.test.ts. Worst 56.324 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*56.324, 56.324+30)) = 170 s.
+    { timeout: 170_000 },
+    async () => {
       const { solver, ux } = fetchDuct();
       const station = 4;
       const zMid = 4;
@@ -127,6 +129,8 @@ describe('AIJ fetch steadiness predicate (M10 acceptance 3, CPU)', () => {
       while (trace.length < totalWindows) {
         solver.step(STEPS_PER_SAMPLE);
         steps += STEPS_PER_SAMPLE;
+        // At the 105.457 s loaded-suite worst, each 1,000-step chunk is about 13.2 s.
+        if (steps % 1000 === 0) await new Promise<void>((resolve) => setImmediate(resolve));
         const m = solver.macroscopics();
         const sample = ys.map((y) => m.ux[atT(station, y, zMid)]);
         avg.add(sample);

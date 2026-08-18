@@ -55,7 +55,9 @@ describe('Solver3D (CPU reference, D3Q19)', () => {
 
   it(
     'T-DUCT: matches the analytic square-duct series within 2% of the peak',
-    { timeout: 60_000 },
+    // Timeout convention: abl-fetch.test.ts. Worst 2.522 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*2.522, 2.522+30)) = 35 s.
+    { timeout: 35_000 },
     () => {
       const nx = 4;
       const ny = 14;
@@ -112,8 +114,10 @@ describe('Solver3D (CPU reference, D3Q19)', () => {
 
   it(
     'T-FORCE-3D: two-step-averaged drag balances injected momentum (≤1e-6)',
-    { timeout: 60_000 },
-    () => {
+    // Timeout convention: abl-fetch.test.ts. Worst 32.606 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*32.606, 32.606+30)) = 100 s.
+    { timeout: 100_000 },
+    async () => {
       const nx = 8;
       const ny = 10;
       const nz = 10;
@@ -141,6 +145,8 @@ describe('Solver3D (CPU reference, D3Q19)', () => {
       for (let it = 0; it < 60; it++) {
         solver.step(1000);
         const F = solver.force.x;
+        // Yield before the convergence exit so an early-settling run cannot bypass IPC.
+        await new Promise<void>((resolve) => setImmediate(resolve));
         if (Math.abs(F - prevF) / Math.abs(F) < 1e-11) break;
         prevF = F;
       }

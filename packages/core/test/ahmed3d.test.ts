@@ -164,35 +164,41 @@ describe('ahmedScene', () => {
      * record was measured on this flag array; if it moves, those numbers stop being comparable
      * and the phase-3 A/B loses its control arm.
      */
-    it("'freestream' is the default and reproduces the pre-option flag array exactly", () => {
-      expect(freestream.lateralBC).toBe('freestream');
-      expect(ahmedScene({ maxCells: CELLS, lateralBC: 'freestream' }).flags).toEqual(
-        freestream.flags,
-      );
+    it(
+      "'freestream' is the default and reproduces the pre-option flag array exactly",
+      // Timeout convention: abl-fetch.test.ts. Worst 1.837 s (20-worker load, 2026-08-17 UTC);
+      // ceil5(max(3*1.837, 1.837+30)) = 35 s.
+      { timeout: 35_000 },
+      () => {
+        expect(freestream.lateralBC).toBe('freestream');
+        expect(ahmedScene({ maxCells: CELLS, lateralBC: 'freestream' }).flags).toEqual(
+          freestream.flags,
+        );
 
-      const { nx, ny, nz } = freestream;
-      const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
-      const ref = new Uint8Array(nx * ny * nz).fill(CellType.Fluid);
-      for (let y = 0; y < ny; y++)
-        for (let x = 0; x < nx; x++) {
-          ref[at(x, y, 0)] = CellType.Inlet;
-          ref[at(x, y, nz - 1)] = CellType.Inlet;
+        const { nx, ny, nz } = freestream;
+        const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+        const ref = new Uint8Array(nx * ny * nz).fill(CellType.Fluid);
+        for (let y = 0; y < ny; y++)
+          for (let x = 0; x < nx; x++) {
+            ref[at(x, y, 0)] = CellType.Inlet;
+            ref[at(x, y, nz - 1)] = CellType.Inlet;
+          }
+        for (let z = 0; z < nz; z++)
+          for (let x = 0; x < nx; x++) ref[at(x, ny - 1, z)] = CellType.Inlet;
+        for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) ref[at(x, 0, z)] = CellType.Solid;
+        for (let z = 0; z < nz; z++) for (let y = 1; y < ny; y++) ref[at(0, y, z)] = CellType.Inlet;
+        // Outlet is strictly interior in y/z (H4 §10.9 extended: a domain-edge/corner outlet
+        // has no well-defined odd-parity source under Esoteric Pull); the ring it leaves
+        // behind keeps whatever the lateral/ground assignment above already put there.
+        for (let z = 1; z < nz - 1; z++)
+          for (let y = 1; y < ny - 1; y++) ref[at(nx - 1, y, z)] = CellType.Outlet;
+        // Overlay the body from the scene itself: the voxelizer is not what this test locks.
+        for (let i = 0; i < ref.length; i++) {
+          if (freestream.flags[i] === CellType.BodySolid) ref[i] = CellType.BodySolid;
         }
-      for (let z = 0; z < nz; z++)
-        for (let x = 0; x < nx; x++) ref[at(x, ny - 1, z)] = CellType.Inlet;
-      for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) ref[at(x, 0, z)] = CellType.Solid;
-      for (let z = 0; z < nz; z++) for (let y = 1; y < ny; y++) ref[at(0, y, z)] = CellType.Inlet;
-      // Outlet is strictly interior in y/z (H4 §10.9 extended: a domain-edge/corner outlet
-      // has no well-defined odd-parity source under Esoteric Pull); the ring it leaves
-      // behind keeps whatever the lateral/ground assignment above already put there.
-      for (let z = 1; z < nz - 1; z++)
-        for (let y = 1; y < ny - 1; y++) ref[at(nx - 1, y, z)] = CellType.Outlet;
-      // Overlay the body from the scene itself: the voxelizer is not what this test locks.
-      for (let i = 0; i < ref.length; i++) {
-        if (freestream.flags[i] === CellType.BodySolid) ref[i] = CellType.BodySolid;
-      }
-      expect(freestream.flags).toEqual(ref);
-    });
+        expect(freestream.flags).toEqual(ref);
+      },
+    );
 
     it('changes the far field and NOTHING else — same grid, body and lattice parameters', () => {
       expect([freeslip.nx, freeslip.ny, freeslip.nz]).toEqual([
@@ -278,35 +284,51 @@ describe('ahmedScene', () => {
      * A two-step smoke run only exercises whatever links its cells happen to touch; this walks
      * the entire shell, every direction, so a bad corner cannot hide until a long GPU run.
      */
-    it('resolves every free-slip pull in the domain (whole-shell, not just stepped paths)', () => {
-      const { nx, ny, nz, flags } = freeslip;
-      const { q, ex, ey, ez } = D3Q19;
-      const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
-      let resolved = 0;
-      for (let z = 0; z < nz; z++)
-        for (let y = 0; y < ny; y++)
-          for (let x = 0; x < nx; x++) {
-            if (flags[at(x, y, z)] !== CellType.Fluid) continue;
-            for (let i = 1; i < q; i++) {
-              const sx = x - ex[i];
-              const sy = y - ey[i];
-              const sz = z - ez[i];
-              if (sx < 0 || sx >= nx || sy < 0 || sy >= ny || sz < 0 || sz >= nz) continue;
-              if (flags[at(sx, sy, sz)] !== CellType.FreeSlip) continue;
-              const r = resolveFreeSlipPull(flags, nx, ny, nz, AHMED_FREESLIP_FACES, sx, sy, sz, i);
-              resolved++;
-              if (r.fallback) continue; // slip∩solid edge → local bounce-back (H11 §3.1)
-              // A resolved source must be an ACTIVE cell: passive cells emit no output to read.
-              const dest = flags[at(r.sx, r.sy, r.sz)];
-              expect(dest, `(${x},${y},${z}) dir ${i} resolved onto a passive cell`).not.toBe(
-                CellType.FreeSlip,
-              );
-              expect(dest).not.toBe(CellType.Solid);
-              expect(dest).not.toBe(CellType.BodySolid);
+    it(
+      'resolves every free-slip pull in the domain (whole-shell, not just stepped paths)',
+      // Timeout convention: abl-fetch.test.ts. Worst 3.938 s (20-worker load, 2026-08-17 UTC);
+      // ceil5(max(3*3.938, 3.938+30)) = 35 s.
+      { timeout: 35_000 },
+      () => {
+        const { nx, ny, nz, flags } = freeslip;
+        const { q, ex, ey, ez } = D3Q19;
+        const at = (x: number, y: number, z: number) => x + nx * (y + ny * z);
+        let resolved = 0;
+        for (let z = 0; z < nz; z++)
+          for (let y = 0; y < ny; y++)
+            for (let x = 0; x < nx; x++) {
+              if (flags[at(x, y, z)] !== CellType.Fluid) continue;
+              for (let i = 1; i < q; i++) {
+                const sx = x - ex[i];
+                const sy = y - ey[i];
+                const sz = z - ez[i];
+                if (sx < 0 || sx >= nx || sy < 0 || sy >= ny || sz < 0 || sz >= nz) continue;
+                if (flags[at(sx, sy, sz)] !== CellType.FreeSlip) continue;
+                const r = resolveFreeSlipPull(
+                  flags,
+                  nx,
+                  ny,
+                  nz,
+                  AHMED_FREESLIP_FACES,
+                  sx,
+                  sy,
+                  sz,
+                  i,
+                );
+                resolved++;
+                if (r.fallback) continue; // slip∩solid edge → local bounce-back (H11 §3.1)
+                // A resolved source must be an ACTIVE cell: passive cells emit no output to read.
+                const dest = flags[at(r.sx, r.sy, r.sz)];
+                expect(dest, `(${x},${y},${z}) dir ${i} resolved onto a passive cell`).not.toBe(
+                  CellType.FreeSlip,
+                );
+                expect(dest).not.toBe(CellType.Solid);
+                expect(dest).not.toBe(CellType.BodySolid);
+              }
             }
-          }
-      expect(resolved).toBeGreaterThan(0); // control: the walk actually hit free-slip links
-    });
+        expect(resolved).toBeGreaterThan(0); // control: the walk actually hit free-slip links
+      },
+    );
 
     it('produces a flag field EsotericPull3D accepts and can step', () => {
       const solver = new EsotericPull3D({
@@ -430,7 +452,9 @@ describe('ahmedScene', () => {
         expect(flags[at(0, 0, Math.floor(nz / 2))]).toBe(CellType.Solid); // ground still wins
       });
 
-      it('steps under EsotericPull3D on all four arms of the 2×2', () => {
+      // Timeout convention: abl-fetch.test.ts. Worst 3.807 s (20-worker load, 2026-08-17 UTC);
+      // ceil5(max(3*3.807, 3.807+30)) = 35 s.
+      it('steps under EsotericPull3D on all four arms of the 2×2', { timeout: 35_000 }, () => {
         for (const lateral of ['freestream', 'freeslip'] as const)
           for (const inlet of ['equilibrium', 'velocity'] as const) {
             const s = ahmedScene({
@@ -489,35 +513,41 @@ describe('ahmedScene', () => {
         expect(pressure.uLattice).toBe(freestream.uLattice);
       });
 
-      it('steps under EsotericPull3D on all four arms of the lateral x outlet 2x2', () => {
-        for (const lateral of ['freestream', 'freeslip'] as const)
-          for (const outlet of ['zero-gradient', 'pressure'] as const) {
-            const s = ahmedScene({
-              maxCells: CELLS,
-              lateralBC: lateral,
-              outlet,
-              omitBody: true,
-            });
-            const solver = new EsotericPull3D({
-              nx: s.nx,
-              ny: s.ny,
-              nz: s.nz,
-              omega: s.omega,
-              flags: s.flags,
-              inletVelocity: s.uLattice,
-              collision: 'trt',
-              regularize: true,
-              les: { cs: 0.1 },
-              freeSlip: lateral === 'freeslip' ? AHMED_FREESLIP_FACES : undefined,
-              outlet,
-            });
-            solver.step(2); // both parities
-            expect(
-              Number.isFinite(solver.totalMass()),
-              `${lateral}/${outlet} went non-finite`,
-            ).toBe(true);
-          }
-      });
+      it(
+        'steps under EsotericPull3D on all four arms of the lateral x outlet 2x2',
+        // Timeout convention: abl-fetch.test.ts. Worst 3.882 s (20-worker load, 2026-08-17 UTC);
+        // ceil5(max(3*3.882, 3.882+30)) = 35 s.
+        { timeout: 35_000 },
+        () => {
+          for (const lateral of ['freestream', 'freeslip'] as const)
+            for (const outlet of ['zero-gradient', 'pressure'] as const) {
+              const s = ahmedScene({
+                maxCells: CELLS,
+                lateralBC: lateral,
+                outlet,
+                omitBody: true,
+              });
+              const solver = new EsotericPull3D({
+                nx: s.nx,
+                ny: s.ny,
+                nz: s.nz,
+                omega: s.omega,
+                flags: s.flags,
+                inletVelocity: s.uLattice,
+                collision: 'trt',
+                regularize: true,
+                les: { cs: 0.1 },
+                freeSlip: lateral === 'freeslip' ? AHMED_FREESLIP_FACES : undefined,
+                outlet,
+              });
+              solver.step(2); // both parities
+              expect(
+                Number.isFinite(solver.totalMass()),
+                `${lateral}/${outlet} went non-finite`,
+              ).toBe(true);
+            }
+        },
+      );
     });
 
     it('composes with omitBody: the empty free-slip tunnel is the same tunnel, bodyless', () => {

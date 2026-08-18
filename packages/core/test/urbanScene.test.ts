@@ -160,29 +160,35 @@ describe('urbanScene CPU oracle', () => {
     ).toThrow(/lattice velocity/);
   });
 
-  it('runs naive and Esoteric Pull bit-identically on the assembled urban scene', () => {
-    const { scene } = build(25_000);
-    const common = {
-      nx: scene.nx,
-      ny: scene.ny,
-      nz: scene.nz,
-      omega: scene.mapping.omega,
-      flags: scene.flags,
-      collision: 'trt' as const,
-      regularize: true,
-      les: { cs: 0.1 },
-      inletProfile: { axis: 'y' as const, ux: scene.profile },
-      freeSlip: { yMax: true, zMin: true, zMax: true },
-    };
-    const naive = new Solver3D(common);
-    const esoteric = new EsotericPull3D(common);
-    naive.step(5);
-    esoteric.step(5);
-    const expected = naive.snapshotPostCollision();
-    const actual = esoteric.snapshotCanonical();
-    const n = scene.nx * scene.ny * scene.nz;
-    for (let slot = 0; slot < expected.length; slot++) {
-      if (scene.flags[slot % n] === CellType.Fluid) expect(actual[slot]).toBe(expected[slot]);
-    }
-  });
+  it(
+    'runs naive and Esoteric Pull bit-identically on the assembled urban scene',
+    // Timeout convention: abl-fetch.test.ts. Worst 3.569 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*3.569, 3.569+30)) = 35 s.
+    { timeout: 35_000 },
+    () => {
+      const { scene } = build(25_000);
+      const common = {
+        nx: scene.nx,
+        ny: scene.ny,
+        nz: scene.nz,
+        omega: scene.mapping.omega,
+        flags: scene.flags,
+        collision: 'trt' as const,
+        regularize: true,
+        les: { cs: 0.1 },
+        inletProfile: { axis: 'y' as const, ux: scene.profile },
+        freeSlip: { yMax: true, zMin: true, zMax: true },
+      };
+      const naive = new Solver3D(common);
+      const esoteric = new EsotericPull3D(common);
+      naive.step(5);
+      esoteric.step(5);
+      const expected = naive.snapshotPostCollision();
+      const actual = esoteric.snapshotCanonical();
+      const n = scene.nx * scene.ny * scene.nz;
+      for (let slot = 0; slot < expected.length; slot++) {
+        if (scene.flags[slot % n] === CellType.Fluid) expect(actual[slot]).toBe(expected[slot]);
+      }
+    },
+  );
 });

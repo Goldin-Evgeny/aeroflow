@@ -160,6 +160,41 @@ cylinder/sphere/Ahmed wiring, `cylinder-les-norm.gpu.spec.ts`, `Solver2D`/`Solve
 `les.norm` passthrough) stays in place so the flip can be re-attempted directly once M6
 lands, without rebuilding the harness.
 
+**The discriminating mechanism test returned — 2026-08-17
+(`discriminate-near-floor-instability`; run
+[2026-08-17-1832-near-floor-factorial](validation/runs/2026-08-17-1832-near-floor-factorial.md)).**
+The two candidate mechanisms behind the deferral — (A) `ω⁻` collapse and (B) projected-
+regularization anti-dissipation — were varied independently on the CPU empty tunnel at
+`τ₀=0.5000005`, with `ω⁻` made settable and reportable so it is no longer confounded with `Λ`.
+The 3000–3500 divergence reproduces exactly (step **3346**), as does `'legacy'`'s smooth
+`rhoMean` growth to 1.41 at 6,000 steps. Findings, none of which change any default:
+
+- **Neither standing candidate explains the acceptance configuration.** Under `regularize: on`
+  — every near-floor acceptance config — `ω⁻` is inert: the `'spec'` arm diverges at step 3346
+  at the derived `ω⁻≈0.042` **and** at `ω⁻=1.0`, same step, same diagnostics, so (A) cannot be
+  operating. And turning the projection **off** makes the same case diverge at step 382 rather
+  than 3346 — 8.8× sooner — so the projection is strongly stabilizing there, contradicting (B)
+  as framed. A third mechanism is indicated for the configuration that matters.
+- **(A) is real, but only without regularization.** All eight `regularize: off` derived-`ω⁻`
+  arms diverged (steps 351–806); raising `ω⁻` to 1.0 rescued all eight and lowered freestream
+  eddy viscosity in every case.
+- **The outlet is a controlling variable, which was not previously known.** With the pressure
+  outlet, no regularized arm destabilizes under `'spec'` at all, on either grid, out to 20,000
+  steps; only the zero-gradient outlet reproduces. The original observation came from the third
+  of `pressureOutlet3d.test.ts`'s three `it.each` cases. **Why** a copy-upstream outlet
+  destabilizes where a pressure reconstruction does not is unexamined and is the obvious next
+  experiment.
+- **A zero-strain oracle now exists and reads high.** In an empty domain, away from every
+  boundary, the analytic `ν_t` is exactly 0; the closure reports `ν_t/ν_mol` p50 ≈ 5.2×10³
+  (τ_eff ≈ 0.5027 against τ₀ = 0.5000005 — the ratio is large chiefly because ν_mol is 1.67e-7,
+  and the honest statement is that the subgrid model supplies ~99.98% of the viscosity where
+  the resolved strain is zero). Independently reproduces 6.7b's direction: the √2-smaller
+  `'spec'` coefficient did **not** yield less eddy viscosity.
+
+Task 6.9 stays **deferred** — this run supplies evidence, not a verdict, and takes no position
+on the flip. Tasks 8.1/8.3's stated precondition ("`ω⁻` a controlled variable rather than one
+derived from `Λ` and never reported") is now **met**.
+
 **V7–V9 sphere (M7).** Analytic SDF sphere mask (mesh import not required), D ≥ 24 cells,
 domain ≥ 6D×6D×16D. Cd uses body-only momentum exchange averaged over every two
 consecutive steps; sampling only one Esoteric-Pull parity is invalid. Re=10⁴ needs LES and
@@ -211,7 +246,7 @@ so a FAIL is read as a known limit rather than a regression.
 
 - **Reachable today:** V1 (2D Poiseuille), V7 sphere **Re=100**, V12/V13 AIJ Case A at
   ≥24 cells/building — measured in band. **Not V1–V6 as a block**: V2 (cavity Re=100)
-  FAILS on `v_min` at 2.31% against ±1.5% (`docs/private/milestones/M3.md`); V4/V5/V6
+  FAILS on `v_min` at 2.31% against ±1.5% (`packages/core/src/validation/bands.ts`); V4/V5/V6
   (cylinder, LES non-interference) have no automated harness asserting their documented
   bands at all (see `packages/core/src/validation/bands.ts`). Treat this line as recording
   what has been reached on a uniform grid at any resolution, not as a pass/fail summary —

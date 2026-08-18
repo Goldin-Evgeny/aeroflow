@@ -142,7 +142,19 @@ function relativeL1(left: Float64Array, right: Float64Array, slope: number): num
   return magnitude > 0 ? residual / magnitude : Number.NaN;
 }
 
-function summarize(values: Float64Array): StrainSummary {
+/**
+ * Distance from a coordinate to the nearer of the two domain faces on its axis. This is THE
+ * boundary-distance convention for this package's analyses — `boundaryProfile` below bins on
+ * it, and `freestreamEddyViscosity.ts` selects on it. A second convention living somewhere
+ * else would make two analyses of the same run disagree about which cells are "near the wall"
+ * for a bookkeeping reason.
+ */
+export function axisBoundaryDistance(coordinate: number, size: number): number {
+  return Math.min(coordinate, size - 1 - coordinate);
+}
+
+/** Distribution summary shared by the analyses in this directory. */
+export function summarize(values: Float64Array): StrainSummary {
   if (values.length === 0) {
     return {
       cells: 0,
@@ -188,7 +200,7 @@ function boundaryProfile(
   const sums = new Float64Array(binCount);
   const absoluteSums = new Float64Array(binCount);
   for (let i = 0; i < residuals.length; i++) {
-    const distance = Math.min(coordinates[i], size - 1 - coordinates[i]);
+    const distance = axisBoundaryDistance(coordinates[i], size);
     cells[distance]++;
     sums[distance] += residuals[i];
     absoluteSums[distance] += Math.abs(residuals[i]);

@@ -15,12 +15,12 @@ import { cavityCenterlines } from '../src/validation/cavity.js';
  * merely under-resolved at H=64. The headline ±1.5%@256² gate (V2) is a GPU
  * validation-page run, not this unit test.
  */
-function runCavityRe100(H: number): {
+async function runCavityRe100(H: number): Promise<{
   simY: number[];
   simU: number[];
   simX: number[];
   simV: number[];
-} {
+}> {
   // The shared M3 scene builder — the SAME one the GPU acceptance runs use, so this test
   // is what keeps the two paths on one geometry/τ convention.
   const { nx, ny, flags, wallVelocity, omega, uLid } = cavityScene2D({ H, Re: 100 });
@@ -41,6 +41,9 @@ function runCavityRe100(H: number): {
   for (let it = 0; it < 100; it++) {
     s.step(2000);
     const c = s.macroscopics().ux[probe];
+    // Yield before the convergence exit: this run can settle within ten chunks, so a
+    // post-check cadence could skip every macrotask turn under loaded-suite contention.
+    await new Promise<void>((resolve) => setImmediate(resolve));
     if (Math.abs(c - prev) < 1e-9 * Math.max(1e-6, Math.abs(c))) break;
     prev = c;
   }
@@ -52,49 +55,53 @@ function runCavityRe100(H: number): {
 }
 
 describe('M3 lid-driven cavity vs Ghia 1982 (Re=100)', () => {
-  // 60 s, not 30 s: the run is ~24 s standalone but the full suite saturates the CPU and
-  // pushes it over a 30 s bar (a spurious timeout, not a physics failure).
-  it('reproduces both centerline profiles and the primary vortex', { timeout: 60_000 }, () => {
-    const { simY, simU, simX, simV } = runCavityRe100(64);
+  // Timeout convention: abl-fetch.test.ts. Worst 39.550 s (20-worker load, 2026-08-17 UTC);
+  // ceil5(max(3*39.550, 39.550+30)) = 120 s.
+  it(
+    'reproduces both centerline profiles and the primary vortex',
+    { timeout: 120_000 },
+    async () => {
+      const { simY, simU, simX, simV } = await runCavityRe100(64);
 
-    // u along the vertical centerline vs Ghia Table I.
-    let maxUErr = 0;
-    for (let k = 0; k < GHIA_U.y.length; k++) {
-      const yq = GHIA_U.y[k];
-      if (yq <= simY[0] || yq >= simY[simY.length - 1]) continue;
-      maxUErr = Math.max(maxUErr, Math.abs(interpProfile(simY, simU, yq) - GHIA_U.re100[k]));
-    }
-    // v along the horizontal centerline vs Ghia Table II.
-    let maxVErr = 0;
-    for (let k = 0; k < GHIA_V.x.length; k++) {
-      const xq = GHIA_V.x[k];
-      if (xq <= simX[0] || xq >= simX[simX.length - 1]) continue;
-      maxVErr = Math.max(maxVErr, Math.abs(interpProfile(simX, simV, xq) - GHIA_V.re100[k]));
-    }
-    // Observed ~0.005 at H=64; gate at 0.012 (a broken moving-lid BC gives >0.1).
-    expect(maxUErr).toBeLessThan(0.012);
-    expect(maxVErr).toBeLessThan(0.012);
-
-    // Primary vortex signature: u dips negative in the lower-centre, extremum near y≈0.45.
-    let uMin = Infinity;
-    let uMinY = -1;
-    for (let j = 0; j < simY.length; j++) {
-      if (simU[j] < uMin) {
-        uMin = simU[j];
-        uMinY = simY[j];
+      // u along the vertical centerline vs Ghia Table I.
+      let maxUErr = 0;
+      for (let k = 0; k < GHIA_U.y.length; k++) {
+        const yq = GHIA_U.y[k];
+        if (yq <= simY[0] || yq >= simY[simY.length - 1]) continue;
+        maxUErr = Math.max(maxUErr, Math.abs(interpProfile(simY, simU, yq) - GHIA_U.re100[k]));
       }
-    }
-    expect(uMin).toBeGreaterThan(-0.24);
-    expect(uMin).toBeLessThan(-0.18); // Ghia −0.2109
-    expect(uMinY).toBeGreaterThan(0.4);
-    expect(uMinY).toBeLessThan(0.5); // Ghia 0.4531
+      // v along the horizontal centerline vs Ghia Table II.
+      let maxVErr = 0;
+      for (let k = 0; k < GHIA_V.x.length; k++) {
+        const xq = GHIA_V.x[k];
+        if (xq <= simX[0] || xq >= simX[simX.length - 1]) continue;
+        maxVErr = Math.max(maxVErr, Math.abs(interpProfile(simX, simV, xq) - GHIA_V.re100[k]));
+      }
+      // Observed ~0.005 at H=64; gate at 0.012 (a broken moving-lid BC gives >0.1).
+      expect(maxUErr).toBeLessThan(0.012);
+      expect(maxVErr).toBeLessThan(0.012);
 
-    // v recirculation: strong negative near the right wall, positive near the left.
-    expect(Math.min(...simV)).toBeLessThan(-0.2); // Ghia v_min −0.2453
-    expect(Math.max(...simV)).toBeGreaterThan(0.14); // Ghia v_max 0.1753
+      // Primary vortex signature: u dips negative in the lower-centre, extremum near y≈0.45.
+      let uMin = Infinity;
+      let uMinY = -1;
+      for (let j = 0; j < simY.length; j++) {
+        if (simU[j] < uMin) {
+          uMin = simU[j];
+          uMinY = simY[j];
+        }
+      }
+      expect(uMin).toBeGreaterThan(-0.24);
+      expect(uMin).toBeLessThan(-0.18); // Ghia −0.2109
+      expect(uMinY).toBeGreaterThan(0.4);
+      expect(uMinY).toBeLessThan(0.5); // Ghia 0.4531
 
-    // Lid drives +x flow at the top; near-wall no-slip is recovered at the bottom.
-    expect(simU[simU.length - 1]).toBeGreaterThan(0.3); // just under the lid
-    expect(Math.abs(simU[0])).toBeLessThan(0.05); // just above the floor
-  });
+      // v recirculation: strong negative near the right wall, positive near the left.
+      expect(Math.min(...simV)).toBeLessThan(-0.2); // Ghia v_min −0.2453
+      expect(Math.max(...simV)).toBeGreaterThan(0.14); // Ghia v_max 0.1753
+
+      // Lid drives +x flow at the top; near-wall no-slip is recovered at the bottom.
+      expect(simU[simU.length - 1]).toBeGreaterThan(0.3); // just under the lid
+      expect(Math.abs(simU[0])).toBeLessThan(0.05); // just above the floor
+    },
+  );
 });

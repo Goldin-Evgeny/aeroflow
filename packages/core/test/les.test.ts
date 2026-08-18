@@ -65,7 +65,9 @@ describe('M5 LES: moderate-Re stability (within the proven envelope)', () => {
   // collide.ts's `LesNorm` doc for the full record of both attempts.
   it(
     'Re=300 cylinder with LES runs finite and subsonic (reduced grid, spec norm)',
-    { timeout: 120_000 },
+    // Timeout convention: abl-fetch.test.ts. Worst 115.961 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*115.961, 115.961+30)) = 350 s.
+    { timeout: 350_000 },
     async () => {
       const scene = cylinderScene({ Re: 300, nx: 240, ny: 96, diameter: 20 });
       expect(scene.tau).toBeGreaterThan(0.5); // τ₀ floor; τ_eff ≥ τ₀ everywhere under LES
@@ -87,7 +89,9 @@ describe('M5 LES: V6 non-interference (steady-drag proxy)', () => {
   // The subgrid model must not pollute resolved laminar flow. Re=20 is steady (no
   // shedding), so its drag is a clean deterministic target: enabling LES must shift Cd by
   // ≤3% (the M5 V6 gate; the full Re=100 St+Cd version runs on GPU — see Status).
-  it('Re=20 cylinder Cd shifts by ≤3% when LES is enabled', { timeout: 90_000 }, async () => {
+  // Timeout convention: abl-fetch.test.ts. Worst 72.879 s (20-worker load, 2026-08-17 UTC);
+  // ceil5(max(3*72.879, 72.879+30)) = 220 s.
+  it('Re=20 cylinder Cd shifts by ≤3% when LES is enabled', { timeout: 220_000 }, async () => {
     const opts = { Re: 20, nx: 200, ny: 80, diameter: 8 } as const;
     const cd = async (les: boolean) => {
       const scene = cylinderScene(opts);

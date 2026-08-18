@@ -55,7 +55,9 @@ describe.each([
   ['TRT, LES cs=0.1', { les: { cs: 0.1 } }],
   ['TRT, conservative collision', { conserveMass: true }],
 ])('EsotericPull3D bit-identity vs naive Solver3D (%s)', (_name, extra) => {
-  it('is Float64-EXACT for 200 steps (both parities), forces included', { timeout: 30_000 }, () => {
+  // Timeout convention: abl-fetch.test.ts. Worst 0.097 s (20-worker load, 2026-08-17 UTC);
+  // ceil5(max(3*0.097, 0.097+30)) = 35 s.
+  it('is Float64-EXACT for 200 steps (both parities), forces included', { timeout: 35_000 }, () => {
     const flags = tunnelFlags();
     const common = {
       nx: NX,

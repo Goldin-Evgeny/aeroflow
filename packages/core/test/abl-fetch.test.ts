@@ -4,6 +4,17 @@ import { Solver3D } from '../src/cpu/solver3d.js';
 import { ablProfileLattice } from '../src/abl.js';
 
 /**
+ * Explicit CPU-test timeout convention (calibrated 2026-08-17 UTC on an i9-12900K): measure
+ * each timed test three times idle and once with 20 CPU busy-loop workers, take the worst
+ * per-test runtime, then use ceil-to-5-seconds(max(3 * worst, worst + 30 s)). Measurements and
+ * arithmetic are in openspec/changes/fix-test-timeout-calibration/measurements.md.
+ *
+ * Recurrence rule: before widening a timeout, record the exact file/test, measured runtime,
+ * machine and load condition, configured budget, and exact runner error. Remeasure after any
+ * workload change; never widen from a flake report alone.
+ */
+
+/**
  * M10 step 7a — empty-domain fetch. MEASURED FINDING (2026-07-18, this file is its
  * regression record): the spec's equilibrium inlet is NOT a flux-imposing velocity BC,
  * and the 5% fetch gate is unreachable with it against a free-slip far field.
@@ -48,11 +59,20 @@ function ductFlags(ground: CellType): Uint8Array {
   return f;
 }
 
+async function stepWithTransportYields(solver: Solver3D, steps: number): Promise<void> {
+  const chunk = 500;
+  for (let done = 0; done < steps; done += chunk) {
+    solver.step(Math.min(chunk, steps - done));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
 describe('ABL empty-domain fetch (M10 acceptance 3, CPU)', () => {
   it(
     'diagnosis: equilibrium-inlet impedance sags the flow UNIFORMLY (not a slip leak)',
-    { timeout: 30_000 },
-    () => {
+    // Worst 8.815 s (20-worker load, 2026-08-17 UTC); ceil5(max(3*8.815, 8.815+30)) = 40 s.
+    { timeout: 40_000 },
+    async () => {
       // Frictionless control: ground free-slip too, uniform inflow, from rest.
       const U = 0.03;
       const s = new Solver3D({
@@ -66,7 +86,7 @@ describe('ABL empty-domain fetch (M10 acceptance 3, CPU)', () => {
         inletVelocity: U,
         freeSlip: { yMin: true, yMax: true, zMin: true, zMax: true },
       });
-      s.step(3000);
+      await stepWithTransportYields(s, 3000);
       const m = s.macroscopics();
       const mid: number[] = [];
       for (let y = 1; y < NY - 1; y++) mid.push(m.ux[at(20, y, 4)]);
@@ -82,8 +102,9 @@ describe('ABL empty-domain fetch (M10 acceptance 3, CPU)', () => {
 
   it(
     'H12 VelocityInlet: profile preserved within 5% above the near-ground adjustment zone',
-    { timeout: 60_000 },
-    () => {
+    // Worst 20.447 s (20-worker load, 2026-08-17 UTC); ceil5(max(3*20.447, 20.447+30)) = 65 s.
+    { timeout: 65_000 },
+    async () => {
       // Taller domain (24 nodes) so BL displacement stays small; τ₀ = 0.505 with LES +
       // regularization (near-floor τ without LES diverges here — the M5/M7 lesson,
       // re-measured for this configuration). MEASURED at the station (x = 4, t = 3000):
@@ -136,7 +157,7 @@ describe('ABL empty-domain fetch (M10 acceptance 3, CPU)', () => {
         freeSlip: { yMax: true, zMin: true, zMax: true },
       });
       s.reset(1, 0.035, 0, 0);
-      s.step(3000);
+      await stepWithTransportYields(s, 3000);
       const m = s.macroscopics();
       const station = 4;
       for (let y = 5; y <= MY - 2; y++) {
@@ -153,8 +174,9 @@ describe('ABL empty-domain fetch (M10 acceptance 3, CPU)', () => {
 
   it.fails(
     '5% gate with the PLAIN equilibrium inlet (kept as the impedance record)',
-    { timeout: 30_000 },
-    () => {
+    // Worst 9.243 s (20-worker load, 2026-08-17 UTC); ceil5(max(3*9.243, 9.243+30)) = 40 s.
+    { timeout: 40_000 },
+    async () => {
       const { profile } = ablProfileLattice(
         { kind: 'power', uRef: 6, zRef: 10, alpha: 0.25 },
         NY,
@@ -177,7 +199,7 @@ describe('ABL empty-domain fetch (M10 acceptance 3, CPU)', () => {
       // 3000 steps: already fails hard (node 2 ≈ 0.38·u_in); the sag DEEPENS with run
       // length (measured ≈ 0.61 across ALL heights at 12k steps — see header), so the
       // long AIJ averaging window only makes it worse. Short run keeps the suite fast.
-      s.step(3000);
+      await stepWithTransportYields(s, 3000);
       const m = s.macroscopics();
       for (let y = 2; y <= NY - 2; y++) {
         const rel = Math.abs(m.ux[at(10, y, 4)] - ux[y]) / ux[y];

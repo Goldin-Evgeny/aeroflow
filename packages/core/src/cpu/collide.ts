@@ -244,6 +244,11 @@ export interface CollideContext {
   collision: Collision;
   /** TRT magic parameter Λ; canonical default 3/16. */
   lambda: number;
+  /**
+   * Explicit TRT antisymmetric rate ω⁻, overriding the value `lambda` would derive.
+   * `undefined` (the default) keeps the derived path bit-identical — see `makeCollideContext`.
+   */
+  omegaMinus: number | undefined;
   /** Precomputed 18·√2·Cs² (0 = LES off). */
   lesK: number;
   /** Which Π^neq norm `lesK` is paired with. Irrelevant when `lesK === 0`. */
@@ -260,8 +265,11 @@ export interface CollideContext {
   feq: Float64Array;
   /** Scratch, length 6 — Π^neq as [xx, yy, zz, xy, xz, yz]. Allocated once per solver. */
   piNeq: Float64Array;
-  /** Output: [rho, ux, uy, uz, tauEff]. ux/uy/uz are the PHYSICAL velocity
-   * (Guo: moment/ρ + g/2; shift: legacy raw moment/ρ). */
+  /** Output: [rho, ux, uy, uz, tauEff, omegaPlus, omegaMinus]. ux/uy/uz are the PHYSICAL
+   * velocity (Guo: moment/ρ + g/2; shift: legacy raw moment/ρ). Indices 0–4 are frozen —
+   * `esoteric.ts` and several tests index them positionally; new fields append only. The two
+   * rates are the ones the cell ACTUALLY relaxed with, so under LES they carry that cell's
+   * per-cell τ_eff, and under BGK they are equal. */
   macro: Float64Array;
 }
 
@@ -271,6 +279,17 @@ export function makeCollideContext(
     tau: number;
     collision?: Collision;
     lambda?: number;
+    /**
+     * Set ω⁻ directly instead of deriving it from `lambda`. This is a re-parameterization of
+     * the SAME two-relaxation-time operator (Ginzburg: Λ = (τ⁺−½)(τ⁻−½)) by τ⁻ rather than by
+     * Λ, not an alternative collision operator.
+     *
+     * It exists because Λ simultaneously sets the antisymmetric rate and the effective
+     * bounce-back wall position, so on any scene with a no-slip wall a Λ sweep confounds
+     * relaxation with wall placement. Leave it unset for every production configuration: the
+     * derived path must stay bit-identical, since every recorded result depends on it.
+     */
+    omegaMinus?: number;
     lesCs?: number;
     /** See `LesNorm`. Default `'legacy'` — irrelevant when `lesCs` is unset. */
     lesNorm?: LesNorm;
@@ -300,11 +319,26 @@ export function makeCollideContext(
     throw new Error('regularization is not yet compatible with forcing (deferred to M7)');
   }
   if (opts.tau <= 0.5) throw new Error('tau must be > 0.5');
+  if (opts.omegaMinus !== undefined) {
+    // Rejected, never clamped: a silently clamped rate would be reported as the requested one
+    // and the run would attribute its behaviour to a value it never used. (0, 2) is the
+    // interval over which a lattice relaxation rate is dissipative — ω⁻ → 0 leaves the
+    // antisymmetric moments unrelaxed, ω⁻ → 2 over-relaxes them to the marginal limit.
+    if (!Number.isFinite(opts.omegaMinus) || opts.omegaMinus <= 0 || opts.omegaMinus >= 2) {
+      throw new Error(`omegaMinus must be in the open interval (0, 2); got ${opts.omegaMinus}`);
+    }
+    if (collision !== 'trt') {
+      // Not ignorable: under BGK one rate relaxes every moment, so an omegaMinus here would
+      // be silently discarded and the run would misreport what it applied.
+      throw new Error(`omegaMinus requires collision 'trt'; got '${collision}'`);
+    }
+  }
   return {
     lat,
     tau0: opts.tau,
     collision,
     lambda: opts.lambda ?? 3 / 16,
+    omegaMinus: opts.omegaMinus,
     lesK,
     lesNorm: opts.lesNorm ?? 'legacy',
     regularize: opts.regularize ?? false,
@@ -315,7 +349,7 @@ export function makeCollideContext(
     gz,
     feq: new Float64Array(lat.q),
     piNeq: new Float64Array(6),
-    macro: new Float64Array(5),
+    macro: new Float64Array(7),
   };
 }
 
@@ -407,8 +441,13 @@ export function collideCell(f: Float64Array, ctx: CollideContext): void {
   }
 
   const omp = 1 / tauEff;
-  // TRT: Λ = (τ⁺−½)(τ⁻−½) with τ⁺ = τ_eff, re-derived PER CELL under LES.
-  const omm = ctx.collision === 'trt' ? 1 / (0.5 + ctx.lambda / (tauEff - 0.5)) : omp;
+  // TRT: Λ = (τ⁺−½)(τ⁻−½) with τ⁺ = τ_eff, re-derived PER CELL under LES. When `omegaMinus`
+  // is set it replaces the derived value outright; when it is unset the derived expression
+  // below is evaluated verbatim, so the default path stays bit-identical. Do not "simplify"
+  // it into an algebraically-equal rearrangement — see `piNeqNormLegacy`'s docstring for a
+  // recorded case where exactly that flipped a marginal stability result.
+  const omm =
+    ctx.collision === 'trt' ? (ctx.omegaMinus ?? 1 / (0.5 + ctx.lambda / (tauEff - 0.5))) : omp;
 
   if (ctx.collision === 'trt') {
     f[0] = f[0] + omp * (feq[0] - f[0]);
@@ -468,4 +507,10 @@ export function collideCell(f: Float64Array, ctx: CollideContext): void {
   macro[2] = uy;
   macro[3] = uz;
   macro[4] = tauEff;
+  // The rates actually applied above, not the ones configuration implies: under LES τ_eff is
+  // per-cell, so these vary cell to cell, and under BGK they are equal by construction.
+  // near-floor-collision-diagnostics: ω⁻ was previously derived here and discarded, which is
+  // why two near-floor reverts could observe a failure and attribute nothing.
+  macro[5] = omp;
+  macro[6] = omm;
 }

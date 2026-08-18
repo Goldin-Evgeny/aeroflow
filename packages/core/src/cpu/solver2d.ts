@@ -37,6 +37,8 @@ export interface Solver2DOptions {
   collision?: Collision;
   /** TRT magic parameter Λ. Default 3/16. */
   lambda?: number;
+  /** Explicit TRT ω⁻, overriding the value `lambda` derives. See `makeCollideContext`. */
+  omegaMinus?: number;
   /** Smagorinsky LES; off when undefined. `norm` defaults to `'legacy'` — see `LesNorm`. */
   les?: { cs: number; norm?: LesNorm };
   /** Projected (Latt–Chopard) regularization of the collision — H10. */
@@ -114,6 +116,7 @@ export class Solver2D {
       tau: 1 / opts.omega,
       collision: opts.collision,
       lambda: opts.lambda,
+      omegaMinus: opts.omegaMinus,
       lesCs: opts.les?.cs,
       lesNorm: opts.les?.norm,
       regularize: opts.regularize,

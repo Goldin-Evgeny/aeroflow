@@ -130,3 +130,73 @@ in this session or a future one:
    flip (watch V5 closely — it's the stability canary), then the height-mapping re-scores,
    then the final re-measurement and gate promotions.
 2. `npm run build` once, at the end, as part of 8.7.
+
+---
+
+## Addendum 2026-08-17 — the near-floor mechanism test returned (tasks 6.9, 8.1, 8.3)
+
+Appended, not rewritten: the task text above is the archived record and stands unchanged. This
+section records what 6.9's deferral and 8.1/8.3's HELD status were waiting on.
+
+Source: `openspec/changes/discriminate-near-floor-instability`, run
+`docs/validation/runs/2026-08-17-1832-near-floor-factorial.md`.
+
+**6.9 — still DEFERRED. The evidence it was waiting on exists; the flip is not attempted, and
+this addendum takes no position on it.**
+
+The two candidates were separated on the CPU empty tunnel at `τ₀ = 0.5000005` by a
+`{outlet} × {regularize} × {lesNorm} × {ω⁻}` factorial. The motivating observation reproduces
+exactly — `regularize: on`, `'spec'`, zero-gradient outlet diverges at step **3346** (recorded:
+"between 3000 and 3500"), and `'legacy'` grows `rhoMean` smoothly to **1.41** at 6,000 steps
+(recorded: "~1.4").
+
+Result: **neither standing candidate explains the acceptance configuration.**
+
+- (A) `ω⁻` collapse is **excluded** wherever regularization is on, which is every near-floor
+  acceptance configuration. Proven twice: the D1 null test (Λ = 3/16 vs 3, 300 steps, 0 of
+  13,300 populations differing) and, more strongly, the factorial — the `'spec'` arm diverges at
+  step 3346 at the derived `ω⁻ ≈ 0.042` **and** at `ω⁻ = 1.0`, the *same step*, with identical
+  diagnostics.
+- (B) projected-regularization anti-dissipation is **contradicted as framed**. Removing the
+  projection moves that same case from divergence at 3346 to divergence at **382** — 8.8×
+  sooner. The projection is strongly stabilizing at this operating point, not the cause.
+- (A) is nonetheless **real without regularization**: all eight `regularize: off`,
+  derived-`ω⁻` arms diverged (steps 351–806) and raising `ω⁻` to 1.0 rescued all eight.
+
+**What 6.9 would now need before being attempted again**, stated as scope rather than as a
+plan (this is 6.9's decision, not this addendum's):
+
+1. **An account of the outlet dependence, which is new and unexplained.** With the pressure
+   outlet, no regularized arm destabilizes under `'spec'` at all — on either grid, out to 20,000
+   steps. Only the zero-gradient (copy-upstream) outlet reproduces the failure. A flip decision
+   that does not know why the outlet controls near-floor stability is a flip decision resting on
+   an uncontrolled variable, and this is the cheapest open experiment.
+2. **A named third mechanism, or an explicit decision to proceed without one.** The remaining
+   live variable in the regularized half is the amount of eddy viscosity itself: the norm is the
+   only axis that flips stability there, with `ω⁻` and outlet fixed. That is consistent with the
+   existing "accidental stability margin" reading, and the factorial adds that the margin is not
+   mediated by `ω⁻` and not removable by dropping the projection.
+3. **Care with the assumption that a smaller coefficient means less eddy viscosity — it does
+   not here.** In the zero-strain freestream, `'spec'`'s √2-smaller coefficient produced
+   essentially unchanged `ν_t/ν_mol` (5 348 → 5 220 at 4,000 steps) and *higher* at 20,000
+   (5 369 → 5 441). This independently reproduces 6.7b's direction on a different scene and a
+   different diagnostic.
+
+Nothing above is GPU evidence. The run is CPU-reference only.
+
+**8.1 and 8.3 — precondition MET, still not run (both are GPU tasks, out of scope there and
+here).**
+
+8.3's stated blocker was that `ω⁻` was "derived from `Λ` and never reported", so the two
+candidates could not be varied independently. That is now fixed in the CPU reference:
+`omegaMinus` is settable independently of `Λ` (`makeCollideContext`, `Solver2DOptions`,
+`Solver3DOptions`, `EsotericPull3DOptions`), and both rates in force are reported per cell at
+`ctx.macro[5]`/`[6]`, with opt-in per-cell field capture on both 3D solvers.
+
+Two qualifications for whoever picks these up:
+
+- The plumbing is **CPU only**. No `.wgsl` was touched, so a GPU re-measurement would need the
+  transliteration first if it wants `ω⁻` control on the device.
+- On the evidence above, re-measuring the τ_eff readback and strain audit under `'legacy'` is
+  no longer blocked on the `ω⁻`/regularization ambiguity — but it is now arguably blocked on the
+  outlet question instead, since the near-floor stability of the case depends on it.

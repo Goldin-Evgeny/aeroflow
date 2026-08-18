@@ -35,6 +35,8 @@ export interface EsotericPull3DOptions {
   inletVelocity?: number;
   collision?: Collision;
   lambda?: number;
+  /** Explicit TRT ω⁻, overriding the value `lambda` derives. See `makeCollideContext`. */
+  omegaMinus?: number;
   les?: { cs: number };
   /** Projected (Latt–Chopard) regularization — H10. */
   regularize?: boolean;
@@ -140,6 +142,9 @@ export class EsotericPull3D {
    * Non-Fluid cells are never written — mask with the flags before reducing.
    */
   tauEffRecord: Float64Array | undefined;
+  /** The same opt-in capture for the two relaxation rates actually applied (`ctx.macro[5..6]`). */
+  omegaPlusRecord: Float64Array | undefined;
+  omegaMinusRecord: Float64Array | undefined;
   private readonly inletProfile: { axis: 'y' | 'z'; ux: Float64Array } | undefined;
   private readonly freeSlip: FreeSlipFaces;
   private readonly outlet: Outlet3D;
@@ -181,6 +186,7 @@ export class EsotericPull3D {
       tau: 1 / opts.omega,
       collision: opts.collision,
       lambda: opts.lambda,
+      omegaMinus: opts.omegaMinus,
       lesCs: opts.les?.cs,
       regularize: opts.regularize,
       conserveMass: opts.conserveMass,
@@ -254,6 +260,8 @@ export class EsotericPull3D {
     // Hoisted out of the cell loop: when nobody asked for τ_eff this is a single undefined
     // that the loop's branch predictor never misses.
     const tauRec = this.tauEffRecord;
+    const ompRec = this.omegaPlusRecord;
+    const ommRec = this.omegaMinusRecord;
     let fx = 0;
     let fy = 0;
     let fz = 0;
@@ -360,6 +368,8 @@ export class EsotericPull3D {
           // it costs one store and — crucially — cannot disagree with the solver, which a
           // separate diagnostic gather over the same slots eventually would.
           if (tauRec !== undefined) tauRec[idx] = ctx.macro[4];
+          if (ompRec !== undefined) ompRec[idx] = ctx.macro[5];
+          if (ommRec !== undefined) ommRec[idx] = ctx.macro[6];
           this.scatter(idx, x, y, z, even, f);
         }
       }

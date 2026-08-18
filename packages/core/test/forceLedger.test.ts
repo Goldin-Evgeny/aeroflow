@@ -78,7 +78,7 @@ function rawMomentX(solver: Solver3D, flags: Uint8Array): { m: number; mass: num
 }
 
 /**
- * The τ ladder is the Ahmed Cd ladder's own τ₀ values (docs/private/milestones/M9.md),
+ * The τ ladder reuses the Ahmed Cd validation ladder's recorded τ₀ values,
  * so a number measured here is directly comparable to a rung there.
  *   0.8      — the τ at which H2 §4a originally measured the staggered mode (0.1%)
  *   0.514394 — Re 1e3   (Cd 1.0661, σ 0.0012 — the believable rung)
@@ -192,14 +192,18 @@ describe('momentum-exchange force: functional vs sample (M9 audit)', () => {
    */
   it(
     'T-STAGGER-CURE: pair-averaging recovers the exact balance where single-parity does not',
-    { timeout: 60_000 },
-    () => {
+    // Timeout convention: abl-fetch.test.ts. Worst 26.723 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*26.723, 26.723+30)) = 85 s.
+    { timeout: 85_000 },
+    async () => {
       const flags = ductWithBlock();
       const solver = makeSolver(0.8, 0, flags);
       let prev = Number.POSITIVE_INFINITY;
       for (let it = 0; it < 60; it++) {
         solver.step(1000);
         const f = solver.force.x;
+        // Yield before the convergence exit so an early-settling run cannot bypass IPC.
+        await new Promise<void>((resolve) => setImmediate(resolve));
         if (Math.abs(f - prev) / Math.abs(f) < 1e-11) break;
         prev = f;
       }

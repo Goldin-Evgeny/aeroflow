@@ -24,27 +24,21 @@ import { ahmedScene, CellType, EsotericPull3D } from '../src/index.js';
  * Re is kept low so τ sits well above the floor and the CPU run is stable; the accounting
  * question is independent of Re.
  *
- * KNOWN, BENIGN, AND NOT A TEST FAILURE (diagnosed 2026-08-06): this file makes every
- * `npm test` run print `Error: [vitest-worker]: Timeout calling "onTaskUpdate"` as an
- * unhandled error. It is deterministic, not flaky — reproduced 3/3, including with this file
- * run alone. Cause: the stepping loop below is ~160 s of UNBROKEN synchronous CPU with no
- * `await` anywhere, so the worker's event loop cannot service the ack for the `onTaskUpdate`
- * RPC it sent at test start, and birpc's 60 s DEFAULT_TIMEOUT
- * (vitest/dist/chunks/index.B521nVV-.js) fires. It is reporter plumbing timing out, not the
- * test: the assertions still run and pass, and any file whose synchronous body exceeds 60 s
- * would do the same.
- *
- * Do NOT silence it by raising the RPC timeout or filtering the reporter — the honest fix is
- * to make the loop yield (chunk the steps behind `await Promise.resolve()`) or to shrink the
- * grid, and neither is worth doing while the noise is one line and understood. If a future
- * run shows this error attached to a DIFFERENT file, that one is a new instance of the same
- * mechanism, not this one.
+ * HARNESS FIX (2026-08-17): the 4,935-step loop used to block the worker for ~160 s idle and
+ * reproduced Vitest's `onTaskUpdate` transport timeout in every isolated run. Under the
+ * isolated 284.6 s loaded sample was superseded by a ~411 s loaded full-suite run. The loop
+ * therefore yields a real `setImmediate` event-loop turn every 100 steps (about 8.3 s at the
+ * full-suite worst), below the 15 s design ceiling and birpc's 60 s timeout. The scene, steps,
+ * samples, assertions, and physics output are unchanged; a resolved-promise microtask is
+ * deliberately insufficient for IPC progress.
  */
 describe('M9: the Ahmed drag accumulator weighs the body, not the ground', () => {
   it(
     'separates body drag from the no-slip ground that dominates the raw accumulator',
-    { timeout: 300_000 },
-    () => {
+    // Timeout convention: abl-fetch.test.ts. Worst 284.600 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*284.600, 284.600+30)) = 855 s.
+    { timeout: 855_000 },
+    async () => {
       const scene = ahmedScene({ maxCells: 60_000, Re: 1000 });
       const { nx, ny, nz, flags, uLattice } = scene;
 
@@ -105,6 +99,7 @@ describe('M9: the Ahmed drag accumulator weighs the body, not the ground', () =>
           bodySum += sim.maskedForce.x;
           samples++;
         }
+        if (s % 100 === 0) await new Promise<void>((resolve) => setImmediate(resolve));
       }
       const allSolids = allSum / samples;
       const bodyOnly = bodySum / samples;

@@ -789,7 +789,9 @@ describe.sequential('D3Q19 dynamic shear-wave stress calibration', () => {
   }
 
   for (const spec of TARGETED_CONTROLS) {
-    it(`runs targeted control ${spec.id}`, () => {
+    // Timeout convention: abl-fetch.test.ts. Worst 2.947 s (P16, 20-worker load,
+    // 2026-08-17 UTC); ceil5(max(3*2.947, 2.947+30)) = 35 s.
+    it(`runs targeted control ${spec.id}`, { timeout: 35_000 }, () => {
       const result = runCase(spec);
       expect(result.nonFinite).toBe(false);
       results.set(result.id, result);

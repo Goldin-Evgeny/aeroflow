@@ -43,11 +43,12 @@ import { ahmedScene, EsotericPull3D } from '../src/index.js';
  * on a scene whose body is ~20 cells long. That gap is the one a resolution study is
  * actually entitled to attack — after this fix, and from a baseline of 1.42, not 3.99.
  *
- * KNOWN, BENIGN: like `groundForceContamination.test.ts`, this file's body is ~90 s of
- * UNBROKEN synchronous CPU, so vitest's birpc `onTaskUpdate` ack times out at 60 s and the
- * run prints `Error: [vitest-worker]: Timeout calling "onTaskUpdate"`. It is reporter
- * plumbing, not the test — the assertions run and pass. See that file's header for the full
- * diagnosis; do not silence it by raising the RPC timeout.
+ * HARNESS FIX (2026-08-17): the two sampling loops used to block the worker for ~90 s idle and
+ * reproduced Vitest's `onTaskUpdate` timeout in every isolated run. The 166.2 s loaded worst
+ * case covers about 6,000 solver steps. Full-suite contention later raised the run to ~250 s,
+ * so the cadence is 100 steps (about 4.2 s at that worst case), below the 15 s design ceiling.
+ * The yield uses `setImmediate` so IPC/timers advance; workloads, sampling, assertions, and
+ * physics output are unchanged.
  */
 
 /** Re values chosen to straddle the τ₀ ≈ 0.5025 threshold where the mode takes over. */
@@ -64,7 +65,7 @@ interface Sampled {
  * Runs the CPU Ahmed reference and reports Cd sampled both ways from the SAME run, so the
  * two numbers differ only in whether the second step of each sample pair is included.
  */
-function sampleCd(Re: number, maxCells: number): Sampled {
+async function sampleCd(Re: number, maxCells: number): Promise<Sampled> {
   const scene = ahmedScene({ maxCells, Re });
   const { nx, ny, nz, flags, uLattice } = scene;
   const sim = new EsotericPull3D({
@@ -105,16 +106,23 @@ function sampleCd(Re: number, maxCells: number): Sampled {
   let pairSum = 0;
   let samples = 0;
   let s = 0;
+  let stepsSinceYield = 0;
   while (s < totalSteps) {
     sim.step();
     s++;
+    stepsSinceYield++;
     if (s > averageFrom && s % sampleInterval === 0) {
       const f1 = sim.maskedForce.x;
       sim.step();
       s++;
+      stepsSinceYield++;
       pairSum += 0.5 * (f1 + sim.maskedForce.x);
       singleSum += f1;
       samples++;
+    }
+    if (stepsSinceYield >= 100) {
+      stepsSinceYield = 0;
+      await new Promise<void>((resolve) => setImmediate(resolve));
     }
   }
   const norm = 0.5 * uLattice * uLattice * scene.frontalCells * samples;
@@ -124,10 +132,12 @@ function sampleCd(Re: number, maxCells: number): Sampled {
 describe('M9: Ahmed Cd is a sampling artefact below τ₀ ≈ 0.5025', () => {
   it(
     'pair-averaging makes Cd Reynolds-independent; single-parity sampling does not',
-    { timeout: 600_000 },
-    () => {
-      const low = sampleCd(RE_LOW, 30_000);
-      const high = sampleCd(RE_ACCEPTANCE, 30_000);
+    // Timeout convention: abl-fetch.test.ts. Worst 166.200 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*166.200, 166.200+30)) = 500 s.
+    { timeout: 500_000 },
+    async () => {
+      const low = await sampleCd(RE_LOW, 30_000);
+      const high = await sampleCd(RE_ACCEPTANCE, 30_000);
 
       console.log(
         `\nahmed Cd sampling (30k-cell CPU reference)\n` +

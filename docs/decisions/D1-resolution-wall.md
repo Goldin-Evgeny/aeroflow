@@ -345,3 +345,70 @@ Therefore: **the M15 trust page publishes only cases a visitor can re-run.** Cas
 - ~~Record the 3090's `maxStorageBufferBindingSize` / `maxStorageBuffersPerShaderStage` before any binding-cap change or hardware spend.~~ **Done 2026-07-27** — 2.000 GiB / 16, and it is now a standing Tier-B spec (`caps.gpu.spec.ts`) rather than a one-off, so every new GPU re-answers it.
 - Keep `maxAddressableCells()` and the ledger in sync: if the ceiling test changes, this record changes.
 - **Before any future hardware spend, re-check which binding fails first.** This record was wrong once by pricing only the DDF planes; the corrected model is in `maxAddressableCells()` and `bindingCapForCells()`, and the honest question is always "which single binding does this grid blow, and what does it cost per cell?"
+
+## PROPOSED amendment 2026-08-17 — the anti-dissipation attribution is contradicted at the near-floor point
+
+**Status: PROPOSED, NOT ACCEPTED.** Nothing above is modified. Raised under
+`openspec/changes/discriminate-near-floor-instability` task 6.3, which requires that a finding
+bearing on an existing record be proposed as an amendment to it rather than written up as a
+competing account. Accepting or rejecting this is the record owner's call.
+
+**What is being questioned.** The 2026-08-10 M7 force-audit amendment at the head of this record
+closes with:
+
+> M9 subsequently measured a competing mechanism at the same operating points — the projected
+> second-order regularization is anti-dissipative at high wavenumber once τ₀ → ½ with a mean
+> flow present, which also drives the subgrid model to fire on undisturbed freestream.
+
+That sentence makes two claims. New evidence **corroborates the second and contradicts the
+causal force of the first** at the near-floor operating point.
+
+**Evidence.** Run
+[2026-08-17-1832-near-floor-factorial](../validation/runs/2026-08-17-1832-near-floor-factorial.md)
+— a `{outlet} × {regularize} × {lesNorm} × {ω⁻}` factorial on the CPU empty tunnel at
+τ₀ = 0.5000005, CPU reference only, no GPU. It reproduces the motivating near-floor
+destabilization exactly (divergence at step 3346 against a recorded "between 3000 and 3500").
+
+1. **"The subgrid model fires on undisturbed freestream" — corroborated, and quantified against
+   an analytic zero for the first time.** In an empty domain, outside the boundary-influence
+   distance of every face, the analytic strain rate is exactly zero, so the correct ν_t is
+   exactly zero. Measured: `ν_t/ν_mol` p50 ≈ 5.2×10³ over 1,440 surviving cells. In absolute
+   terms τ_eff ≈ 0.5027 against τ₀ = 0.5000005 — the ratio is large chiefly because ν_mol is
+   1.67×10⁻⁷, and the honest statement is that the subgrid model supplies ~99.98% of the
+   viscosity where there is no resolved strain to justify any of it.
+
+2. **"The regularization is the destabilizing mechanism" — contradicted.** Turning the
+   projection **off**, with every other setting fixed, moves the same case from divergence at
+   step 3346 to divergence at step **382** — 8.8× sooner. The ordering holds on both grids, both
+   outlets and both norms. At this operating point the projection is strongly **stabilizing**.
+
+   This does not falsify anti-dissipation at high wavenumber as a property; a scheme can be
+   anti-dissipative in one band and net stabilizing overall. What it falsifies is the
+   *attribution* — the projection cannot be the cause of the near-floor failures it was offered
+   as a competing explanation for.
+
+3. **The ω⁻ mechanism this record's amendment relies on is excluded wherever regularization is
+   on.** The projection is even in `e_i`, so the antisymmetric non-equilibrium is identically
+   zero and ω⁻ multiplies nothing. Verified twice: Λ = 3/16 vs Λ = 3 over 300 steps leaves 0 of
+   13,300 populations differing; and the diverging `'spec'` arm diverges at the *same step 3346*
+   at ω⁻ ≈ 0.042 and at ω⁻ = 1.0.
+
+   **This does not touch the M7 withdrawal itself.** The M7 cases were unregularized force
+   readings, and ω⁻ collapse is confirmed as a real destabilizer there: all eight
+   `regularize: off` derived-ω⁻ arms diverged (steps 351–806) and raising ω⁻ to 1.0 rescued all
+   eight. The scope correction is only that the ω⁻ mechanism does not carry over to regularized
+   configurations — which is what M9 onward actually runs.
+
+**Proposed change.** Amend the 2026-08-10 block's final sentence to scope its two claims
+separately: keep "drives the subgrid model to fire on undisturbed freestream" (now measured
+against an analytic zero, not inferred), and restate the anti-dissipation clause as a property
+observed at high wavenumber that is **not** established as the cause of near-floor
+destabilization, citing the run above. Add that ω⁻ collapse is confirmed for unregularized
+configurations and excluded for regularized ones.
+
+**What this proposal does not establish.** It is CPU-reference evidence on an empty tunnel with
+no body; it says nothing about the M7 sphere grids, nothing about GPU behaviour, and nothing
+about the cell-count ceiling this ADR actually decides. It also leaves the near-floor mechanism
+for regularized configurations **unidentified** — a newly-found outlet dependence (the failure
+reproduces only with the zero-gradient outlet, never with the pressure outlet) is the leading
+open thread and is not explained.

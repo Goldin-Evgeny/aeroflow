@@ -307,7 +307,9 @@ describe('fixture utilities', () => {
 });
 
 describe('assembled Case A scene runs with H4 bit-identity (Float64)', () => {
-  it('naive vs Esoteric Pull agree exactly for 40 steps', { timeout: 60_000 }, () => {
+  // Timeout convention: abl-fetch.test.ts. Worst 11.635 s (20-worker load, 2026-08-17 UTC);
+  // ceil5(max(3*11.635, 11.635+30)) = 45 s.
+  it('naive vs Esoteric Pull agree exactly for 40 steps', { timeout: 45_000 }, () => {
     const s = buildTiny();
     const common = {
       nx: s.nx,

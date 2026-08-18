@@ -1843,49 +1843,55 @@ describe.sequential('D3Q27 central-moment fallback eigen gate', () => {
 });
 
 describe.sequential('D3Q27 central-moment finite-amplitude periodic shear gate', () => {
-  it('runs exactly lambda=3.2, 8, and 16 after the operator audit passes', () => {
-    expect(q27Audit, 'Q27 audit must run before the nonlinear proof').toBeDefined();
-    expect(q27Audit!.passed, JSON.stringify(q27Audit, null, 2)).toBe(true);
-    const cases = ([3.2, 8, 16] as const).map(runPeriodicCase27);
-    const failedGates = cases.flatMap((entry) =>
-      Object.entries(entry.gates).flatMap(([gate, passed]) =>
-        passed ? [] : [`lambda=${entry.wavelength}:${gate}`],
-      ),
-    );
-    periodicArtifact = {
-      artifactSchema: 'aeroflow-d3q27-central-moment-periodic-shear-v1',
-      generatedAt: new Date().toISOString(),
-      purpose:
-        'Bounded Float64 nonlinear periodic transverse-shear decision proof for the audited test-local D3Q27 central-moment formulation',
-      operatorAudit: q27Audit!,
-      constants: {
-        n: Q27_PERIODIC_N,
-        amplitude: Q27_PERIODIC_AMPLITUDE,
-        backgroundUx: AHMED_U,
-        tau0: TAU_2M,
-        lesCs: Q27_PERIODIC_LES_CS,
-        lesK: lesKFromCs(Q27_PERIODIC_LES_CS),
-        steps: Q27_PERIODIC_STEPS,
-        discard: Q27_PERIODIC_DISCARD,
-        cs2: CS2,
-      },
-      detectionConventions: {
-        secondaryAmplitudeFloor: Q27_SECONDARY_DETECTION_FLOOR,
-        secondaryMaterialRelativeAmplitude: Q27_SECONDARY_MATERIAL_RATIO,
-        eigenGainConsistencyAbsolute: 0.002,
-        eigenPhaseConsistencyDegreesPerStep: 0.25,
-        beatingEvenOddDistance: 1e-3,
-        massDriftRelativeMaximum: 1e-12,
-        momentumDriftMaximum: 1e-12,
-      },
-      cases,
-      failedGates,
-      passed: failedGates.length === 0,
-      decision: failedGates.length === 0 ? 'Q27_EMPIRICAL_PASS' : 'Q27_EMPIRICAL_FAIL',
-    };
+  it(
+    'runs exactly lambda=3.2, 8, and 16 after the operator audit passes',
+    // Timeout convention: abl-fetch.test.ts. Worst 2.568 s (20-worker load, 2026-08-17 UTC);
+    // ceil5(max(3*2.568, 2.568+30)) = 35 s.
+    { timeout: 35_000 },
+    () => {
+      expect(q27Audit, 'Q27 audit must run before the nonlinear proof').toBeDefined();
+      expect(q27Audit!.passed, JSON.stringify(q27Audit, null, 2)).toBe(true);
+      const cases = ([3.2, 8, 16] as const).map(runPeriodicCase27);
+      const failedGates = cases.flatMap((entry) =>
+        Object.entries(entry.gates).flatMap(([gate, passed]) =>
+          passed ? [] : [`lambda=${entry.wavelength}:${gate}`],
+        ),
+      );
+      periodicArtifact = {
+        artifactSchema: 'aeroflow-d3q27-central-moment-periodic-shear-v1',
+        generatedAt: new Date().toISOString(),
+        purpose:
+          'Bounded Float64 nonlinear periodic transverse-shear decision proof for the audited test-local D3Q27 central-moment formulation',
+        operatorAudit: q27Audit!,
+        constants: {
+          n: Q27_PERIODIC_N,
+          amplitude: Q27_PERIODIC_AMPLITUDE,
+          backgroundUx: AHMED_U,
+          tau0: TAU_2M,
+          lesCs: Q27_PERIODIC_LES_CS,
+          lesK: lesKFromCs(Q27_PERIODIC_LES_CS),
+          steps: Q27_PERIODIC_STEPS,
+          discard: Q27_PERIODIC_DISCARD,
+          cs2: CS2,
+        },
+        detectionConventions: {
+          secondaryAmplitudeFloor: Q27_SECONDARY_DETECTION_FLOOR,
+          secondaryMaterialRelativeAmplitude: Q27_SECONDARY_MATERIAL_RATIO,
+          eigenGainConsistencyAbsolute: 0.002,
+          eigenPhaseConsistencyDegreesPerStep: 0.25,
+          beatingEvenOddDistance: 1e-3,
+          massDriftRelativeMaximum: 1e-12,
+          momentumDriftMaximum: 1e-12,
+        },
+        cases,
+        failedGates,
+        passed: failedGates.length === 0,
+        decision: failedGates.length === 0 ? 'Q27_EMPIRICAL_PASS' : 'Q27_EMPIRICAL_FAIL',
+      };
 
-    expect(periodicArtifact.passed, JSON.stringify(periodicArtifact, null, 2)).toBe(true);
-  });
+      expect(periodicArtifact.passed, JSON.stringify(periodicArtifact, null, 2)).toBe(true);
+    },
+  );
 });
 
 afterAll(() => {

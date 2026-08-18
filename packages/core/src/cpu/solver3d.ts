@@ -40,6 +40,8 @@ export interface Solver3DOptions {
   periodicZ?: boolean;
   collision?: Collision;
   lambda?: number;
+  /** Explicit TRT ω⁻, overriding the value `lambda` derives. See `makeCollideContext`. */
+  omegaMinus?: number;
   /** Smagorinsky LES; off when undefined. `norm` defaults to `'legacy'` — see `LesNorm`. */
   les?: { cs: number; norm?: LesNorm };
   /** Projected (Latt–Chopard) regularization of the collision — H10. */
@@ -128,6 +130,20 @@ export class Solver3D {
   readonly flags: Uint8Array;
   inletVelocity: number;
   readonly ctx: CollideContext;
+  /**
+   * Opt-in per-cell capture of what each Fluid cell actually collided with — τ_eff and the
+   * two relaxation rates, read straight out of `ctx.macro`, never re-derived. Assign
+   * `Float64Array(n)` to any of them and every subsequent `step()` fills it; leave them
+   * undefined and the solver is unchanged. Mirrors `EsotericPull3D.tauEffRecord`, which is
+   * the same facility on the in-place solver.
+   *
+   * Non-Fluid cells are never written — mask with the flags before reducing. A re-derivation
+   * in the caller would be a second implementation of the thing being measured, which is
+   * exactly the failure mode `piNeq`'s docstring exists to prevent.
+   */
+  tauEffRecord: Float64Array | undefined;
+  omegaPlusRecord: Float64Array | undefined;
+  omegaMinusRecord: Float64Array | undefined;
   private readonly inletProfile: { axis: 'y' | 'z'; ux: Float64Array } | undefined;
   private readonly freeSlip: FreeSlipFaces;
   private readonly outlet: Outlet3D;
@@ -171,6 +187,7 @@ export class Solver3D {
       tau: 1 / opts.omega,
       collision: opts.collision,
       lambda: opts.lambda,
+      omegaMinus: opts.omegaMinus,
       lesCs: opts.les?.cs,
       lesNorm: opts.les?.norm,
       regularize: opts.regularize,
@@ -333,6 +350,9 @@ export class Solver3D {
           }
 
           collideCell(f, ctx);
+          if (this.tauEffRecord !== undefined) this.tauEffRecord[idx] = ctx.macro[4];
+          if (this.omegaPlusRecord !== undefined) this.omegaPlusRecord[idx] = ctx.macro[5];
+          if (this.omegaMinusRecord !== undefined) this.omegaMinusRecord[idx] = ctx.macro[6];
           for (let i = 0; i < q; i++) fDst[i * n + idx] = f[i];
         }
       }

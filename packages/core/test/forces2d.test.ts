@@ -43,7 +43,9 @@ describe('forces2d: symmetry', () => {
   // A perfectly symmetric cylinder (centre on an integer row, cyOffset = 0) must
   // produce zero lift: |Fy| ≤ 1e-10·|Fx| (M4 step 10b). Reduced grid for test speed;
   // symmetry is geometric, not resolution-dependent.
-  it('produces zero lift for a symmetric cylinder', { timeout: 60_000 }, async () => {
+  // Timeout convention: abl-fetch.test.ts. Worst 4.525 s (20-worker load, 2026-08-17 UTC);
+  // ceil5(max(3*4.525, 4.525+30)) = 35 s.
+  it('produces zero lift for a symmetric cylinder', { timeout: 35_000 }, async () => {
     const scene = cylinderScene({ Re: 100, nx: 240, ny: 120, diameter: 20, cyOffset: 0 });
     const { fx, fy } = await runScene(scene, 500);
     expect(Math.abs(fx)).toBeGreaterThan(0); // drag is real
@@ -137,7 +139,9 @@ describe('forces2d: moving-wall momentum exchange (Ladd term)', () => {
 describe('forces2d: steady drag sanity (Re=20)', () => {
   // Re=20 cylinder is steady (no shedding); literature Cd ≈ 2.0. Coarse grid smoke
   // test, ±20 % gate (M4 step 10c). The tight quantitative gates run on GPU.
-  it('gives Cd within ±20 % of 2.0 on a reduced grid', { timeout: 120_000 }, async () => {
+  // Timeout convention: abl-fetch.test.ts. Worst 140.763 s (20-worker load, 2026-08-17 UTC);
+  // ceil5(max(3*140.763, 140.763+30)) = 425 s.
+  it('gives Cd within ±20 % of 2.0 on a reduced grid', { timeout: 425_000 }, async () => {
     // Reduced from the spec's 512×170×20k for JS-CPU test speed (~35 s here); the
     // slightly higher 6.3 % blockage lifts Cd modestly but stays inside the ±20 % gate.
     const scene = cylinderScene({ Re: 20, nx: 320, ny: 128, diameter: 8 });

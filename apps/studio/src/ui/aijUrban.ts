@@ -162,6 +162,9 @@ export function mountAijUrban(
   header.append(titleGroup, officialBadge);
 
   const query = new URLSearchParams(location.search);
+  const outletParam = query.get('outlet');
+  const outletOverride =
+    outletParam === 'pressure' || outletParam === 'zero-gradient' ? outletParam : undefined;
   let caseId: AijUrbanCaseId = query.get('case') === 'C' ? 'C' : 'E';
   const controls = element('section', 'urban-controls');
   const caseField = element('div', 'urban-field');
@@ -449,6 +452,7 @@ export function mountAijUrban(
     updateTable(report);
     runProvenance.textContent =
       `Case ${current.data.caseId}, ${current.direction.windFromDegrees} deg from | ` +
+      `outlet ${current.resolvedOutlet.outlet} (${current.resolvedOutlet.policyId}, ${current.resolvedOutlet.configurationKind}) | ` +
       `measurements ${current.data.source.sha256.slice(0, 12)}... | ` +
       `geometry ${current.data.geometry.sha256.slice(0, 12)}... | ` +
       `${current.geometryVoxels.toLocaleString()} solid voxels`;
@@ -604,6 +608,7 @@ export function mountAijUrban(
         attemptId: crypto.randomUUID(),
         liveness: testFault.liveness,
         faultInjection: testFault.faultInjection,
+        outlet: outletOverride,
         onStatus: (message) => setStatus('Preparing preset', message),
       });
       latest = current.snapshot();

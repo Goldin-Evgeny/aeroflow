@@ -451,3 +451,39 @@ the zero-gradient arm became non-finite at step 3346 while the pressure arm rema
 through step 3600. This establishes **outlet-dependent feedback**, not an internal outlet root
 cause. The repair remains outside this evidence-only change and requires a separate proposal.
 See [the discriminator record](../validation/runs/2026-08-18-outlet-feedback-discriminator.md).
+
+### Addendum: pressure is not promoted by the bounded qualification (2026-08-18)
+
+The next frozen matrix tested pressure through 3,600-step repeat controls under both LES norm
+conventions and predeclared the existing 0.1% mass-drift guard. All four CPU arms completed and
+their complete-shell closure residuals stayed near 1e-14, but relative mass drift was
+0.121810867% (legacy) and 0.197741042% (spec). Both exceed the guard. Required bounded browser
+scenes, CPU/GPU parity, and urban checkpoint/resume evidence were unavailable in that execution.
+
+The classifier result is therefore **failed**. V12-V15 keep zero-gradient, no historical result
+is rescored, and the open zero-gradient causal defect is unchanged. Before any future promotion,
+a newly frozen matrix must explain or remove the mass-drift failure and complete every browser,
+parity, and resume arm. Only after bounded plumbing qualification passes does the next evidence
+step become a full-resolution pressure-outlet V12/V13/V14 run under each case's existing physics
+band; bounded stability itself is never evidence of full-resolution accuracy. See the
+[qualification record](../validation/runs/2026-08-18-pressure-outlet-qualification.md).
+
+### Addendum: D3Q19 central-moment v1 is retained as failed research (2026-08-18)
+
+The first collision candidate selected after the bounded outlet work retained D3Q19 storage but
+replaced projected regularized TRT with central-moment MRT. Its independently transcribed Float64
+authority passed local invariant tests and the complete frozen 144-arm linear matrix, whose maximum
+amplification was 0.9999998918. The nonlinear lambda-3.2 target also damped at 0.9977233178.
+
+The same nonlinear target failed the independently decisive constitutive gate:
+`Pi/Pi_hydro = 1.5050040875` against the frozen exclusive limit `< 1.2`. Resolved lambda-8 gain and
+constitutive controls remained within 2%. The candidate is therefore a useful negative result: a
+collision can remove the measured high-k growth without repairing the constitutive departure that
+drives inappropriate subgrid response.
+
+No GPU port, bounded scene matrix, joint LES phase, or benchmark rerun was executed after that
+failure. Production remains D3Q19 projected regularized TRT with the legacy closure selection, and
+the pressure/outlet decisions above remain unchanged. A next candidate must change the D3Q19
+constitutive response and pass the same lambda-3.2 gate before accelerated work. This bounded result
+does not rescore V11-V15. See the
+[collision qualification record](../validation/runs/2026-08-18-d3q19-central-moment-qualification.md).

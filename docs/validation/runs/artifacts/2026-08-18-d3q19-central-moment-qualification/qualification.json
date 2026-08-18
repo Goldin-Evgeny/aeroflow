@@ -1,0 +1,585 @@
+{
+  "artifactSchema": "aeroflow-collision-qualification-record-v1",
+  "generatedAt": "2026-08-18T13:35:44.907Z",
+  "manifest": {
+    "id": "near-floor-collision-qualification/v1",
+    "frozenBeforeEvidence": true,
+    "baseline": {
+      "revision": "c6e2c2d207278c962307c1967567f14118e8068c",
+      "pressureWorkspaceSnapshotSha256": "d9fa2269b6496e917567b15c0f3d0aea9c50ba9c1f7af1b829382a33d32ee437"
+    },
+    "productionOperatorId": "d3q19-regularized-trt/v1",
+    "candidateOperatorId": "d3q19-central-moment-mrt/v1",
+    "candidate": {
+      "id": "d3q19-central-moment-mrt/v1",
+      "lattice": "D3Q19",
+      "equilibrium": "central-moment-maxwell",
+      "momentBasis": "central-monomial-19",
+      "relaxationPolicy": "central-mrt-unit-ghosts",
+      "regularizationPolicy": "none-central-relaxation",
+      "conservationPolicy": "unpatched-local-invariants",
+      "implementationVersion": 1,
+      "productionEligible": false
+    },
+    "rates": {
+      "shear": "1/tauEff",
+      "bulk": 1,
+      "nonHydrodynamic": 1
+    },
+    "thresholds": {
+      "cpuLocalInvariantAbsMax": 2e-15,
+      "linearGainMax": 1,
+      "nonlinearGainExclusiveMax": 1,
+      "targetConstitutiveExclusiveMax": 1.2,
+      "resolvedRelativeDeviationMax": 0.02,
+      "cpuPeriodicNormalizedDriftMax": 1e-12,
+      "boundaryFluxClosureAbsMax": 0.001,
+      "gpuLocalInvariantAbsMax": 0.000005,
+      "gpuFp32ParityRelativeMax": 0.00005,
+      "gpuFp16ParityRelativeMax": 0.002,
+      "throughputLossMax": 0.1
+    },
+    "matrix": {
+      "tau": [
+        0.5000005,
+        0.5000042,
+        0.500989,
+        0.8
+      ],
+      "backgroundVelocity": [
+        0,
+        0.05,
+        0.1
+      ],
+      "wavelengths": [
+        3.2,
+        8
+      ],
+      "waveAxes": [
+        0,
+        1,
+        2
+      ],
+      "transversePolarizations": "both-per-axis",
+      "lesCs": [
+        0,
+        0.1
+      ],
+      "lesNorms": [
+        "legacy",
+        "spec"
+      ],
+      "precisions": [
+        "float64-cpu",
+        "fp32",
+        "fp16-shifted"
+      ]
+    },
+    "arms": [
+      {
+        "id": "cpu-local-invariants",
+        "phase": "cpu",
+        "gate": "local-invariants",
+        "configuration": {
+          "manufacturedStates": [
+            "equilibrium",
+            "symmetric-stress",
+            "off-diagonal-stress",
+            "random-positive"
+          ]
+        },
+        "configurationFingerprint": "fnv1a32:fdb095a5"
+      },
+      {
+        "id": "cpu-linear-spectrum",
+        "phase": "cpu",
+        "gate": "linear-spectrum",
+        "configuration": {
+          "tau": [
+            0.5000005,
+            0.5000042,
+            0.500989,
+            0.8
+          ],
+          "backgroundVelocity": [
+            0,
+            0.05,
+            0.1
+          ],
+          "wavelengths": [
+            3.2,
+            8
+          ],
+          "waveAxes": [
+            0,
+            1,
+            2
+          ],
+          "transversePolarizations": "both-per-axis"
+        },
+        "configurationFingerprint": "fnv1a32:9648626b"
+      },
+      {
+        "id": "cpu-nonlinear-spectrum",
+        "phase": "cpu",
+        "gate": "nonlinear-spectrum",
+        "configuration": {
+          "tau": [
+            0.5000005,
+            0.5000042,
+            0.500989,
+            0.8
+          ],
+          "backgroundVelocity": [
+            0,
+            0.05,
+            0.1
+          ],
+          "wavelengths": [
+            3.2,
+            8
+          ],
+          "waveAxes": [
+            0,
+            1,
+            2
+          ],
+          "transversePolarizations": "both-per-axis"
+        },
+        "configurationFingerprint": "fnv1a32:3c84e839"
+      },
+      {
+        "id": "cpu-periodic-conservation",
+        "phase": "cpu",
+        "gate": "periodic-conservation",
+        "configuration": {
+          "steps": [
+            60,
+            120,
+            240
+          ],
+          "wavelengths": [
+            3.2,
+            8,
+            16
+          ],
+          "normalized": true
+        },
+        "configurationFingerprint": "fnv1a32:7579fcca"
+      },
+      {
+        "id": "cpu-analytic-zero",
+        "phase": "cpu",
+        "gate": "analytic-zero",
+        "configuration": {
+          "periodicUniform": true,
+          "seededResponse": true
+        },
+        "configurationFingerprint": "fnv1a32:ced08079"
+      },
+      {
+        "id": "cpu-established-controls",
+        "phase": "cpu",
+        "gate": "negative-controls",
+        "configuration": {
+          "operators": [
+            "d3q19-regularized-trt/v1",
+            "plain-trt",
+            "rr3-negative",
+            "d3q27-central-moment-research"
+          ]
+        },
+        "configurationFingerprint": "fnv1a32:eed5aa13"
+      },
+      {
+        "id": "cpu-scene-empty-tunnel",
+        "phase": "cpu",
+        "gate": "bounded-scene",
+        "configuration": {
+          "scene": "empty-tunnel",
+          "physicsVerdict": "not-evaluated",
+          "completeShellConservation": true
+        },
+        "configurationFingerprint": "fnv1a32:eb3a3909"
+      },
+      {
+        "id": "cpu-scene-abl-fetch",
+        "phase": "cpu",
+        "gate": "bounded-scene",
+        "configuration": {
+          "scene": "abl-fetch",
+          "physicsVerdict": "not-evaluated",
+          "completeShellConservation": true
+        },
+        "configurationFingerprint": "fnv1a32:28c033bf"
+      },
+      {
+        "id": "cpu-scene-ahmed-body",
+        "phase": "cpu",
+        "gate": "bounded-scene",
+        "configuration": {
+          "scene": "ahmed-body",
+          "physicsVerdict": "not-evaluated",
+          "completeShellConservation": true
+        },
+        "configurationFingerprint": "fnv1a32:ddca6cbd"
+      },
+      {
+        "id": "cpu-scene-aij-case-a",
+        "phase": "cpu",
+        "gate": "bounded-scene",
+        "configuration": {
+          "scene": "aij-case-a",
+          "physicsVerdict": "not-evaluated",
+          "completeShellConservation": true
+        },
+        "configurationFingerprint": "fnv1a32:03e62dbd"
+      },
+      {
+        "id": "cpu-scene-urban-case-c",
+        "phase": "cpu",
+        "gate": "bounded-scene",
+        "configuration": {
+          "scene": "urban-case-c",
+          "physicsVerdict": "not-evaluated",
+          "completeShellConservation": true
+        },
+        "configurationFingerprint": "fnv1a32:ee2a7a0d"
+      },
+      {
+        "id": "gpu-parity-fp32",
+        "phase": "gpu",
+        "gate": "parity",
+        "configuration": {
+          "precision": "fp32",
+          "boundaryLayouts": "shipped"
+        },
+        "configurationFingerprint": "fnv1a32:637f219c"
+      },
+      {
+        "id": "gpu-parity-fp16",
+        "phase": "gpu",
+        "gate": "parity",
+        "configuration": {
+          "precision": "fp16-shifted",
+          "boundaryLayouts": "shipped"
+        },
+        "configurationFingerprint": "fnv1a32:a1707db0"
+      },
+      {
+        "id": "gpu-bounded-scenes",
+        "phase": "gpu",
+        "gate": "bounded-scenes",
+        "configuration": {
+          "scenes": [
+            "empty-tunnel",
+            "abl-fetch",
+            "ahmed-body",
+            "aij-case-a",
+            "urban-case-c"
+          ]
+        },
+        "configurationFingerprint": "fnv1a32:78ad1ac2"
+      },
+      {
+        "id": "gpu-checkpoint-restore",
+        "phase": "gpu",
+        "gate": "checkpoint",
+        "configuration": {
+          "exactIdentity": true,
+          "urbanResume": true
+        },
+        "configurationFingerprint": "fnv1a32:53290b2a"
+      },
+      {
+        "id": "gpu-memory-throughput",
+        "phase": "gpu",
+        "gate": "performance",
+        "configuration": {
+          "populations": 19,
+          "steadySamples": 3,
+          "comparison": "same-adapter-scene-precision-schedule"
+        },
+        "configurationFingerprint": "fnv1a32:08cf853a"
+      },
+      {
+        "id": "les-spectral-constitutive",
+        "phase": "les",
+        "gate": "spectral-constitutive",
+        "configuration": {
+          "lesCs": 0.1,
+          "lesNorm": "spec",
+          "fullCpuGpuMatrix": true
+        },
+        "configurationFingerprint": "fnv1a32:78d45d55"
+      },
+      {
+        "id": "les-analytic-zero",
+        "phase": "les",
+        "gate": "analytic-zero",
+        "configuration": {
+          "lesCs": 0.1,
+          "lesNorm": "spec",
+          "seededResponse": true
+        },
+        "configurationFingerprint": "fnv1a32:cf0b0bf8"
+      },
+      {
+        "id": "les-bounded-scenes",
+        "phase": "les",
+        "gate": "bounded-scenes",
+        "configuration": {
+          "scenes": [
+            "empty-tunnel",
+            "abl-fetch",
+            "ahmed-body",
+            "aij-case-a",
+            "urban-case-c"
+          ]
+        },
+        "configurationFingerprint": "fnv1a32:afa719c6"
+      },
+      {
+        "id": "les-parity-checkpoint",
+        "phase": "les",
+        "gate": "parity-checkpoint",
+        "configuration": {
+          "precisions": [
+            "fp32",
+            "fp16-shifted"
+          ],
+          "exactIdentity": true
+        },
+        "configurationFingerprint": "fnv1a32:8ab76bc1"
+      },
+      {
+        "id": "les-memory-throughput",
+        "phase": "les",
+        "gate": "performance",
+        "configuration": {
+          "populations": 19,
+          "steadySamples": 3
+        },
+        "configurationFingerprint": "fnv1a32:5accddb3"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "cpu-local-invariants",
+      "configurationFingerprint": "fnv1a32:fdb095a5",
+      "state": "pass",
+      "metrics": {
+        "test": "packages/core/test/centralMomentD3Q19.test.ts",
+        "assertedMaximumAbsExclusive": 2e-15,
+        "manufacturedCases": 6,
+        "equilibriumFixedPointMax": 1.1102230246251565e-16,
+        "conservationMax": 4.163336342344337e-17
+      }
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "cpu-linear-spectrum",
+      "configurationFingerprint": "fnv1a32:9648626b",
+      "state": "pass",
+      "metrics": {
+        "cases": 144,
+        "maximumAmplification": 0.999999891787907,
+        "limitInclusive": 1,
+        "rawArtifact": "linear-spectrum.json"
+      }
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "cpu-nonlinear-spectrum",
+      "configurationFingerprint": "fnv1a32:3c84e839",
+      "state": "fail",
+      "reason": "target Pi/Pi_hydro 1.5050040874891135 is not below 1.2",
+      "metrics": {
+        "targetGain": 0.99772331778365,
+        "targetGainExclusiveLimit": 1,
+        "targetPiOverHydro": 1.5050040874891135,
+        "targetPiOverHydroExclusiveLimit": 1.2,
+        "controlGain": 0.9999944912766437,
+        "controlPiOverHydro": 1.0542536087576202,
+        "baselineGain": 1.000082599900097,
+        "baselinePiOverHydro": 1.048202902804104,
+        "rawArtifact": "nonlinear-spectrum.json"
+      }
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "cpu-periodic-conservation",
+      "configurationFingerprint": "fnv1a32:7579fcca",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "cpu-analytic-zero",
+      "configurationFingerprint": "fnv1a32:ced08079",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "cpu-established-controls",
+      "configurationFingerprint": "fnv1a32:eed5aa13",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "cpu-scene-empty-tunnel",
+      "configurationFingerprint": "fnv1a32:eb3a3909",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "cpu-scene-abl-fetch",
+      "configurationFingerprint": "fnv1a32:28c033bf",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "cpu-scene-ahmed-body",
+      "configurationFingerprint": "fnv1a32:ddca6cbd",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "cpu-scene-aij-case-a",
+      "configurationFingerprint": "fnv1a32:03e62dbd",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "cpu-scene-urban-case-c",
+      "configurationFingerprint": "fnv1a32:ee2a7a0d",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "gpu-parity-fp32",
+      "configurationFingerprint": "fnv1a32:637f219c",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "gpu-parity-fp16",
+      "configurationFingerprint": "fnv1a32:a1707db0",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "gpu-bounded-scenes",
+      "configurationFingerprint": "fnv1a32:78ad1ac2",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "gpu-checkpoint-restore",
+      "configurationFingerprint": "fnv1a32:53290b2a",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "gpu-memory-throughput",
+      "configurationFingerprint": "fnv1a32:08cf853a",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "les-spectral-constitutive",
+      "configurationFingerprint": "fnv1a32:78d45d55",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "les-analytic-zero",
+      "configurationFingerprint": "fnv1a32:cf0b0bf8",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "les-bounded-scenes",
+      "configurationFingerprint": "fnv1a32:afa719c6",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "les-parity-checkpoint",
+      "configurationFingerprint": "fnv1a32:8ab76bc1",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    },
+    {
+      "manifestId": "near-floor-collision-qualification/v1",
+      "armId": "les-memory-throughput",
+      "configurationFingerprint": "fnv1a32:5accddb3",
+      "state": "not-run-upstream-failed",
+      "reason": "not executed after decisive cpu-nonlinear-spectrum failure",
+      "metrics": {}
+    }
+  ],
+  "classifier": {
+    "manifestId": "near-floor-collision-qualification/v1",
+    "status": "failed",
+    "completedPhase": "none",
+    "reasons": [
+      {
+        "code": "axis-failed",
+        "armId": "cpu-nonlinear-spectrum",
+        "detail": "target Pi/Pi_hydro 1.5050040874891135 is not below 1.2"
+      }
+    ],
+    "physicsVerdict": "not-evaluated"
+  },
+  "productionPolicyAfterDecision": {
+    "policyId": "near-floor-collision/v1",
+    "selectedOperatorId": "d3q19-regularized-trt/v1",
+    "qualificationStatus": "not-qualified",
+    "evidence": null
+  },
+  "provenance": {
+    "sourceRevision": "c6e2c2d207278c962307c1967567f14118e8068c",
+    "pressureWorkspaceSnapshotSha256": "d9fa2269b6496e917567b15c0f3d0aea9c50ba9c1f7af1b829382a33d32ee437",
+    "commands": [
+      "npx vitest run packages/core/test/centralMomentD3Q19.test.ts",
+      "npx vitest run packages/core/test/centralMomentEigenProof.test.ts",
+      "npx vitest run packages/core/test/shearModeTargeted.test.ts",
+      "AEROFLOW_WRITE_COLLISION_QUALIFICATION=1 npx vitest run packages/core/test/collisionQualificationRecord.test.ts"
+    ]
+  }
+}

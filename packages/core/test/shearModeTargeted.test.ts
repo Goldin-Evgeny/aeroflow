@@ -10,6 +10,9 @@ import {
   piNeq,
   piNeqNorm,
   smagorinskyTauEff,
+  COLLISION_QUALIFICATION_MANIFEST,
+  equilibriumD3Q19Central,
+  streamCollidePeriodicD3Q19Central,
 } from '../src/index.js';
 
 /**
@@ -95,6 +98,19 @@ interface CandidateArtifact {
   failedGates: string[];
   baseline: TargetResult[];
   candidate: TargetResult[];
+}
+
+interface CentralCandidateArtifact {
+  artifactSchema: 'aeroflow-d3q19-central-moment-nonlinear-qualification-v1';
+  generatedAt: string;
+  manifestId: string;
+  candidateOperatorId: string;
+  purpose: string;
+  cases: TargetResult[];
+  baseline: TargetResult;
+  gates: Record<string, boolean>;
+  passed: boolean;
+  failedGates: string[];
 }
 
 const c = (re = 0, im = 0): Complex => ({ re, im });
@@ -409,6 +425,109 @@ function runCase(spec: TargetCase): TargetResult {
   };
 }
 
+function runCentralCase(id: string, wavelength: 8 | 3.2): TargetResult {
+  const mode = N / wavelength;
+  if (!Number.isInteger(mode)) throw new Error(`${id}: wavelength must divide ${N}`);
+  const k = (2 * Math.PI * mode) / N;
+  let source = new Float64Array(Q * N);
+  let destination = new Float64Array(Q * N);
+  for (let x = 0; x < N; x++) {
+    const equilibrium = equilibriumD3Q19Central(1, BACKGROUND_UX, AMPLITUDE * Math.cos(k * x), 0);
+    for (let direction = 0; direction < Q; direction++) {
+      source[direction * N + x] = equilibrium[direction];
+    }
+  }
+  const samples: StepSample[] = [];
+  let nonFinite = false;
+  for (let step = 1; step <= STEPS; step++) {
+    const rho = new Float64Array(N);
+    const uy = new Float64Array(N);
+    const pi = new Float64Array(N);
+    const tau = new Float64Array(N);
+    streamCollidePeriodicD3Q19Central(
+      source,
+      destination,
+      { nx: N, ny: 1, nz: 1 },
+      { tau0: TAU0, lesCs: 0 },
+      (cell, collision) => {
+        rho[cell] = collision.rho;
+        uy[cell] = collision.uy;
+        pi[cell] = collision.piNeq[3];
+        tau[cell] = collision.tauEff;
+      },
+    );
+    const velocityMode = fourier(uy, k);
+    const piMode = fourier(pi, k);
+    const hydroAnalytic = new Float64Array(N);
+    const hydroFiniteDifference = new Float64Array(N);
+    for (let x = 0; x < N; x++) {
+      const minus = (x - 1 + N) % N;
+      const plus = (x + 1) % N;
+      const fd = (uy[plus] - uy[minus]) / 2;
+      const analyticDerivative =
+        2 * (-k * velocityMode.im * Math.cos(k * x) - k * velocityMode.re * Math.sin(k * x));
+      const factor = -rho[x] * CS2 * tau[x];
+      hydroAnalytic[x] = factor * analyticDerivative;
+      hydroFiniteDifference[x] = factor * fd;
+    }
+    const analyticPiOverHydro = divide(piMode, fourier(hydroAnalytic, k));
+    const finiteDifferencePiOverHydro = divide(piMode, fourier(hydroFiniteDifference, k));
+    nonFinite ||= ![
+      velocityMode.re,
+      velocityMode.im,
+      piMode.re,
+      piMode.im,
+      analyticPiOverHydro.re,
+      analyticPiOverHydro.im,
+    ].every(Number.isFinite);
+    if (step > DISCARD) {
+      samples.push({
+        step,
+        velocityMode,
+        piMode,
+        tauMean: tau.reduce((sum, value) => sum + value, 0) / N,
+        tauMin: Math.min(...tau),
+        tauMax: Math.max(...tau),
+        analyticPiOverHydro,
+        finiteDifferencePiOverHydro,
+      });
+    }
+    [source, destination] = [destination, source];
+  }
+  const gains = samples
+    .slice(1)
+    .map((sample, index) => divide(sample.velocityMode, samples[index].velocityMode));
+  const modalGain = meanComplex(gains);
+  const analyticPiOverHydro = meanComplex(samples.map((sample) => sample.analyticPiOverHydro));
+  const finiteDifferencePiOverHydro = meanComplex(
+    samples.map((sample) => sample.finiteDifferencePiOverHydro),
+  );
+  const first = samples[0];
+  const last = samples.at(-1)!;
+  return {
+    id,
+    wavelength,
+    k,
+    lesCs: 0,
+    regularize: false,
+    samples,
+    modalGain,
+    modalGainAmplitude: magnitude(modalGain),
+    modalGainPhaseDegrees: (Math.atan2(modalGain.im, modalGain.re) * 180) / Math.PI,
+    endpointGrowthRate:
+      Math.log(magnitude(last.velocityMode) / magnitude(first.velocityMode)) /
+      (last.step - first.step),
+    analyticPiOverHydro,
+    analyticPiOverHydroAmplitude: magnitude(analyticPiOverHydro),
+    finiteDifferencePiOverHydro,
+    finiteDifferencePiOverHydroAmplitude: magnitude(finiteDifferencePiOverHydro),
+    tauMean: samples.reduce((sum, sample) => sum + sample.tauMean, 0) / samples.length,
+    tauMin: Math.min(...samples.map((sample) => sample.tauMin)),
+    tauMax: Math.max(...samples.map((sample) => sample.tauMax)),
+    nonFinite,
+  };
+}
+
 const MATRIX: readonly TargetCase[] = ([8, 3.2] as const).flatMap((wavelength) => [
   { id: `les-reg-lambda${wavelength}`, wavelength, lesCs: 0.1, regularize: true },
   { id: `fixed-tau0-reg-lambda${wavelength}`, wavelength, lesCs: 0, regularize: true },
@@ -417,6 +536,7 @@ const MATRIX: readonly TargetCase[] = ([8, 3.2] as const).flatMap((wavelength) =
 
 let artifact: Artifact | undefined;
 let candidateArtifact: CandidateArtifact | undefined;
+let centralCandidateArtifact: CentralCandidateArtifact | undefined;
 
 describe.sequential('targeted periodic shear-mode discrimination', () => {
   it('runs only the two eigen-selected wavelengths and two controls', () => {
@@ -575,6 +695,47 @@ describe.sequential('targeted periodic shear-mode discrimination', () => {
     expect(candidateArtifact.passed).toBe(false);
     expect(candidateArtifact.failedGates).toEqual(['targetDamped', 'targetConstitutive']);
   });
+
+  it('applies the frozen nonlinear gates to the D3Q19 central-moment candidate', () => {
+    const target = runCentralCase('central-moment-lambda3.2', 3.2);
+    const control = runCentralCase('central-moment-lambda8', 8);
+    const baseline = runCase({
+      id: 'resolved-production-lambda8',
+      wavelength: 8,
+      lesCs: 0,
+      regularize: true,
+    });
+    const limits = COLLISION_QUALIFICATION_MANIFEST.thresholds;
+    const gates = {
+      finite: !target.nonFinite && !control.nonFinite,
+      targetDamped: target.modalGainAmplitude < limits.nonlinearGainExclusiveMax,
+      targetConstitutive:
+        target.analyticPiOverHydroAmplitude < limits.targetConstitutiveExclusiveMax,
+      resolvedGainPreserved:
+        Math.abs(control.modalGainAmplitude / baseline.modalGainAmplitude - 1) <
+        limits.resolvedRelativeDeviationMax,
+      resolvedConstitutivePreserved:
+        Math.abs(control.analyticPiOverHydroAmplitude / baseline.analyticPiOverHydroAmplitude - 1) <
+        limits.resolvedRelativeDeviationMax,
+    };
+    const failedGates = Object.entries(gates).flatMap(([gate, passed]) => (passed ? [] : [gate]));
+    centralCandidateArtifact = {
+      artifactSchema: 'aeroflow-d3q19-central-moment-nonlinear-qualification-v1',
+      generatedAt: new Date().toISOString(),
+      manifestId: COLLISION_QUALIFICATION_MANIFEST.id,
+      candidateOperatorId: COLLISION_QUALIFICATION_MANIFEST.candidateOperatorId,
+      purpose:
+        'First decisive nonlinear near-floor target and resolved control from the frozen qualification manifest',
+      cases: [target, control],
+      baseline,
+      gates,
+      passed: failedGates.length === 0,
+      failedGates,
+    };
+
+    expect(centralCandidateArtifact.passed).toBe(false);
+    expect(failedGates).toContain('targetConstitutive');
+  });
 });
 
 afterAll(() => {
@@ -590,6 +751,13 @@ afterAll(() => {
     writeFileSync(
       resolve(directory, 'shear-mode-rr3-candidate.json'),
       `${JSON.stringify(candidateArtifact, null, 2)}\n`,
+      'utf8',
+    );
+  }
+  if (centralCandidateArtifact) {
+    writeFileSync(
+      resolve(directory, 'd3q19-central-moment-nonlinear-qualification.json'),
+      `${JSON.stringify(centralCandidateArtifact, null, 2)}\n`,
       'utf8',
     );
   }

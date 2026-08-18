@@ -248,6 +248,28 @@ export type { WakeProbe, AhmedWakeGeometry } from './analysis/wakeProbe.js';
 export { lesKFromCs, csFromLesK } from './cpu/collide.js';
 export type { LesNorm } from './cpu/collide.js';
 export {
+  D3Q19_CENTRAL_EXPONENTS,
+  d3q19CentralMomentIndex,
+  centralMomentMatrixD3Q19,
+  centralMomentAttractorsD3Q19,
+  populationsFromCentralMomentsD3Q19,
+  centralMomentsD3Q19,
+  equilibriumD3Q19Central,
+  conservedD3Q19,
+  collideD3Q19Central,
+  streamCollidePeriodicD3Q19Central,
+  streamCollideBoundedD3Q19Central,
+} from './cpu/centralMomentD3Q19.js';
+export type {
+  D3Q19CentralExponent,
+  D3Q19CentralCollisionOptions,
+  D3Q19CentralInvariantResidual,
+  D3Q19CentralCollisionResult,
+  D3Q19PeriodicGrid,
+  D3Q19PeriodicObserver,
+  D3Q19BoundedGrid,
+} from './cpu/centralMomentD3Q19.js';
+export {
   ACCEPTANCE_BANDS,
   VALIDATION_OUTCOMES,
   NUMERICAL_HEALTH_POLICIES,
@@ -277,6 +299,68 @@ export type {
   ValidationDefect,
   ValidationLedgerInput,
 } from './validation/bands.js';
+export {
+  ACCEPTANCE_OUTLET_POLICIES,
+  acceptanceOutletPolicy,
+  resolveAcceptanceOutlet,
+  assertAcceptanceOutletConsistency,
+  materialConfigurationFingerprint,
+} from './validation/outletPolicy.js';
+export {
+  PRESSURE_QUALIFICATION_MANIFEST,
+  classifyPressureQualification,
+} from './validation/outletQualification.js';
+export type {
+  QualificationBackend,
+  QualificationClosure,
+  QualificationSceneFamily,
+  QualificationAxis,
+  QualificationAxisState,
+  PressureQualificationStatus,
+  PressureQualificationArm,
+  PressureQualificationManifest,
+  QualificationAxisEvidence,
+  PressureQualificationArmEvidence,
+  PressureQualificationReason,
+  PressureQualificationResult,
+} from './validation/outletQualification.js';
+export type {
+  NearFloorValidationCaseId,
+  OutletQualificationStatus,
+  OutletConfigurationKind,
+  AcceptanceOutletPolicy,
+  ResolvedAcceptanceOutlet,
+} from './validation/outletPolicy.js';
+export {
+  COLLISION_OPERATOR_REGISTRY,
+  PRODUCTION_COLLISION_POLICY,
+  collisionOperatorDescriptor,
+  resolveCollisionPolicy,
+  assertCollisionPolicyConsistency,
+} from './validation/collisionPolicy.js';
+export type {
+  ProductionCollisionOperatorId,
+  ResearchCollisionCandidateId,
+  CollisionOperatorId,
+  CollisionConfigurationKind,
+  CollisionOperatorDescriptor,
+  ProductionCollisionPolicy,
+  ResolvedCollisionPolicy,
+} from './validation/collisionPolicy.js';
+export {
+  COLLISION_QUALIFICATION_MANIFEST,
+  classifyCollisionQualification,
+} from './validation/collisionQualification.js';
+export type {
+  CollisionQualificationPhase,
+  CollisionQualificationState,
+  CollisionArmState,
+  CollisionQualificationArm,
+  CollisionQualificationManifest,
+  CollisionQualificationEvidence,
+  CollisionQualificationReason,
+  CollisionQualificationResult,
+} from './validation/collisionQualification.js';
 export {
   evaluateNumericalHealth,
   numericalHealthVerdict,

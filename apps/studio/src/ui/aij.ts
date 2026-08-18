@@ -35,6 +35,9 @@ const CANVAS_COLORS = { bg: '#0b0e13', dim: '#8b949e' };
 export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLElement): void {
   root.innerHTML = '';
   root.classList.add('page');
+  const outletParam = new URLSearchParams(location.search).get('outlet');
+  const outletOverride =
+    outletParam === 'pressure' || outletParam === 'zero-gradient' ? outletParam : undefined;
 
   const h = document.createElement('h2');
   h.className = 'page-title';
@@ -283,6 +286,7 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
         hasF16: caps.hasF16,
         maxBindingBytes: deviceBindingCap(caps),
         maxStorageBuffersPerStage: caps.maxStorageBuffersPerShaderStage,
+        outlet: outletOverride,
       });
     } catch (err) {
       info.textContent = `failed to build scene: ${err instanceof Error ? err.message : String(err)}`;
@@ -294,6 +298,7 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
       `mode ${m}   grid ${s.nx}×${s.ny}×${s.nz} = ${((s.nx * s.ny * s.nz) / 1e6).toFixed(1)}M cells   dx ${(s.dx * 1000).toFixed(1)} mm`,
       `building b=${s.bCells} H=${s.hCells} cells   wind ${s.windDeg}°   blockage ${(s.blockage * 100).toFixed(2)}%`,
       `τ ${s.tau.toFixed(6)} (LES+regularized)   u_lat ${s.uLattice}   T_conv ${s.convectiveTimeSteps} steps`,
+      `outlet ${run.resolvedOutlet.outlet}   policy ${run.resolvedOutlet.policyId}   ${run.resolvedOutlet.configurationKind}`,
       `averaging: cumulative time-mean after a 3-flow-through transient discard (AIJ ≥10 flow-throughs)`,
       `steadiness gate: driftScaled (peak-normalized change of the cumulative mean between checkpoints) < ${STEADY_DRIFT * 100}%`,
     ].join('\n');
@@ -376,6 +381,11 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
             `UNDER-RESOLVED pipeline check (${MIN_CELLS_PER_B} cells/b required) — q ${q.toFixed(3)}, r ${rr.toFixed(3)} (no verdict)`,
             'warn',
           );
+        } else if (!run.resolvedOutlet.physicsVerdictAllowed) {
+          setVerdict(
+            `DIAGNOSTIC OUTLET OVERRIDE — measured ${pass ? 'in' : 'out of'} band: q ${q.toFixed(3)}, r ${rr.toFixed(3)} (no physics verdict)`,
+            'warn',
+          );
         } else if (health.state !== 'pass') {
           setVerdict(
             `NUMERICAL ${health.state.toUpperCase()} — measured ${pass ? 'in' : 'out of'} band: q ${q.toFixed(3)}, r ${rr.toFixed(3)} (no physics verdict)`,
@@ -408,7 +418,12 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
           relativeMassDrift: r.health.massDriftRel,
           boundaryFluxClosure: r.health.boundaryFluxClosureRel,
         });
-        if (health.state !== 'pass') {
+        if (!run.resolvedOutlet.physicsVerdictAllowed) {
+          setVerdict(
+            `DIAGNOSTIC OUTLET OVERRIDE — measured max deviation ${(r.fetch.maxRel * 100).toFixed(2)}% (no physics verdict)`,
+            'warn',
+          );
+        } else if (health.state !== 'pass') {
           setVerdict(
             `NUMERICAL ${health.state.toUpperCase()} — measured max deviation ${(r.fetch.maxRel * 100).toFixed(2)}% (no physics verdict)`,
             health.state === 'fail' ? 'bad' : 'warn',

@@ -63,6 +63,12 @@ export function initialAijArtifact(input: {
         status: ledger.status,
         gateDescription: ledger.gateDescription,
         numericalHealthPolicy: json(healthPolicy.metrics),
+        outletPolicyId: material.outletPolicyId ?? null,
+        outletConfigurationKind: material.outletConfigurationKind ?? null,
+        configurationFingerprint: material.configurationFingerprint ?? null,
+        collisionPolicyId: material.collisionPolicyId ?? null,
+        collisionOperatorId: material.collisionOperatorId ?? null,
+        collisionConfigurationKind: material.collisionConfigurationKind ?? null,
       },
     },
     lifecycle: {
@@ -203,13 +209,20 @@ export async function syncAijArtifact(
           state: hook.fetchPass ? 'pass' : 'fail',
           metrics: { maximumRelativeError: hook.fetchMaxRel ?? null, rows: rows.length },
         } as const;
-        draft.verdicts.physicsTarget = healthEvaluation
-          ? gatePhysicsVerdict(measured, healthEvaluation)
-          : {
-              state: 'unevaluated',
-              reason: 'numerical-health-unevaluated',
-              metrics: { ...measured.metrics, measuredState: measured.state },
-            };
+        draft.verdicts.physicsTarget =
+          hook.materialConfiguration?.physicsVerdictAllowed === false
+            ? {
+                state: 'unevaluated',
+                reason: 'diagnostic-outlet-override',
+                metrics: { ...measured.metrics, measuredState: measured.state },
+              }
+            : healthEvaluation
+              ? gatePhysicsVerdict(measured, healthEvaluation)
+              : {
+                  state: 'unevaluated',
+                  reason: 'numerical-health-unevaluated',
+                  metrics: { ...measured.metrics, measuredState: measured.state },
+                };
       }
     } else {
       const points = (hook.scoreRows ?? []).map((row) => ({
@@ -222,13 +235,20 @@ export async function syncAijArtifact(
           state: hook.q >= 0.66 && hook.r >= 0.7 ? 'pass' : 'fail',
           metrics: { q: hook.q, r: hook.r, points: points.length },
         } as const;
-        draft.verdicts.physicsTarget = healthEvaluation
-          ? gatePhysicsVerdict(measured, healthEvaluation)
-          : {
-              state: 'unevaluated',
-              reason: 'numerical-health-unevaluated',
-              metrics: { ...measured.metrics, measuredState: measured.state },
-            };
+        draft.verdicts.physicsTarget =
+          hook.materialConfiguration?.physicsVerdictAllowed === false
+            ? {
+                state: 'unevaluated',
+                reason: 'diagnostic-outlet-override',
+                metrics: { ...measured.metrics, measuredState: measured.state },
+              }
+            : healthEvaluation
+              ? gatePhysicsVerdict(measured, healthEvaluation)
+              : {
+                  state: 'unevaluated',
+                  reason: 'numerical-health-unevaluated',
+                  metrics: { ...measured.metrics, measuredState: measured.state },
+                };
       }
     }
   });

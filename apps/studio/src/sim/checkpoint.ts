@@ -11,6 +11,7 @@ import {
   saveSlotFor,
   validateMetaAgainst,
   type CheckpointMeta,
+  type CheckpointMaterialIdentity,
   type CheckpointSlot,
 } from './checkpointFormat';
 import type { ForceHistoryState } from '@aeroflow/core';
@@ -74,6 +75,7 @@ export interface SaveCheckpointOptions {
   sceneOptions: unknown;
   forceHistory?: ForceHistoryState;
   runState?: unknown;
+  materialIdentity?: CheckpointMaterialIdentity;
   chunkBytes?: number;
   /** Qualifying bounded activity used by the liveness supervisor for multi-chunk saves. */
   onActivity?: (detail: string) => void;
@@ -128,6 +130,7 @@ export async function saveCheckpoint(
     version: CHECKPOINT_VERSION,
     sceneId: opts.sceneId,
     sceneOptions: opts.sceneOptions,
+    materialIdentity: opts.materialIdentity,
     nx: sim.nx,
     ny: sim.ny,
     nz: sim.nz,
@@ -176,6 +179,7 @@ export async function restoreCheckpoint(
   db: IDBDatabase,
   sim: Lbm3D,
   expectedSceneId?: string,
+  expectedMaterialIdentity?: CheckpointMaterialIdentity,
 ): Promise<CheckpointMeta | null> {
   const latest = await get<CheckpointSlot>(db, LATEST_KEY);
   if (!latest) return null;
@@ -192,7 +196,7 @@ export async function restoreCheckpoint(
       if (slot === latest) incomplete = `checkpoint slot ${slot} has no metadata`;
       continue;
     }
-    validateMetaAgainst(meta, sim, sim.ddfBufferSizes(), expectedSceneId);
+    validateMetaAgainst(meta, sim, sim.ddfBufferSizes(), expectedSceneId, expectedMaterialIdentity);
     let complete = true;
     for (const chunk of planAllChunks(meta.ddfBufferSizes, meta.chunkBytes)) {
       const data = await get<ArrayBuffer>(db, chunkKey(slot, chunk));

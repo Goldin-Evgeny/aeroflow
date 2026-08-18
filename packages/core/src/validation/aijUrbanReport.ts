@@ -1,4 +1,7 @@
 import type { UrbanDomainPlan } from '../scenes/urbanDomain.js';
+import type { Outlet3D } from '../cpu/outlet3d.js';
+import type { OutletConfigurationKind } from './outletPolicy.js';
+import type { CollisionConfigurationKind, CollisionOperatorId } from './collisionPolicy.js';
 import { scoreAijUrbanDirection, type AijUrbanData, type AijUrbanDirection } from './aijUrban.js';
 
 export interface AijUrbanRunEvidence {
@@ -12,6 +15,12 @@ export interface AijUrbanRunEvidence {
   gpu: string;
   browser: string;
   probeSampling: 'published-coordinates' | 'nearest-fluid-cell-smoke';
+  outlet: Outlet3D;
+  outletPolicyId: string;
+  outletConfigurationKind: OutletConfigurationKind;
+  collisionPolicyId: string;
+  collisionOperatorId: CollisionOperatorId;
+  collisionConfigurationKind: CollisionConfigurationKind;
 }
 
 export interface AijUrbanReportRow {
@@ -42,6 +51,12 @@ export interface AijUrbanReport {
     inflow: AijUrbanData['inflow'];
     collision: 'trt';
     lesCs: 0.1;
+    outlet: Outlet3D;
+    outletPolicyId: string;
+    outletConfigurationKind: OutletConfigurationKind;
+    collisionPolicyId: string;
+    collisionOperatorId: CollisionOperatorId;
+    collisionConfigurationKind: CollisionConfigurationKind;
   };
   simulation: {
     grid: UrbanDomainPlan['grid'];
@@ -125,6 +140,16 @@ export function buildAijUrbanReport(
       'under-resolved smoke run samples nearest interior fluid cells, not published probe coordinates',
     );
   }
+  if (evidence.outletConfigurationKind !== 'acceptance') {
+    suppressionReasons.push(
+      `${evidence.outlet} is an explicit diagnostic override of outlet policy ${evidence.outletPolicyId}`,
+    );
+  }
+  if (evidence.collisionConfigurationKind !== 'production') {
+    suppressionReasons.push(
+      `${evidence.collisionOperatorId} is an explicit diagnostic collision candidate under policy ${evidence.collisionPolicyId}`,
+    );
+  }
   const correlation = Number.isFinite(score.r) ? score.r : null;
   const qPass = score.q >= 0.66;
   const rPass = data.caseId === 'C' || (correlation !== null && correlation >= 0.7);
@@ -146,6 +171,12 @@ export function buildAijUrbanReport(
       inflow: data.inflow,
       collision: 'trt',
       lesCs: 0.1,
+      outlet: evidence.outlet,
+      outletPolicyId: evidence.outletPolicyId,
+      outletConfigurationKind: evidence.outletConfigurationKind,
+      collisionPolicyId: evidence.collisionPolicyId,
+      collisionOperatorId: evidence.collisionOperatorId,
+      collisionConfigurationKind: evidence.collisionConfigurationKind,
     },
     simulation: {
       grid: plan.grid,

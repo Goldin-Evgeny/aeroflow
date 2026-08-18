@@ -104,8 +104,10 @@ from evidence that merely demonstrates the defect.
 | `gpu-operation-natural-stall-cause` | P1 / open | Natural long-running GPU operation stalls have no isolated initiating cause | A bounded reproducer isolates the initiating browser, driver, kernel, or application cause and a targeted repair prevents it. | `docs/validation/runs/2026-08-15-2100-v14-caseC-stall-reproduced.md` | — |
 | `gpu-operation-stall-survivability` | P1 / mitigated | Long-running GPU operations must preserve evidence and recover from a detected stall | Bounded recovery proves exact restore, forward progress, torn-checkpoint fallback, and durable artifact preservation. | `docs/validation/runs/2026-08-15-2100-v14-caseC-stall-reproduced.md` | `docs/validation/runs/2026-08-18-0553-gpu-recovery-final.md` |
 | `near-floor-zero-gradient-outlet-cause` | P1 / open | Outlet-dependent feedback is observed from the first sampled boundary interval, but its internal cause remains unknown | A controlled outlet pair localizes the first repeatable separation and a separate repair proposal names the measured mechanism. | `docs/validation/runs/2026-08-17-1832-near-floor-factorial.md`<br>`docs/validation/runs/2026-08-18-outlet-feedback-discriminator.md`<br>`docs/validation/runs/artifacts/2026-08-18-outlet-feedback-discriminator/outlet-feedback.json` | — |
+| `near-floor-pressure-outlet-qualification` | P1 / open | Bounded pressure-outlet qualification exceeds the predeclared mass-drift gate | A new frozen matrix passes the 0.1% mass-drift guard, every bounded browser/GPU scene and parity arm, and checkpoint/resume before any V12-V15 policy promotion. | `docs/validation/runs/2026-08-18-pressure-outlet-qualification.md`<br>`docs/validation/runs/artifacts/2026-08-18-pressure-outlet-qualification/pressure-qualification.json` | — |
 | `analytic-zero-wall-contamination` | P1 / open | Fixed-distance wall-bounded sampling cannot support the long-run analytic-zero LES claim | A periodic uniform-flow oracle and time-valid wall selector replace the fixed three-cell interpretation without rewriting the raw sample. | `docs/validation/runs/2026-08-17-1832-near-floor-factorial.md` | — |
 | `q27-periodic-momentum-drift` | P2 / open | D3Q27 periodic momentum drift exceeds its predeclared gate and grows superlinearly | A normalized, precision-appropriate momentum gate passes across step and wavelength scaling with durable CPU/GPU parity evidence. | `docs/validation/runs/artifacts/2026-08-16-q27-drift-scaling-analysis/drift-scaling.json` | — |
+| `d3q19-central-moment-constitutive-failure` | P2 / open | D3Q19 central-moment MRT v1 exceeds the frozen near-floor constitutive gate | A separately identified collision candidate damps the lambda-3.2 target and passes Pi/Pi_hydro < 1.2 before GPU or bounded-scene qualification. | `docs/validation/runs/2026-08-18-d3q19-central-moment-qualification.md`<br>`docs/validation/runs/artifacts/2026-08-18-d3q19-central-moment-qualification/qualification.json` | — |
 | `q27-mirror-rounding-explanation` | P2 / superseded | Mirror-direction f32 summation order explains the D3Q27 periodic momentum drift | Step-scaling evidence distinguishes roundoff-like linear accumulation from a superlinear collision-carried defect. | `docs/PHYSICS.md` | `docs/validation/runs/artifacts/2026-08-16-q27-drift-scaling-analysis/drift-scaling.json` |
 <!-- VALIDATION_DEFECTS:END -->
 
@@ -252,6 +254,15 @@ The 3000–3500 divergence reproduces exactly (step **3346**), as does `'legacy'
   the branch `outlet-feedback-observed`. It does **not** identify an unmeasured outlet
   implementation, collision, browser, driver, or hardware root cause, and no repair is made in
   this change.
+- **Pressure-outlet qualification failed its frozen numerical-health gate — 2026-08-18.** The
+  [bounded qualification matrix](validation/runs/2026-08-18-pressure-outlet-qualification.md)
+  ran pressure/pressure repeat controls through 3,600 steps under both closure conventions.
+  Every CPU arm completed and complete-shell closure stayed near 1e-14, but relative mass drift
+  reached **0.121810867% under legacy** and **0.197741042% under spec**, above the predeclared
+  **0.1%** guard. Required Ahmed, fetch, Case A, urban checkpoint/resume, and CPU/GPU parity arms
+  were unavailable in this execution. The classifier therefore returned `failed`, not
+  `qualified`; V12-V15 remain zero-gradient and their physics outcomes above are unchanged.
+  The bounded q/r/Cd fields are recording-only and were not compared with acceptance bands.
 - **The historical fixed-three-cell reading is boundary-contaminated, not an analytic-zero
   oracle.** Its raw `ν_t/ν_mol` p50 ≈ 5.2×10³ and τ_eff ≈ 0.5027 at 20,000 steps remain
   unchanged in the append-only artifact, but the no-slip ground's measured influence reaches

@@ -198,6 +198,56 @@ cause, so `q27-periodic-momentum-drift` remains **OPEN**. **Q27 PRODUCTION MIGRA
 DEFERRED** until a normalized, precision-appropriate momentum gate passes step/wavelength
 scaling with CPU/GPU parity evidence. The operator itself is unchanged.
 
+#### D3Q19 central-moment MRT research candidate v1
+
+`d3q19-central-moment-mrt/v1` is a diagnostic-only collision candidate. It is an
+independent transcription of the central-moment construction described by De Rosis and
+Coreixas, *Physics of Fluids* 32, 117101 (2020), DOI 10.1063/5.0026316; no source code from
+that or any other implementation was consulted or copied. The paper is method provenance,
+not evidence that the candidate satisfies AeroFlow's operating envelope.
+
+For lattice direction $i$, define the central monomial
+
+$$K_{(p,q,r),i}(\mathbf u)=(e_{ix}-u_x)^p(e_{iy}-u_y)^q(e_{iz}-u_z)^r.$$
+
+The normative row order of the 19-by-19 transform is
+
+$$
+\begin{aligned}
+\mathcal B = [&000,100,010,001,200,020,002,110,101,011,\\
+              &210,201,120,021,102,012,220,202,022].
+\end{aligned}
+$$
+
+Forward transformation is $k_a=\sum_i K_{a i}f_i$. The inverse is the unique solution
+$f=K^{-1}k$; the Float64 authority obtains it by partial-pivoted Gauss-Jordan elimination.
+This is a correctness implementation, not the formula selected for a possible GPU port.
+
+The frozen Maxwell central-moment attractors are zero whenever any exponent is odd. For
+the remaining basis members,
+
+$$k^{eq}_{000}=\rho,\qquad
+k^{eq}_{200}=k^{eq}_{020}=k^{eq}_{002}=\rho c_s^2,\qquad
+k^{eq}_{220}=k^{eq}_{202}=k^{eq}_{022}=\rho c_s^4,$$
+
+with $c_s^2=1/3$. Collision retains $000$, $100$, $010$, and $001$ exactly. The five
+deviatoric/shear degrees of freedom ($200-020$, $020-002$, $110$, $101$, $011$) relax at
+$s_\nu=1/\tau_{eff}$; the trace/bulk degree of freedom and all nine supported higher-order
+moments relax at the frozen unit rate. Candidate v1 applies no post-collision mass or
+momentum projection.
+
+Before relaxation, the six non-equilibrium second moments are recorded as
+
+$$\Pi^{neq}=[k_{200}-\rho c_s^2,\ k_{020}-\rho c_s^2,\
+k_{002}-\rho c_s^2,\ k_{110},\ k_{101},\ k_{011}].$$
+
+They feed the shared Smagorinsky constants and the selected legacy or specified
+Frobenius norm exactly as described in Section 5. The diagnostic result exposes
+$\Pi^{neq}$, $\tau_{eff}$, every relaxation rate, and pre/post mass and momentum
+residuals. This candidate does not widen the production `Collision` selector, cannot
+publish a physics verdict, and may become a production option only through the frozen
+qualification manifest `near-floor-collision-qualification/v1`.
+
 ---
 
 ## 3. BGK collision and equilibrium
@@ -426,6 +476,23 @@ $$f_i(\mathbf{x}_{out}, t) = f_i^{pc}(\mathbf{x}_{out} - \hat{\mathbf{x}}, t-1)\
 This first-order extrapolation lets vortices leave with weak reflections; it is the
 scheme in `solver2d.ts` and is acceptable for screening-grade work. Place the outlet
 far downstream (cylinder benchmark: blockage ≤ 5 %, see `docs/VALIDATION.md`).
+
+#### 7.3.1 Validation-policy selection and the bounded pressure result
+
+The solver also implements H14 pressure reconstruction, but outlet selection for V11-V15 is a
+validation-policy decision rather than a solver default. The generic CPU/GPU constructors and
+scene builders continue to resolve an omitted outlet to zero-gradient. Scored runners copy their
+selected outlet and stable policy identity into live readouts, artifacts, configuration
+fingerprints, and checkpoints; an explicit different outlet is retained as a diagnostic run and
+cannot publish a physics verdict.
+
+The 2026-08-18 frozen pressure qualification did **not** authorize promotion for V12-V15. Four
+3,600-step CPU pressure arms remained finite and closed their complete-shell ledgers to about
+1e-14, but relative mass drift was 0.121810867% (legacy closure) and 0.197741042% (spec closure),
+both over the predeclared 0.1% numerical-health guard. Browser scene, GPU parity, and urban
+checkpoint/resume arms were unavailable, so no scale, accuracy, or causal claim follows. This
+does not identify or repair the open zero-gradient feedback mechanism, and it does not alter the
+pressure reconstruction, collision operator, LES convention, or any acceptance band.
 
 ### 7.4 Free-slip (domain top and lateral sides in 3D)
 

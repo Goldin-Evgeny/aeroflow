@@ -89,6 +89,62 @@ describe('validateMetaAgainst', () => {
     expect(() => validateMetaAgainst(meta, sim, meta.ddfBufferSizes)).not.toThrow();
   });
 
+  it('accepts same-policy restore and rejects outlet or policy drift before state restore', () => {
+    const identified: CheckpointMeta = {
+      ...meta,
+      materialIdentity: {
+        outlet: 'zero-gradient',
+        outletPolicyId: 'near-floor-outlet/V14/v1',
+        collisionPolicyId: 'near-floor-collision/v1',
+        collisionOperatorId: 'd3q19-regularized-trt/v1',
+      },
+    };
+    const expected = identified.materialIdentity!;
+    expect(() =>
+      validateMetaAgainst(identified, sim, meta.ddfBufferSizes, 'ahmed', expected),
+    ).not.toThrow();
+    expect(() =>
+      validateMetaAgainst(identified, sim, meta.ddfBufferSizes, 'ahmed', {
+        ...expected,
+        outlet: 'pressure',
+      }),
+    ).toThrow('checkpoint outlet');
+    expect(() =>
+      validateMetaAgainst(identified, sim, meta.ddfBufferSizes, 'ahmed', {
+        ...expected,
+        outletPolicyId: 'near-floor-outlet/V14/v2',
+      }),
+    ).toThrow('checkpoint outlet policy');
+    expect(() => validateMetaAgainst(meta, sim, meta.ddfBufferSizes, 'ahmed', expected)).toThrow(
+      'identity is missing',
+    );
+  });
+
+  it('rejects collision-policy and collision-operator drift before state restore', () => {
+    const identified: CheckpointMeta = {
+      ...meta,
+      materialIdentity: {
+        outlet: 'zero-gradient',
+        outletPolicyId: 'near-floor-outlet/V14/v1',
+        collisionPolicyId: 'near-floor-collision/v1',
+        collisionOperatorId: 'd3q19-central-moment-mrt/v1',
+      },
+    };
+    const expected = identified.materialIdentity!;
+    expect(() =>
+      validateMetaAgainst(identified, sim, meta.ddfBufferSizes, 'ahmed', {
+        ...expected,
+        collisionPolicyId: 'near-floor-collision/v2',
+      }),
+    ).toThrow('checkpoint collision policy');
+    expect(() =>
+      validateMetaAgainst(identified, sim, meta.ddfBufferSizes, 'ahmed', {
+        ...expected,
+        collisionOperatorId: 'd3q19-regularized-trt/v1',
+      }),
+    ).toThrow('checkpoint collision operator');
+  });
+
   it('rejects grid, precision, layout, version, and parity mismatches', () => {
     expect(() => validateMetaAgainst({ ...meta, nx: 65 }, sim, meta.ddfBufferSizes)).toThrow(
       'grid',

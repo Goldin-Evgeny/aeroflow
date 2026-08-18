@@ -131,15 +131,14 @@ const MATERIAL = {
   collision: 'trt',
   regularize: true,
   conserveMass: true,
-  les: { cs: CS, norm: 'spec' },
   freeSlip: FREE_SLIP,
 } as const;
 
-function configuration(outlet: Outlet3D): Record<string, unknown> {
-  return { ...MATERIAL, outlet };
+function configuration(outlet: Outlet3D, lesNorm: 'spec' | 'legacy'): Record<string, unknown> {
+  return { ...MATERIAL, les: { cs: CS, norm: lesNorm }, outlet };
 }
 
-function makeSolver(outlet: Outlet3D): Solver3D {
+function makeSolver(outlet: Outlet3D, lesNorm: 'spec' | 'legacy' = 'spec'): Solver3D {
   const solver = new Solver3D({
     nx: LEDGER_SCENE.nx,
     ny: LEDGER_SCENE.ny,
@@ -150,7 +149,7 @@ function makeSolver(outlet: Outlet3D): Solver3D {
     collision: 'trt',
     regularize: true,
     conserveMass: true,
-    les: { cs: CS, norm: 'spec' },
+    les: { cs: CS, norm: lesNorm },
     outlet,
     freeSlip: FREE_SLIP,
   });
@@ -210,6 +209,7 @@ function takeSample(
   evaluated: Uint8Array,
   boundary: BoundaryMassBudget,
   step: number,
+  lesNorm: 'spec' | 'legacy',
 ): OutletDiagnosticSample {
   const { nx, ny, nz } = LEDGER_SCENE;
   const macro = solver.macroscopics();
@@ -273,7 +273,7 @@ function takeSample(
         rho: macro.rho,
         tau0: TAU0,
         lesK: lesKFromCs(CS),
-        lesNorm: 'spec',
+        lesNorm,
       }).medianRatioSlope
     : Number.NaN;
   return {
@@ -325,10 +325,12 @@ export async function runOutletArm(input: {
   outlet: Outlet3D;
   exposureSteps?: number;
   cadence?: number;
+  lesNorm?: 'spec' | 'legacy';
 }): Promise<OutletArmRecord> {
   const exposureSteps = input.exposureSteps ?? OUTLET_DISCRIMINATOR_EXPOSURE;
   const cadence = input.cadence ?? OUTLET_DISCRIMINATOR_CADENCE;
-  const solver = makeSolver(input.outlet);
+  const lesNorm = input.lesNorm ?? 'spec';
+  const solver = makeSolver(input.outlet, lesNorm);
   const initialStateFingerprint = snapshotFingerprint(solver);
   const flags = factorialFlags(LEDGER_SCENE);
   const evaluated = Uint8Array.from(flags, (flag) => (flag === CellType.Fluid ? 1 : 0));
@@ -338,8 +340,8 @@ export async function runOutletArm(input: {
   const record: OutletArmRecord = {
     label: input.label,
     outlet: input.outlet,
-    materialFingerprint: sha256(stable(MATERIAL)),
-    configurationFingerprint: sha256(stable(configuration(input.outlet))),
+    materialFingerprint: sha256(stable({ ...MATERIAL, les: { cs: CS, norm: lesNorm } })),
+    configurationFingerprint: sha256(stable(configuration(input.outlet, lesNorm))),
     initialStateFingerprint,
     samples: [],
     divergenceStep: null,
@@ -373,7 +375,7 @@ export async function runOutletArm(input: {
         break;
       }
       if (step % cadence === 0 || step === exposureSteps) {
-        record.samples.push(takeSample(solver, tauEff, evaluated, boundary, step));
+        record.samples.push(takeSample(solver, tauEff, evaluated, boundary, step, lesNorm));
       }
       if (step % 500 === 0) await new Promise<void>((resolve) => setImmediate(resolve));
     }

@@ -12,7 +12,7 @@ import type {
   TauStats,
   WakeProbe,
 } from '@aeroflow/core';
-import { AHMED_CD_BAND } from '@aeroflow/core';
+import { AHMED_CD_BAND, acceptanceOutletPolicy } from '@aeroflow/core';
 import type { Precision } from '../gpu/ddfLayout';
 
 /**
@@ -430,7 +430,7 @@ export const AHMED_ACCEPTANCE_LATERAL_BC: AhmedLateralBC = 'freestream';
  * tunnel), and that promotion is recorded in docs/VALIDATION.md V11 rather than only here.
  */
 export const AHMED_ACCEPTANCE_INLET_BC: AhmedInletBC = 'velocity';
-export const AHMED_ACCEPTANCE_OUTLET: Outlet3D = 'pressure';
+export const AHMED_ACCEPTANCE_OUTLET: Outlet3D = acceptanceOutletPolicy('V11').selectedOutlet;
 
 /**
  * Ahmed 25° literature band (M9 acceptance 1): Cd = 0.285 ± 15% (stretch ± 10%).

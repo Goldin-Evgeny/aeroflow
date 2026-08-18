@@ -8,6 +8,9 @@ import {
   latticeRowHeight,
   powerLawProfile,
   logLawProfile,
+  materialConfigurationFingerprint,
+  resolveCollisionPolicy,
+  resolveAcceptanceOutlet,
   sampleTrilinear,
   scoreCaseA,
   validateAijCaseAData,
@@ -16,7 +19,9 @@ import {
   type CaseAScene,
   type CaseAScore,
   type FieldStats,
+  type Outlet3D,
   type PhaseWindow,
+  type ResolvedAcceptanceOutlet,
 } from '@aeroflow/core';
 import { Lbm3D } from '../lbm3d';
 import rawFixture from './data/aij-case-a.json';
@@ -53,6 +58,8 @@ export interface CaseARunOptions {
   maxBindingBytes?: number;
   /** Negotiated `maxStorageBuffersPerShaderStage`; checked against the kernel's binding count. */
   maxStorageBuffersPerStage?: number;
+  /** Explicit reproduction override; a non-policy value is diagnostic. */
+  outlet?: Outlet3D;
 }
 
 /**
@@ -146,6 +153,7 @@ export class CaseARun {
    */
   readonly underResolved: boolean;
   readonly precision: 'fp16' | 'fp32';
+  readonly resolvedOutlet: ResolvedAcceptanceOutlet;
   readonly flowThroughSteps: number;
   readonly transientSteps: number;
   readonly checkpointSteps: number;
@@ -167,6 +175,7 @@ export class CaseARun {
     this.synthetic = AIJ_FIXTURE.synthetic === true;
     this.underResolved = o.cellsPerB < MIN_CELLS_PER_B;
     this.precision = o.precision ?? 'fp32';
+    this.resolvedOutlet = resolveAcceptanceOutlet(o.mode === 'fetch' ? 'V12' : 'V13', o.outlet);
     const spec = o.demoSpec ?? { kind: 'power', uRef: 6, zRef: 10, alpha: 0.25 };
     this.scene = caseAScene({
       cellsPerB: o.cellsPerB,
@@ -189,6 +198,7 @@ export class CaseARun {
       inletProfile: { axis: 'y', ux: Float32Array.from(s.profile) },
       velocityInlet: true,
       boundaryMassLedger: true,
+      outlet: this.resolvedOutlet.outlet,
       freeSlip: { yMax: true, zMin: true, zMax: true },
       precision: this.precision,
       hasF16: o.hasF16,
@@ -370,7 +380,8 @@ export class CaseARun {
 
   materialConfiguration(): Record<string, unknown> {
     const s = this.scene;
-    return {
+    const collision = resolveCollisionPolicy();
+    const material = {
       mode: this.mode,
       grid: { nx: s.nx, ny: s.ny, nz: s.nz },
       cellsPerB: s.bCells,
@@ -378,17 +389,27 @@ export class CaseARun {
       windDeg: s.windDeg,
       precision: this.precision,
       collision: 'trt',
+      collisionPolicyId: collision.policyId,
+      collisionOperatorId: collision.operatorId,
+      collisionConfigurationKind: collision.configurationKind,
       regularize: true,
       les: { cs: 0.1 },
       velocityInlet: true,
       boundaryMassLedger: true,
-      outlet: 'zero-gradient',
+      outlet: this.resolvedOutlet.outlet,
+      outletPolicyId: this.resolvedOutlet.policyId,
+      policyOutlet: this.resolvedOutlet.policyOutlet,
+      outletQualificationStatus: this.resolvedOutlet.qualificationStatus,
+      outletConfigurationKind: this.resolvedOutlet.configurationKind,
+      physicsVerdictAllowed:
+        this.resolvedOutlet.physicsVerdictAllowed && collision.physicsVerdictAllowed,
       freeSlip: { yMax: true, zMin: true, zMax: true },
       flowThroughSteps: this.flowThroughSteps,
       transientSteps: this.transientSteps,
       checkpointSteps: this.checkpointSteps,
       measurementStatistic: AIJ_FIXTURE.measurementStatistic,
     };
+    return { ...material, configurationFingerprint: materialConfigurationFingerprint(material) };
   }
 
   destroy(): void {

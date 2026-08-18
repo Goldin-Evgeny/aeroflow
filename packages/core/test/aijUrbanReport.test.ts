@@ -78,6 +78,12 @@ const evidence = {
   gpu: 'test GPU',
   browser: 'test browser',
   probeSampling: 'published-coordinates' as const,
+  outlet: 'zero-gradient' as const,
+  outletPolicyId: 'near-floor-outlet/V15/v1',
+  outletConfigurationKind: 'acceptance' as const,
+  collisionPolicyId: 'near-floor-collision/v1',
+  collisionOperatorId: 'd3q19-regularized-trt/v1' as const,
+  collisionConfigurationKind: 'production' as const,
 };
 
 describe('buildAijUrbanReport', () => {
@@ -120,5 +126,34 @@ describe('buildAijUrbanReport', () => {
     expect(report.suppressionReasons).toContain(
       'under-resolved smoke run samples nearest interior fluid cells, not published probe coordinates',
     );
+  });
+
+  it('retains measurements but suppresses a non-policy outlet override', () => {
+    const report = buildAijUrbanReport(data('E'), direction, plan(), [0.5, 1], {
+      ...evidence,
+      outlet: 'pressure',
+      outletConfigurationKind: 'diagnostic-override',
+    });
+    expect(report.metrics).toMatchObject({ q: 1, r: 1 });
+    expect(report.verdict).toBe('suppressed');
+    expect(report.method).toMatchObject({
+      outlet: 'pressure',
+      outletPolicyId: 'near-floor-outlet/V15/v1',
+      outletConfigurationKind: 'diagnostic-override',
+    });
+  });
+
+  it('retains measurements but suppresses a diagnostic collision candidate', () => {
+    const report = buildAijUrbanReport(data('E'), direction, plan(), [0.5, 1], {
+      ...evidence,
+      collisionOperatorId: 'd3q19-central-moment-mrt/v1',
+      collisionConfigurationKind: 'diagnostic-candidate',
+    });
+    expect(report.verdict).toBe('suppressed');
+    expect(report.method).toMatchObject({
+      collisionPolicyId: 'near-floor-collision/v1',
+      collisionOperatorId: 'd3q19-central-moment-mrt/v1',
+      collisionConfigurationKind: 'diagnostic-candidate',
+    });
   });
 });

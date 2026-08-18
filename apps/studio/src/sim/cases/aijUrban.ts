@@ -9,9 +9,12 @@ import {
   fieldStats,
   interpolateInflowToLattice,
   latticeRowHeight,
+  materialConfigurationFingerprint,
   planUrbanDomain,
   powerLawProfile,
   prepareUrbanScene,
+  resolveAcceptanceOutlet,
+  resolveCollisionPolicy,
   urbanBoundaryFlags,
   validateAijUrbanData,
   windAlignEnuPositions,
@@ -24,7 +27,9 @@ import {
   type FieldStats,
   type GpuBatchPolicyRecord,
   type GpuOperationRecord,
+  type Outlet3D,
   type PhaseWindow,
+  type ResolvedAcceptanceOutlet,
   type UrbanDomainPlan,
   type UrbanSceneSetup,
   type WebGpuErrorRecord,
@@ -55,7 +60,7 @@ const PRESET_PATHS: Record<AijUrbanCaseId, string> = {
   C: 'benchmarks/aij/case-c',
   E: 'benchmarks/aij/case-e',
 };
-const RUNNER_VERSION = 3;
+const RUNNER_VERSION = 4;
 const TRANSIENT_FLOW_THROUGHS = 3;
 const REQUIRED_AVERAGING_FLOW_THROUGHS = 10;
 const SAMPLES_PER_FLOW_THROUGH = 20;
@@ -97,6 +102,8 @@ export interface AijUrbanRunOptions {
   batch?: AdaptiveBatchOptions;
   /** Programmatic test seam; never exposed as a production UI control. */
   faultInjection?: AijUrbanFaultInjection;
+  /** Explicit reproduction override; a non-policy value is diagnostic. */
+  outlet?: Outlet3D;
 }
 
 export interface AijUrbanLivenessPolicy {
@@ -156,8 +163,10 @@ export interface AijUrbanHealthSnapshot {
 }
 
 interface AijUrbanCheckpointState {
-  version: 2;
+  version: 3;
   sceneKey: string;
+  outlet: Outlet3D;
+  outletPolicyId: string;
   totalSteps: number;
   elapsedMs: number;
   averager: ConvergingVelocityAveragerState;
@@ -330,6 +339,7 @@ function sceneKey(
   direction: AijUrbanDirection,
   plan: UrbanDomainPlan,
   precision: 'fp16' | 'fp32',
+  resolvedOutlet: Pick<ResolvedAcceptanceOutlet, 'outlet' | 'policyId'>,
 ): string {
   const { nx, ny, nz } = plan.grid;
   return [
@@ -340,6 +350,8 @@ function sceneKey(
     preset.data.geometry.sha256,
     `${nx}x${ny}x${nz}`,
     precision,
+    resolvedOutlet.outlet,
+    resolvedOutlet.policyId,
   ].join(':');
 }
 
@@ -352,14 +364,18 @@ function checkpointState(
     statistic: AijUrbanData['measurement']['statistic'];
     transientSteps: number;
     flowThroughSteps: number;
+    outlet: Outlet3D;
+    outletPolicyId: string;
   },
 ): AijUrbanCheckpointState {
   const state = value as AijUrbanCheckpointState;
   if (
     typeof state !== 'object' ||
     state === null ||
-    state.version !== 2 ||
+    state.version !== 3 ||
     state.sceneKey !== expected.sceneKey ||
+    state.outlet !== expected.outlet ||
+    state.outletPolicyId !== expected.outletPolicyId ||
     state.totalSteps !== expected.totalSteps ||
     !Number.isFinite(state.elapsedMs) ||
     state.elapsedMs < 0 ||
@@ -394,6 +410,7 @@ export class AijUrbanRun {
   readonly precision: 'fp16' | 'fp32';
   readonly logicalRunId: string;
   readonly attemptId: string;
+  readonly resolvedOutlet: ResolvedAcceptanceOutlet;
 
   private readonly device: GPUDevice;
   private readonly sim: Lbm3D;
@@ -441,6 +458,7 @@ export class AijUrbanRun {
     health: AijUrbanHealthSnapshot[];
     logicalRunId: string;
     attemptId: string;
+    resolvedOutlet: ResolvedAcceptanceOutlet;
     liveness: AijUrbanLivenessPolicy;
     batch?: AdaptiveBatchOptions;
     faultInjection?: AijUrbanFaultInjection;
@@ -471,6 +489,7 @@ export class AijUrbanRun {
     this.healthSnapshots.push(...structuredClone(args.health));
     this.logicalRunId = args.logicalRunId;
     this.attemptId = args.attemptId;
+    this.resolvedOutlet = args.resolvedOutlet;
     this.liveness = args.liveness;
     this.faultInjection = args.faultInjection ?? {};
     this.batchController = new AdaptiveStepBatchController(args.batch);
@@ -505,6 +524,10 @@ export class AijUrbanRun {
     const status = options.onStatus ?? (() => {});
     status(`loading official AIJ Case ${options.caseId} assets`);
     const preset = await loadAijUrbanPreset(options.caseId);
+    const resolvedOutlet = resolveAcceptanceOutlet(
+      options.caseId === 'C' ? 'V14' : 'V15',
+      options.outlet,
+    );
     const direction = aijUrbanDirection(preset.data, options.windFromDegrees);
     const alignedPositions = windAlignEnuPositions(
       preset.enuPositions,
@@ -548,6 +571,7 @@ export class AijUrbanRun {
       inletProfile: { axis: 'y', ux: Float32Array.from(setup.profile) },
       velocityInlet: true,
       boundaryMassLedger: true,
+      outlet: resolvedOutlet.outlet,
       freeSlip: { yMax: true, zMin: true, zMax: true },
       precision: options.precision,
       hasF16: options.caps.hasF16,
@@ -578,7 +602,8 @@ export class AijUrbanRun {
       transientSteps,
       flowThroughSteps,
     );
-    const key = sceneKey(preset, direction, plan, options.precision);
+    const key = sceneKey(preset, direction, plan, options.precision, resolvedOutlet);
+    const collision = resolveCollisionPolicy();
     let db: IDBDatabase | null = null;
     try {
       db = await openCheckpointDb();
@@ -591,7 +616,12 @@ export class AijUrbanRun {
       let health: AijUrbanHealthSnapshot[] = [];
       if (options.resume) {
         status('restoring latest matching DDF and averaging checkpoint');
-        const meta = await restoreCheckpoint(db, sim, key);
+        const meta = await restoreCheckpoint(db, sim, key, {
+          outlet: resolvedOutlet.outlet,
+          outletPolicyId: resolvedOutlet.policyId,
+          collisionPolicyId: collision.policyId,
+          collisionOperatorId: collision.operatorId,
+        });
         if (!meta) {
           throw new Error(
             `AIJ urban resume requested for ${key}, but no complete compatible checkpoint exists`,
@@ -604,6 +634,8 @@ export class AijUrbanRun {
           statistic: preset.data.measurement.statistic,
           transientSteps,
           flowThroughSteps,
+          outlet: resolvedOutlet.outlet,
+          outletPolicyId: resolvedOutlet.policyId,
         });
         averager = ConvergingVelocityAverager.fromState(state.averager);
         elapsedMs = state.elapsedMs;
@@ -640,6 +672,7 @@ export class AijUrbanRun {
         health,
         logicalRunId: options.logicalRunId ?? crypto.randomUUID(),
         attemptId: options.attemptId ?? crypto.randomUUID(),
+        resolvedOutlet,
         liveness: {
           queueMs: options.liveness?.queueMs ?? 30_000,
           readbackMs: options.liveness?.readbackMs ?? 30_000,
@@ -671,6 +704,7 @@ export class AijUrbanRun {
 
   private buildReport(normalizedMeans: Float64Array | null): AijUrbanReport | null {
     if (!normalizedMeans || this.sim.gpuCompletedSteps < this.transientSteps) return null;
+    const collision = resolveCollisionPolicy();
     return buildAijUrbanReport(this.data, this.direction, this.plan, normalizedMeans, {
       generatedAt: new Date().toISOString(),
       precision: this.precision,
@@ -682,6 +716,12 @@ export class AijUrbanRun {
       gpu: this.adapterDescription,
       browser: navigator.userAgent,
       probeSampling: this.probeSampling,
+      outlet: this.resolvedOutlet.outlet,
+      outletPolicyId: this.resolvedOutlet.policyId,
+      outletConfigurationKind: this.resolvedOutlet.configurationKind,
+      collisionPolicyId: collision.policyId,
+      collisionOperatorId: collision.operatorId,
+      collisionConfigurationKind: collision.configurationKind,
     });
   }
 
@@ -763,7 +803,8 @@ export class AijUrbanRun {
   }
 
   materialConfiguration(): Record<string, unknown> {
-    return {
+    const collision = resolveCollisionPolicy();
+    const material = {
       sceneKey: this.key,
       caseId: this.data.caseId,
       windFromDegrees: this.direction.windFromDegrees,
@@ -771,10 +812,19 @@ export class AijUrbanRun {
       dx: this.plan.dx,
       precision: this.precision,
       collision: 'trt',
+      collisionPolicyId: collision.policyId,
+      collisionOperatorId: collision.operatorId,
+      collisionConfigurationKind: collision.configurationKind,
       regularize: true,
       les: { cs: 0.1 },
       velocityInlet: true,
-      outlet: 'zero-gradient',
+      outlet: this.resolvedOutlet.outlet,
+      outletPolicyId: this.resolvedOutlet.policyId,
+      policyOutlet: this.resolvedOutlet.policyOutlet,
+      outletQualificationStatus: this.resolvedOutlet.qualificationStatus,
+      outletConfigurationKind: this.resolvedOutlet.configurationKind,
+      physicsVerdictAllowed:
+        this.resolvedOutlet.physicsVerdictAllowed && collision.physicsVerdictAllowed,
       freeSlip: { yMax: true, zMin: true, zMax: true },
       measurementStatistic: this.data.measurement.statistic,
       transientSteps: this.transientSteps,
@@ -783,6 +833,7 @@ export class AijUrbanRun {
       boundedSubmission: this.batchController.snapshot(),
       operationDeadlines: this.liveness,
     };
+    return { ...material, configurationFingerprint: materialConfigurationFingerprint(material) };
   }
 
   private async sampleHealth(
@@ -993,22 +1044,35 @@ export class AijUrbanRun {
     this.assertCommitted('checkpoint');
     await this.sampleHealth('checkpoint');
     const runState: AijUrbanCheckpointState = {
-      version: 2,
+      version: 3,
       sceneKey: this.key,
+      outlet: this.resolvedOutlet.outlet,
+      outletPolicyId: this.resolvedOutlet.policyId,
       totalSteps: this.sim.gpuCompletedSteps,
       elapsedMs: this.elapsedMs,
       averager: this.averager.serialize(),
       cumulativeBoundaryMass: this.cumulativeBoundaryMass,
       health: structuredClone(this.healthSnapshots),
     };
+    const collision = resolveCollisionPolicy();
     return saveCheckpoint(this.db, this.sim, {
       sceneId: this.key,
+      materialIdentity: {
+        outlet: this.resolvedOutlet.outlet,
+        outletPolicyId: this.resolvedOutlet.policyId,
+        collisionPolicyId: collision.policyId,
+        collisionOperatorId: collision.operatorId,
+      },
       sceneOptions: {
         caseId: this.data.caseId,
         windFromDegrees: this.direction.windFromDegrees,
         grid: this.plan.grid,
         dx: this.plan.dx,
         precision: this.precision,
+        outlet: this.resolvedOutlet.outlet,
+        outletPolicyId: this.resolvedOutlet.policyId,
+        collisionPolicyId: collision.policyId,
+        collisionOperatorId: collision.operatorId,
       },
       runState,
       superviseTransfer: (execute) =>

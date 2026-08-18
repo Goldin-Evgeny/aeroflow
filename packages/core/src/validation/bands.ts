@@ -526,6 +526,19 @@ export const VALIDATION_DEFECTS: readonly ValidationDefect[] = [
     relatedCaseIds: ['V11', 'V12', 'V13', 'V14'],
   },
   {
+    id: 'near-floor-pressure-outlet-qualification',
+    title: 'Bounded pressure-outlet qualification exceeds the predeclared mass-drift gate',
+    priority: 'P1',
+    status: 'open',
+    closureCriterion:
+      'A new frozen matrix passes the 0.1% mass-drift guard, every bounded browser/GPU scene and parity arm, and checkpoint/resume before any V12-V15 policy promotion.',
+    evidence: [
+      'docs/validation/runs/2026-08-18-pressure-outlet-qualification.md',
+      'docs/validation/runs/artifacts/2026-08-18-pressure-outlet-qualification/pressure-qualification.json',
+    ],
+    relatedCaseIds: ['V11', 'V12', 'V13', 'V14', 'V15'],
+  },
+  {
     id: 'analytic-zero-wall-contamination',
     title:
       'Fixed-distance wall-bounded sampling cannot support the long-run analytic-zero LES claim',
@@ -547,6 +560,19 @@ export const VALIDATION_DEFECTS: readonly ValidationDefect[] = [
       'docs/validation/runs/artifacts/2026-08-16-q27-drift-scaling-analysis/drift-scaling.json',
     ],
     relatedCaseIds: [],
+  },
+  {
+    id: 'd3q19-central-moment-constitutive-failure',
+    title: 'D3Q19 central-moment MRT v1 exceeds the frozen near-floor constitutive gate',
+    priority: 'P2',
+    status: 'open',
+    closureCriterion:
+      'A separately identified collision candidate damps the lambda-3.2 target and passes Pi/Pi_hydro < 1.2 before GPU or bounded-scene qualification.',
+    evidence: [
+      'docs/validation/runs/2026-08-18-d3q19-central-moment-qualification.md',
+      'docs/validation/runs/artifacts/2026-08-18-d3q19-central-moment-qualification/qualification.json',
+    ],
+    relatedCaseIds: ['V11', 'V12', 'V13', 'V14'],
   },
   {
     id: 'q27-mirror-rounding-explanation',

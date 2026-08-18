@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import {
+  COLLISION_QUALIFICATION_MANIFEST,
   centralMomentAttractorsD3Q27,
   centralMomentMatrixD3Q27,
   collideD3Q27Central,
@@ -14,6 +15,9 @@ import {
   lesKFromCs,
   populationsFromCentralMomentsD3Q27,
   streamCollidePeriodicD3Q27,
+  collideD3Q19Central as collideD3Q19CentralAuthority,
+  conservedD3Q19 as conservedD3Q19Authority,
+  equilibriumD3Q19Central as equilibriumD3Q19CentralAuthority,
 } from '../src/index.js';
 
 /**
@@ -27,7 +31,6 @@ import {
 
 const Q = D3Q19.q;
 const CS2 = 1 / 3;
-const CS4 = CS2 * CS2;
 const TAU_2M = 0.5000020740253772;
 const TAU_8M = 0.5000033553578126;
 const AHMED_U = 0.05;
@@ -79,6 +82,14 @@ interface ProofArtifact {
     target: ModeResult;
     control: ModeResult;
     longControl: ModeResult;
+  }>;
+  qualificationCases: Array<{
+    tau: number;
+    backgroundU: number;
+    waveAxis: 0 | 1 | 2;
+    polarizationAxis: 0 | 1 | 2;
+    target: ModeResult;
+    control: ModeResult;
   }>;
   gates: Record<string, boolean>;
   passed: boolean;
@@ -544,124 +555,16 @@ function nonzeroSpectrum(matrix: ComplexMatrix): Complex[] {
   return eigenvalues(reduced);
 }
 
-function momentRow(direction: number, ux: number, uy: number, uz: number): number[] {
-  const x = D3Q19.ex[direction] - ux;
-  const y = D3Q19.ey[direction] - uy;
-  const z = D3Q19.ez[direction] - uz;
-  const x2 = x * x;
-  const y2 = y * y;
-  const z2 = z * z;
-  return [
-    1,
-    x,
-    y,
-    z,
-    x2 + y2 + z2,
-    x2 - y2,
-    y2 - z2,
-    x * y,
-    x * z,
-    y * z,
-    x2 * y,
-    x * y2,
-    x2 * z,
-    x * z2,
-    y2 * z,
-    y * z2,
-    x2 * y2,
-    x2 * z2,
-    y2 * z2,
-  ];
-}
-
-function centralMatrix(ux: number, uy: number, uz: number): number[][] {
-  const rows = Array.from({ length: Q }, () => new Array<number>(Q));
-  for (let direction = 0; direction < Q; direction++) {
-    const values = momentRow(direction, ux, uy, uz);
-    for (let moment = 0; moment < Q; moment++) rows[moment][direction] = values[moment];
-  }
-  return rows;
-}
-
-function solveReal(matrix: number[][], rhs: ArrayLike<number>): Float64Array {
-  const n = matrix.length;
-  const augmented = matrix.map((row, index) => [...row, rhs[index]]);
-  for (let pivot = 0; pivot < n; pivot++) {
-    let best = pivot;
-    for (let row = pivot + 1; row < n; row++) {
-      if (Math.abs(augmented[row][pivot]) > Math.abs(augmented[best][pivot])) best = row;
-    }
-    if (Math.abs(augmented[best][pivot]) < 1e-14) throw new Error('singular central-moment basis');
-    [augmented[pivot], augmented[best]] = [augmented[best], augmented[pivot]];
-    const diagonal = augmented[pivot][pivot];
-    for (let column = pivot; column <= n; column++) augmented[pivot][column] /= diagonal;
-    for (let row = 0; row < n; row++) {
-      if (row === pivot) continue;
-      const factor = augmented[row][pivot];
-      for (let column = pivot; column <= n; column++) {
-        augmented[row][column] -= factor * augmented[pivot][column];
-      }
-    }
-  }
-  return Float64Array.from(augmented, (row) => row[n]);
-}
-
-function equilibriumMoments(rho: number): Float64Array {
-  const result = new Float64Array(Q);
-  result[0] = rho;
-  result[4] = 3 * rho * CS2;
-  result[16] = rho * CS4;
-  result[17] = rho * CS4;
-  result[18] = rho * CS4;
-  return result;
-}
-
 function equilibriumCentral(rho: number, ux: number, uy: number, uz: number): Float64Array {
-  return solveReal(centralMatrix(ux, uy, uz), equilibriumMoments(rho));
+  return equilibriumD3Q19CentralAuthority(rho, ux, uy, uz);
 }
 
 function rawConserved(populations: ArrayLike<number>): [number, number, number, number] {
-  let rho = 0;
-  let mx = 0;
-  let my = 0;
-  let mz = 0;
-  for (let direction = 0; direction < Q; direction++) {
-    const value = populations[direction];
-    rho += value;
-    mx += D3Q19.ex[direction] * value;
-    my += D3Q19.ey[direction] * value;
-    mz += D3Q19.ez[direction] * value;
-  }
-  return [rho, mx, my, mz];
+  return conservedD3Q19Authority(populations);
 }
 
 function collideCentral(populations: Float64Array, tau: number): void {
-  const [rho, mx, my, mz] = rawConserved(populations);
-  const ux = mx / rho;
-  const uy = my / rho;
-  const uz = mz / rho;
-  const transform = centralMatrix(ux, uy, uz);
-  const moments = new Float64Array(Q);
-  for (let moment = 0; moment < Q; moment++) {
-    for (let direction = 0; direction < Q; direction++) {
-      moments[moment] += transform[moment][direction] * populations[direction];
-    }
-  }
-  const equilibrium = equilibriumMoments(rho);
-  const post = new Float64Array(moments);
-  // Conserved central moments 0..3 are retained exactly. Bulk (4) and all moments above
-  // the five shear modes (5..9) are equilibrated with the published fixed unit rate.
-  post[4] = equilibrium[4];
-  const omega = 1 / tau;
-  for (let moment = 5; moment <= 9; moment++) {
-    post[moment] += omega * (equilibrium[moment] - post[moment]);
-  }
-  for (let moment = 10; moment < Q; moment++) post[moment] = equilibrium[moment];
-  const reconstructed = solveReal(transform, post);
-  populations.set(reconstructed);
-  let rhoOut = 0;
-  for (const value of populations) rhoOut += value;
-  populations[0] += rho - rhoOut;
+  collideD3Q19CentralAuthority(populations, { tau0: tau });
 }
 
 function collisionJacobian(
@@ -1591,6 +1494,23 @@ describe.sequential('D3Q19 central-moment architecture eigen gate', () => {
       longControl: modeResult(16, 0, 1, entry.tau, entry.backgroundU),
     }));
 
+    const qualificationCases = COLLISION_QUALIFICATION_MANIFEST.matrix.tau.flatMap((tau) =>
+      COLLISION_QUALIFICATION_MANIFEST.matrix.backgroundVelocity.flatMap((backgroundU) =>
+        ([0, 1, 2] as const).flatMap((waveAxis) =>
+          ([0, 1, 2] as const)
+            .filter((polarizationAxis) => polarizationAxis !== waveAxis)
+            .map((polarizationAxis) => ({
+              tau,
+              backgroundU,
+              waveAxis,
+              polarizationAxis,
+              target: modeResult(3.2, waveAxis, polarizationAxis, tau, backgroundU),
+              control: modeResult(8, waveAxis, polarizationAxis, tau, backgroundU),
+            })),
+        ),
+      ),
+    );
+
     let transverseDegeneracyMaxDistance = 0;
     let cyclicOperatorMaxDistance = 0;
     const targetK = (2 * Math.PI) / 3.2;
@@ -1651,6 +1571,16 @@ describe.sequential('D3Q19 central-moment architecture eigen gate', () => {
       longControlConstitutive: matrix.every(
         (entry) => Math.abs(entry.longControl.piOverHydroAmplitude - 1) <= 0.02,
       ),
+      frozenLinearFinite: qualificationCases.every(
+        (entry) => entry.target.finite && entry.control.finite,
+      ),
+      frozenLinearAmplification: qualificationCases.every(
+        (entry) =>
+          entry.target.maxSpectrumAmplitude <=
+            COLLISION_QUALIFICATION_MANIFEST.thresholds.linearGainMax + 1e-10 &&
+          entry.control.maxSpectrumAmplitude <=
+            COLLISION_QUALIFICATION_MANIFEST.thresholds.linearGainMax + 1e-10,
+      ),
     };
     artifact = {
       artifactSchema: 'aeroflow-d3q19-central-moment-eigen-proof-v1',
@@ -1674,6 +1604,7 @@ describe.sequential('D3Q19 central-moment architecture eigen gate', () => {
         transverseDegeneracyMaxDistance,
       },
       cases: matrix,
+      qualificationCases,
       gates,
       passed: Object.values(gates).every(Boolean),
     };

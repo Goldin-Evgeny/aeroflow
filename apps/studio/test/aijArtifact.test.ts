@@ -30,6 +30,11 @@ function hook(): NonNullable<AeroflowHooks['aij']> {
       precision: 'fp32',
       collision: 'trt',
       outlet: 'zero-gradient',
+      outletPolicyId: 'near-floor-outlet/V12/v1',
+      policyOutlet: 'zero-gradient',
+      outletConfigurationKind: 'acceptance',
+      physicsVerdictAllowed: true,
+      configurationFingerprint: 'fnv1a32:test',
       boundaryMassLedger: true,
     },
     phase: 'evaluation',
@@ -104,5 +109,23 @@ describe('Case A/fetch health-gated artifacts', () => {
       reason: 'numerical-health-unevaluated',
       metrics: { maximumRelativeError: 0.04, measuredState: 'pass' },
     });
+  });
+
+  it('keeps rows but suppresses a healthy diagnostic outlet override', async () => {
+    const state = hook();
+    state.materialConfiguration = {
+      ...state.materialConfiguration,
+      outlet: 'pressure',
+      outletConfigurationKind: 'diagnostic-override',
+      physicsVerdictAllowed: false,
+    };
+    const saved = await write(state);
+    expect(saved.verdicts.numericalHealth.state).toBe('pass');
+    expect(saved.verdicts.physicsTarget).toMatchObject({
+      state: 'unevaluated',
+      reason: 'diagnostic-outlet-override',
+      metrics: { maximumRelativeError: 0.04, measuredState: 'pass' },
+    });
+    expect(saved.evidence.detailed).toMatchObject({ rows: [{ y: 2, sim: 0.96, ref: 1 }] });
   });
 });

@@ -1,4 +1,4 @@
-import type { ForceHistoryState } from '@aeroflow/core';
+import type { CollisionOperatorId, ForceHistoryState, Outlet3D } from '@aeroflow/core';
 import type { Precision } from '../gpu/ddfLayout';
 
 /**
@@ -19,11 +19,21 @@ export const DEFAULT_CHUNK_BYTES = 64 * 1024 * 1024;
 export type CheckpointSlot = 'A' | 'B';
 export const LATEST_KEY = 'latest';
 
+export interface CheckpointMaterialIdentity {
+  outlet: Outlet3D;
+  outletPolicyId: string;
+  /** Optional only for historical checkpoints written before collision qualification. */
+  collisionPolicyId?: string;
+  collisionOperatorId?: CollisionOperatorId;
+}
+
 export interface CheckpointMeta {
   version: number;
   /** Scene identity + options blob the page uses to rebuild the identical sim. */
   sceneId: string;
   sceneOptions: unknown;
+  /** Optional for historical/non-validation checkpoints; required by near-floor scored runs. */
+  materialIdentity?: CheckpointMaterialIdentity;
   nx: number;
   ny: number;
   nz: number;
@@ -90,6 +100,7 @@ export function validateMetaAgainst(
   sim: { nx: number; ny: number; nz: number; precision: Precision },
   ddfBufferSizes: number[],
   expectedSceneId?: string,
+  expectedMaterialIdentity?: CheckpointMaterialIdentity,
 ): void {
   if (meta.version !== CHECKPOINT_VERSION) {
     throw new Error(`checkpoint version ${meta.version} ≠ ${CHECKPOINT_VERSION}`);
@@ -104,6 +115,37 @@ export function validateMetaAgainst(
   }
   if (expectedSceneId !== undefined && meta.sceneId !== expectedSceneId) {
     throw new Error(`checkpoint scene ${meta.sceneId} ≠ expected ${expectedSceneId}`);
+  }
+  if (expectedMaterialIdentity !== undefined) {
+    if (!meta.materialIdentity) {
+      throw new Error('checkpoint outlet policy identity is missing');
+    }
+    if (meta.materialIdentity.outlet !== expectedMaterialIdentity.outlet) {
+      throw new Error(
+        `checkpoint outlet ${meta.materialIdentity.outlet} ≠ expected ${expectedMaterialIdentity.outlet}`,
+      );
+    }
+    if (meta.materialIdentity.outletPolicyId !== expectedMaterialIdentity.outletPolicyId) {
+      throw new Error(
+        `checkpoint outlet policy ${meta.materialIdentity.outletPolicyId} ≠ expected ${expectedMaterialIdentity.outletPolicyId}`,
+      );
+    }
+    if (
+      expectedMaterialIdentity.collisionPolicyId !== undefined &&
+      meta.materialIdentity.collisionPolicyId !== expectedMaterialIdentity.collisionPolicyId
+    ) {
+      throw new Error(
+        `checkpoint collision policy ${String(meta.materialIdentity.collisionPolicyId)} ≠ expected ${expectedMaterialIdentity.collisionPolicyId}`,
+      );
+    }
+    if (
+      expectedMaterialIdentity.collisionOperatorId !== undefined &&
+      meta.materialIdentity.collisionOperatorId !== expectedMaterialIdentity.collisionOperatorId
+    ) {
+      throw new Error(
+        `checkpoint collision operator ${String(meta.materialIdentity.collisionOperatorId)} ≠ expected ${expectedMaterialIdentity.collisionOperatorId}`,
+      );
+    }
   }
   if (
     meta.ddfBufferSizes.length !== ddfBufferSizes.length ||

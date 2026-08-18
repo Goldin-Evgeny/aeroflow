@@ -1,0 +1,979 @@
+{
+  "schemaVersion": 1,
+  "runId": "2026-08-18-pressure-outlet-qualification",
+  "generatedAt": "2026-08-18T11:04:25.960Z",
+  "command": "AEROFLOW_PRESSURE_QUALIFICATION=1 AEROFLOW_RUN_ID=2026-08-18-pressure-outlet-qualification npx vitest run packages/core/test/pressureOutletQualificationEvidence.test.ts",
+  "durationMs": 5355.7845,
+  "hardware": {
+    "backend": "CPU Float64; GPU arms require browser opt-in runner"
+  },
+  "provenance": {
+    "revision": "c63d503",
+    "dirty": true,
+    "diffSha256": "8de3b43fefde11f66a1920055989ed1ca5998d7e607965514fc95f231df957f7",
+    "files": [
+      "apps/studio/e2e/helpers/aijArtifact.ts",
+      "apps/studio/e2e/helpers/urbanArtifact.ts",
+      "apps/studio/src/sim/ahmedRun.ts",
+      "apps/studio/src/sim/cases/aijCaseA.ts",
+      "apps/studio/src/sim/cases/aijUrban.ts",
+      "apps/studio/src/sim/checkpoint.ts",
+      "apps/studio/src/sim/checkpointFormat.ts",
+      "apps/studio/src/ui/aij.ts",
+      "apps/studio/src/ui/aijUrban.ts",
+      "apps/studio/test/aijArtifact.test.ts",
+      "apps/studio/test/checkpointFormat.test.ts",
+      "packages/core/src/index.ts",
+      "packages/core/src/validation/aijUrbanReport.ts",
+      "packages/core/test/aijUrbanReport.test.ts",
+      "packages/core/test/harness/outletFeedbackDiscriminator.ts",
+      "openspec/changes/qualify-pressure-outlet-for-near-floor-validation/",
+      "packages/core/src/validation/outletPolicy.ts",
+      "packages/core/src/validation/outletQualification.ts",
+      "packages/core/test/harness/pressureOutletQualification.ts",
+      "packages/core/test/outletPolicy.test.ts",
+      "packages/core/test/outletQualification.test.ts",
+      "packages/core/test/pressureOutletQualificationEvidence.test.ts"
+    ]
+  },
+  "manifest": {
+    "id": "near-floor-pressure-qualification/v1",
+    "outlet": "pressure",
+    "frozenBeforeEvidence": true,
+    "thresholds": {
+      "cpuGpuRelativeMax": 0.000001,
+      "sameConfigurationRepeatabilityMax": 1e-12,
+      "boundaryFluxClosureAbsMax": 0.001
+    },
+    "arms": [
+      {
+        "id": "empty-legacy-cpu-a",
+        "caseIds": [
+          "V11",
+          "V12",
+          "V13",
+          "V14",
+          "V15"
+        ],
+        "sceneFamily": "empty-tunnel",
+        "backend": "cpu-f64",
+        "closure": "legacy",
+        "boundaryLayout": "near-floor-free-slip-complete-shell",
+        "relaxation": {
+          "tau0": 0.5000005,
+          "lesCs": 0.1
+        },
+        "exposureSteps": 3600,
+        "requiredAxes": [
+          "execution",
+          "numerical-health",
+          "conservation"
+        ],
+        "healthPolicyCaseId": "V12",
+        "checkpointResume": false,
+        "boundedPhysicsOnly": true,
+        "configurationFingerprint": "fnv1a32:e73ce70a"
+      },
+      {
+        "id": "empty-legacy-cpu-repeat",
+        "caseIds": [
+          "V11",
+          "V12",
+          "V13",
+          "V14",
+          "V15"
+        ],
+        "sceneFamily": "empty-tunnel",
+        "backend": "cpu-f64",
+        "closure": "legacy",
+        "boundaryLayout": "near-floor-free-slip-complete-shell",
+        "relaxation": {
+          "tau0": 0.5000005,
+          "lesCs": 0.1
+        },
+        "exposureSteps": 3600,
+        "requiredAxes": [
+          "execution",
+          "numerical-health",
+          "conservation",
+          "parity"
+        ],
+        "healthPolicyCaseId": "V12",
+        "checkpointResume": false,
+        "boundedPhysicsOnly": true,
+        "configurationFingerprint": "fnv1a32:e73ce70a"
+      },
+      {
+        "id": "empty-spec-cpu-a",
+        "caseIds": [
+          "V11",
+          "V12",
+          "V13",
+          "V14",
+          "V15"
+        ],
+        "sceneFamily": "empty-tunnel",
+        "backend": "cpu-f64",
+        "closure": "spec",
+        "boundaryLayout": "near-floor-free-slip-complete-shell",
+        "relaxation": {
+          "tau0": 0.5000005,
+          "lesCs": 0.1
+        },
+        "exposureSteps": 3600,
+        "requiredAxes": [
+          "execution",
+          "numerical-health",
+          "conservation"
+        ],
+        "healthPolicyCaseId": "V12",
+        "checkpointResume": false,
+        "boundedPhysicsOnly": true,
+        "configurationFingerprint": "fnv1a32:e2325c2e"
+      },
+      {
+        "id": "empty-spec-cpu-repeat",
+        "caseIds": [
+          "V11",
+          "V12",
+          "V13",
+          "V14",
+          "V15"
+        ],
+        "sceneFamily": "empty-tunnel",
+        "backend": "cpu-f64",
+        "closure": "spec",
+        "boundaryLayout": "near-floor-free-slip-complete-shell",
+        "relaxation": {
+          "tau0": 0.5000005,
+          "lesCs": 0.1
+        },
+        "exposureSteps": 3600,
+        "requiredAxes": [
+          "execution",
+          "numerical-health",
+          "conservation",
+          "parity"
+        ],
+        "healthPolicyCaseId": "V12",
+        "checkpointResume": false,
+        "boundedPhysicsOnly": true,
+        "configurationFingerprint": "fnv1a32:e2325c2e"
+      },
+      {
+        "id": "ahmed-body-gpu",
+        "caseIds": [
+          "V11"
+        ],
+        "sceneFamily": "ahmed-body",
+        "backend": "gpu-f32",
+        "closure": "legacy",
+        "boundaryLayout": "freestream-lateral-velocity-inlet-no-slip-ground",
+        "relaxation": {
+          "tau0": 0.5000005,
+          "lesCs": 0.1
+        },
+        "exposureSteps": 400,
+        "requiredAxes": [
+          "execution",
+          "numerical-health",
+          "conservation"
+        ],
+        "healthPolicyCaseId": "V12",
+        "checkpointResume": false,
+        "boundedPhysicsOnly": true,
+        "configurationFingerprint": "fnv1a32:6bb45d92"
+      },
+      {
+        "id": "abl-fetch-gpu",
+        "caseIds": [
+          "V12"
+        ],
+        "sceneFamily": "abl-fetch",
+        "backend": "gpu-f32",
+        "closure": "legacy",
+        "boundaryLayout": "abl-velocity-inlet-free-slip-lateral-no-slip-ground",
+        "relaxation": {
+          "tau0": 0.5000005,
+          "lesCs": 0.1
+        },
+        "exposureSteps": 400,
+        "requiredAxes": [
+          "execution",
+          "numerical-health",
+          "conservation"
+        ],
+        "healthPolicyCaseId": "V12",
+        "checkpointResume": false,
+        "boundedPhysicsOnly": true,
+        "configurationFingerprint": "fnv1a32:3dc88ac2"
+      },
+      {
+        "id": "aij-case-a-gpu",
+        "caseIds": [
+          "V13"
+        ],
+        "sceneFamily": "aij-case-a",
+        "backend": "gpu-f32",
+        "closure": "legacy",
+        "boundaryLayout": "case-a-acceptance-tier-shell",
+        "relaxation": {
+          "tau0": 0.5000005,
+          "lesCs": 0.1
+        },
+        "exposureSteps": 400,
+        "requiredAxes": [
+          "execution",
+          "numerical-health",
+          "conservation"
+        ],
+        "healthPolicyCaseId": "V13",
+        "checkpointResume": false,
+        "boundedPhysicsOnly": true,
+        "configurationFingerprint": "fnv1a32:f6fcd45b"
+      },
+      {
+        "id": "urban-case-c-gpu-resume",
+        "caseIds": [
+          "V14"
+        ],
+        "sceneFamily": "urban-case-c",
+        "backend": "gpu-f32",
+        "closure": "legacy",
+        "boundaryLayout": "case-c-acceptance-tier-shell",
+        "relaxation": {
+          "tau0": 0.5000005,
+          "lesCs": 0.1
+        },
+        "exposureSteps": 400,
+        "requiredAxes": [
+          "execution",
+          "numerical-health",
+          "conservation"
+        ],
+        "healthPolicyCaseId": "V14",
+        "checkpointResume": true,
+        "boundedPhysicsOnly": true,
+        "configurationFingerprint": "fnv1a32:da6793fb"
+      },
+      {
+        "id": "near-floor-pressure-cpu-gpu-parity",
+        "caseIds": [
+          "V11",
+          "V12",
+          "V13",
+          "V14",
+          "V15"
+        ],
+        "sceneFamily": "near-floor-parity",
+        "backend": "gpu-f32",
+        "closure": "legacy",
+        "boundaryLayout": "near-floor-free-slip-complete-shell",
+        "relaxation": {
+          "tau0": 0.5000005,
+          "lesCs": 0.1
+        },
+        "exposureSteps": 100,
+        "requiredAxes": [
+          "execution",
+          "numerical-health",
+          "conservation",
+          "parity"
+        ],
+        "healthPolicyCaseId": "V12",
+        "checkpointResume": false,
+        "boundedPhysicsOnly": true,
+        "configurationFingerprint": "fnv1a32:46be7f96"
+      }
+    ]
+  },
+  "evidence": [
+    {
+      "armId": "empty-legacy-cpu-a",
+      "configurationFingerprint": "fnv1a32:e73ce70a",
+      "axes": {
+        "execution": {
+          "state": "pass",
+          "metrics": {
+            "completedSteps": 3600,
+            "requiredSteps": 3600,
+            "divergenceStep": null,
+            "rawConfigurationFingerprint": "1ffd65de38a073f3e8daf5877f89d50325212a1d9478b47abcf4397ff2f27778"
+          }
+        },
+        "numerical-health": {
+          "state": "fail",
+          "metrics": {
+            "densityMin": 0.993645919208365,
+            "densityMax": 1.010793190926568,
+            "relativeMassDrift": 0.0012181086705016497,
+            "boundaryFluxClosure": 9.566421728853433e-15
+          }
+        },
+        "conservation": {
+          "state": "pass",
+          "metrics": {
+            "value": 9.566421728853433e-15,
+            "limit": 0.001
+          }
+        }
+      },
+      "boundedMeasurements": {
+        "finalMass": 240.2923460809204,
+        "densityMean": 1.0012181086705016,
+        "tauEffMean": 0.5069557524936644,
+        "tauEffMax": 0.5172617111902307
+      }
+    },
+    {
+      "armId": "empty-legacy-cpu-repeat",
+      "configurationFingerprint": "fnv1a32:e73ce70a",
+      "axes": {
+        "execution": {
+          "state": "pass",
+          "metrics": {
+            "completedSteps": 3600,
+            "requiredSteps": 3600,
+            "divergenceStep": null,
+            "rawConfigurationFingerprint": "1ffd65de38a073f3e8daf5877f89d50325212a1d9478b47abcf4397ff2f27778"
+          }
+        },
+        "numerical-health": {
+          "state": "fail",
+          "metrics": {
+            "densityMin": 0.993645919208365,
+            "densityMax": 1.010793190926568,
+            "relativeMassDrift": 0.0012181086705016497,
+            "boundaryFluxClosure": 9.566421728853433e-15
+          }
+        },
+        "conservation": {
+          "state": "pass",
+          "metrics": {
+            "value": 9.566421728853433e-15,
+            "limit": 0.001
+          }
+        },
+        "parity": {
+          "state": "pass",
+          "metrics": {
+            "maximumRelative": 0,
+            "limit": 1e-12,
+            "comparedWith": "empty-legacy-cpu-a"
+          }
+        }
+      },
+      "boundedMeasurements": {
+        "finalMass": 240.2923460809204,
+        "densityMean": 1.0012181086705016,
+        "tauEffMean": 0.5069557524936644,
+        "tauEffMax": 0.5172617111902307
+      }
+    },
+    {
+      "armId": "empty-spec-cpu-a",
+      "configurationFingerprint": "fnv1a32:e2325c2e",
+      "axes": {
+        "execution": {
+          "state": "pass",
+          "metrics": {
+            "completedSteps": 3600,
+            "requiredSteps": 3600,
+            "divergenceStep": null,
+            "rawConfigurationFingerprint": "5f09c4800d7be1a1bdb13a4faf6db1f00f7dac8a08779051942fa8d1a60c5bfa"
+          }
+        },
+        "numerical-health": {
+          "state": "fail",
+          "metrics": {
+            "densityMin": 0.9973299546529164,
+            "densityMax": 1.0153852831221823,
+            "relativeMassDrift": 0.0019774104226126356,
+            "boundaryFluxClosure": 9.08879453180115e-15
+          }
+        },
+        "conservation": {
+          "state": "pass",
+          "metrics": {
+            "value": 9.08879453180115e-15,
+            "limit": 0.001
+          }
+        }
+      },
+      "boundedMeasurements": {
+        "finalMass": 240.47457850142703,
+        "densityMean": 1.0019774104226127,
+        "tauEffMean": 0.5070046939482131,
+        "tauEffMax": 0.5141325711075468
+      }
+    },
+    {
+      "armId": "empty-spec-cpu-repeat",
+      "configurationFingerprint": "fnv1a32:e2325c2e",
+      "axes": {
+        "execution": {
+          "state": "pass",
+          "metrics": {
+            "completedSteps": 3600,
+            "requiredSteps": 3600,
+            "divergenceStep": null,
+            "rawConfigurationFingerprint": "5f09c4800d7be1a1bdb13a4faf6db1f00f7dac8a08779051942fa8d1a60c5bfa"
+          }
+        },
+        "numerical-health": {
+          "state": "fail",
+          "metrics": {
+            "densityMin": 0.9973299546529164,
+            "densityMax": 1.0153852831221823,
+            "relativeMassDrift": 0.0019774104226126356,
+            "boundaryFluxClosure": 9.08879453180115e-15
+          }
+        },
+        "conservation": {
+          "state": "pass",
+          "metrics": {
+            "value": 9.08879453180115e-15,
+            "limit": 0.001
+          }
+        },
+        "parity": {
+          "state": "pass",
+          "metrics": {
+            "maximumRelative": 0,
+            "limit": 1e-12,
+            "comparedWith": "empty-spec-cpu-a"
+          }
+        }
+      },
+      "boundedMeasurements": {
+        "finalMass": 240.47457850142703,
+        "densityMean": 1.0019774104226127,
+        "tauEffMean": 0.5070046939482131,
+        "tauEffMax": 0.5141325711075468
+      }
+    },
+    {
+      "armId": "ahmed-body-gpu",
+      "configurationFingerprint": "fnv1a32:6bb45d92",
+      "axes": {
+        "execution": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        },
+        "numerical-health": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        },
+        "conservation": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        }
+      },
+      "boundedMeasurements": {}
+    },
+    {
+      "armId": "abl-fetch-gpu",
+      "configurationFingerprint": "fnv1a32:3dc88ac2",
+      "axes": {
+        "execution": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        },
+        "numerical-health": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        },
+        "conservation": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        }
+      },
+      "boundedMeasurements": {}
+    },
+    {
+      "armId": "aij-case-a-gpu",
+      "configurationFingerprint": "fnv1a32:f6fcd45b",
+      "axes": {
+        "execution": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        },
+        "numerical-health": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        },
+        "conservation": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        }
+      },
+      "boundedMeasurements": {}
+    },
+    {
+      "armId": "urban-case-c-gpu-resume",
+      "configurationFingerprint": "fnv1a32:da6793fb",
+      "axes": {
+        "execution": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        },
+        "numerical-health": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        },
+        "conservation": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        }
+      },
+      "boundedMeasurements": {}
+    },
+    {
+      "armId": "near-floor-pressure-cpu-gpu-parity",
+      "configurationFingerprint": "fnv1a32:46be7f96",
+      "axes": {
+        "execution": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        },
+        "numerical-health": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        },
+        "conservation": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        },
+        "parity": {
+          "state": "unavailable",
+          "reason": "GPU qualification arm requires the opt-in browser runner",
+          "metrics": {}
+        }
+      },
+      "boundedMeasurements": {}
+    }
+  ],
+  "result": {
+    "manifestId": "near-floor-pressure-qualification/v1",
+    "status": "failed",
+    "reasons": [
+      {
+        "code": "axis-failed",
+        "armId": "empty-legacy-cpu-a",
+        "axis": "numerical-health",
+        "detail": "numerical-health gate failed"
+      },
+      {
+        "code": "axis-failed",
+        "armId": "empty-legacy-cpu-repeat",
+        "axis": "numerical-health",
+        "detail": "numerical-health gate failed"
+      },
+      {
+        "code": "axis-failed",
+        "armId": "empty-spec-cpu-a",
+        "axis": "numerical-health",
+        "detail": "numerical-health gate failed"
+      },
+      {
+        "code": "axis-failed",
+        "armId": "empty-spec-cpu-repeat",
+        "axis": "numerical-health",
+        "detail": "numerical-health gate failed"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "ahmed-body-gpu",
+        "axis": "execution",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "ahmed-body-gpu",
+        "axis": "numerical-health",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "ahmed-body-gpu",
+        "axis": "conservation",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "abl-fetch-gpu",
+        "axis": "execution",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "abl-fetch-gpu",
+        "axis": "numerical-health",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "abl-fetch-gpu",
+        "axis": "conservation",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "aij-case-a-gpu",
+        "axis": "execution",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "aij-case-a-gpu",
+        "axis": "numerical-health",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "aij-case-a-gpu",
+        "axis": "conservation",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "urban-case-c-gpu-resume",
+        "axis": "execution",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "urban-case-c-gpu-resume",
+        "axis": "numerical-health",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "urban-case-c-gpu-resume",
+        "axis": "conservation",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "near-floor-pressure-cpu-gpu-parity",
+        "axis": "execution",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "near-floor-pressure-cpu-gpu-parity",
+        "axis": "numerical-health",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "near-floor-pressure-cpu-gpu-parity",
+        "axis": "conservation",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      },
+      {
+        "code": "axis-unavailable",
+        "armId": "near-floor-pressure-cpu-gpu-parity",
+        "axis": "parity",
+        "detail": "GPU qualification arm requires the opt-in browser runner"
+      }
+    ],
+    "arms": [
+      {
+        "armId": "empty-legacy-cpu-a",
+        "configurationFingerprint": "fnv1a32:e73ce70a",
+        "axes": {
+          "execution": {
+            "state": "pass",
+            "metrics": {
+              "completedSteps": 3600,
+              "requiredSteps": 3600,
+              "divergenceStep": null,
+              "rawConfigurationFingerprint": "1ffd65de38a073f3e8daf5877f89d50325212a1d9478b47abcf4397ff2f27778"
+            }
+          },
+          "numerical-health": {
+            "state": "fail",
+            "metrics": {
+              "densityMin": 0.993645919208365,
+              "densityMax": 1.010793190926568,
+              "relativeMassDrift": 0.0012181086705016497,
+              "boundaryFluxClosure": 9.566421728853433e-15
+            }
+          },
+          "conservation": {
+            "state": "pass",
+            "metrics": {
+              "value": 9.566421728853433e-15,
+              "limit": 0.001
+            }
+          }
+        },
+        "boundedMeasurements": {
+          "finalMass": 240.2923460809204,
+          "densityMean": 1.0012181086705016,
+          "tauEffMean": 0.5069557524936644,
+          "tauEffMax": 0.5172617111902307
+        }
+      },
+      {
+        "armId": "empty-legacy-cpu-repeat",
+        "configurationFingerprint": "fnv1a32:e73ce70a",
+        "axes": {
+          "execution": {
+            "state": "pass",
+            "metrics": {
+              "completedSteps": 3600,
+              "requiredSteps": 3600,
+              "divergenceStep": null,
+              "rawConfigurationFingerprint": "1ffd65de38a073f3e8daf5877f89d50325212a1d9478b47abcf4397ff2f27778"
+            }
+          },
+          "numerical-health": {
+            "state": "fail",
+            "metrics": {
+              "densityMin": 0.993645919208365,
+              "densityMax": 1.010793190926568,
+              "relativeMassDrift": 0.0012181086705016497,
+              "boundaryFluxClosure": 9.566421728853433e-15
+            }
+          },
+          "conservation": {
+            "state": "pass",
+            "metrics": {
+              "value": 9.566421728853433e-15,
+              "limit": 0.001
+            }
+          },
+          "parity": {
+            "state": "pass",
+            "metrics": {
+              "maximumRelative": 0,
+              "limit": 1e-12,
+              "comparedWith": "empty-legacy-cpu-a"
+            }
+          }
+        },
+        "boundedMeasurements": {
+          "finalMass": 240.2923460809204,
+          "densityMean": 1.0012181086705016,
+          "tauEffMean": 0.5069557524936644,
+          "tauEffMax": 0.5172617111902307
+        }
+      },
+      {
+        "armId": "empty-spec-cpu-a",
+        "configurationFingerprint": "fnv1a32:e2325c2e",
+        "axes": {
+          "execution": {
+            "state": "pass",
+            "metrics": {
+              "completedSteps": 3600,
+              "requiredSteps": 3600,
+              "divergenceStep": null,
+              "rawConfigurationFingerprint": "5f09c4800d7be1a1bdb13a4faf6db1f00f7dac8a08779051942fa8d1a60c5bfa"
+            }
+          },
+          "numerical-health": {
+            "state": "fail",
+            "metrics": {
+              "densityMin": 0.9973299546529164,
+              "densityMax": 1.0153852831221823,
+              "relativeMassDrift": 0.0019774104226126356,
+              "boundaryFluxClosure": 9.08879453180115e-15
+            }
+          },
+          "conservation": {
+            "state": "pass",
+            "metrics": {
+              "value": 9.08879453180115e-15,
+              "limit": 0.001
+            }
+          }
+        },
+        "boundedMeasurements": {
+          "finalMass": 240.47457850142703,
+          "densityMean": 1.0019774104226127,
+          "tauEffMean": 0.5070046939482131,
+          "tauEffMax": 0.5141325711075468
+        }
+      },
+      {
+        "armId": "empty-spec-cpu-repeat",
+        "configurationFingerprint": "fnv1a32:e2325c2e",
+        "axes": {
+          "execution": {
+            "state": "pass",
+            "metrics": {
+              "completedSteps": 3600,
+              "requiredSteps": 3600,
+              "divergenceStep": null,
+              "rawConfigurationFingerprint": "5f09c4800d7be1a1bdb13a4faf6db1f00f7dac8a08779051942fa8d1a60c5bfa"
+            }
+          },
+          "numerical-health": {
+            "state": "fail",
+            "metrics": {
+              "densityMin": 0.9973299546529164,
+              "densityMax": 1.0153852831221823,
+              "relativeMassDrift": 0.0019774104226126356,
+              "boundaryFluxClosure": 9.08879453180115e-15
+            }
+          },
+          "conservation": {
+            "state": "pass",
+            "metrics": {
+              "value": 9.08879453180115e-15,
+              "limit": 0.001
+            }
+          },
+          "parity": {
+            "state": "pass",
+            "metrics": {
+              "maximumRelative": 0,
+              "limit": 1e-12,
+              "comparedWith": "empty-spec-cpu-a"
+            }
+          }
+        },
+        "boundedMeasurements": {
+          "finalMass": 240.47457850142703,
+          "densityMean": 1.0019774104226127,
+          "tauEffMean": 0.5070046939482131,
+          "tauEffMax": 0.5141325711075468
+        }
+      },
+      {
+        "armId": "ahmed-body-gpu",
+        "configurationFingerprint": "fnv1a32:6bb45d92",
+        "axes": {
+          "execution": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          },
+          "numerical-health": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          },
+          "conservation": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          }
+        },
+        "boundedMeasurements": {}
+      },
+      {
+        "armId": "abl-fetch-gpu",
+        "configurationFingerprint": "fnv1a32:3dc88ac2",
+        "axes": {
+          "execution": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          },
+          "numerical-health": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          },
+          "conservation": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          }
+        },
+        "boundedMeasurements": {}
+      },
+      {
+        "armId": "aij-case-a-gpu",
+        "configurationFingerprint": "fnv1a32:f6fcd45b",
+        "axes": {
+          "execution": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          },
+          "numerical-health": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          },
+          "conservation": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          }
+        },
+        "boundedMeasurements": {}
+      },
+      {
+        "armId": "urban-case-c-gpu-resume",
+        "configurationFingerprint": "fnv1a32:da6793fb",
+        "axes": {
+          "execution": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          },
+          "numerical-health": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          },
+          "conservation": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          }
+        },
+        "boundedMeasurements": {}
+      },
+      {
+        "armId": "near-floor-pressure-cpu-gpu-parity",
+        "configurationFingerprint": "fnv1a32:46be7f96",
+        "axes": {
+          "execution": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          },
+          "numerical-health": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          },
+          "conservation": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          },
+          "parity": {
+            "state": "unavailable",
+            "reason": "GPU qualification arm requires the opt-in browser runner",
+            "metrics": {}
+          }
+        },
+        "boundedMeasurements": {}
+      }
+    ],
+    "boundedPhysicsVerdict": "not-evaluated"
+  }
+}

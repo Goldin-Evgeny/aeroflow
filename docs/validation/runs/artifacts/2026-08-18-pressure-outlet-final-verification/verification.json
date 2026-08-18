@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "runId": "2026-08-18-pressure-outlet-final-verification",
+  "generatedAt": "2026-08-18T11:22:38.348Z",
+  "change": "qualify-pressure-outlet-for-near-floor-validation",
+  "provenance": {
+    "revision": "2161477b3b0613a06d6f56ed08f81917220c20fd",
+    "dirty": true,
+    "changedFilesSha256": "55e2d4bc6cc23d8a93f553a9cdc7210cb4e26f27ea2f734aaad7fe011632830f",
+    "changedFileCount": 30
+  },
+  "results": {
+    "formatting": "pass",
+    "lint": "pass",
+    "typecheck": "pass",
+    "unit": {
+      "status": "pass",
+      "filesPassed": 95,
+      "filesSkipped": 1,
+      "testsPassed": 663,
+      "testsSkipped": 3,
+      "durationSeconds": 182.23
+    },
+    "aijBrowser": {
+      "status": "pass",
+      "testsPassed": 4
+    },
+    "pressureCpuGpuParity": {
+      "status": "pass",
+      "maxRelativeDensity": 6.86e-7,
+      "maxRelativeVelocity": 5.66e-6,
+      "relativeThreshold": 5e-5,
+      "massClosureRelative": 4.07e-7
+    },
+    "ahmedRecoveryCheckpoint": {
+      "status": "pass",
+      "testsPassed": 3,
+      "checkpointBitIdentical": true,
+      "urbanMismatchRejected": true
+    },
+    "openspecStrict": "pass",
+    "scopeAudit": "pass"
+  },
+  "qualification": {
+    "status": "failed",
+    "promotionApplied": false,
+    "reason": "The separately recorded 3600-step CPU pressure arms exceeded the frozen 0.1% mass-drift guard."
+  }
+}

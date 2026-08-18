@@ -46,6 +46,15 @@ const SCORE_POLL_TIMEOUT = 90 * 60_000;
 
 type Aij = NonNullable<Awaited<ReturnType<typeof readHooks>>['aij']>;
 
+function expectHealthyAijSnapshot(a: Aij): void {
+  expect(a.health, 'AIJ run must expose whole-field and complete-shell health').toBeDefined();
+  expect(a.health!.nonFiniteCells).toBe(0);
+  expect(a.health!.rhoMin).toBeGreaterThanOrEqual(0.5);
+  expect(a.health!.rhoMax).toBeLessThanOrEqual(1.5);
+  expect(Math.abs(a.health!.massDriftRel)).toBeLessThanOrEqual(1e-3);
+  expect(Math.abs(a.health!.boundaryFluxClosureRel)).toBeLessThanOrEqual(1e-3);
+}
+
 /** Format the convergence trace as a readable table for the run artifact. */
 function formatTrace(a: Aij | undefined): string {
   const t = a?.trace ?? [];
@@ -179,6 +188,7 @@ test('acceptance 3: empty-domain fetch gate ≤ 5% on the real grid', async ({
     body: JSON.stringify(a.fetchRows ?? null, null, 2),
     contentType: 'application/json',
   });
+  expectHealthyAijSnapshot(a);
   expect(a.fetchPass).toBe(true);
 });
 
@@ -216,6 +226,7 @@ test('acceptance 4: Case A hit rate q ≥ 0.66 and Pearson r ≥ 0.70 on the rea
   // Guard the guards: a verdict is only meaningful on real data at full resolution.
   expect(a.synthetic).toBe(false);
   expect(a.underResolved).toBe(false);
+  expectHealthyAijSnapshot(a);
   expect(a.q!).toBeGreaterThanOrEqual(0.66);
   expect(a.r!).toBeGreaterThanOrEqual(0.7);
 });
@@ -274,6 +285,7 @@ test('V13 Case A at 16 cells/b — recorded, not gated (resolution-convergence p
   // Real data, real grid — the two things that would make the recording meaningless.
   expect(a.synthetic).toBe(false);
   expect(a.underResolved).toBe(false);
+  expectHealthyAijSnapshot(a);
   // No band assertion: see the comment above.
   expect(a.q).toBeDefined();
   expect(a.r).toBeDefined();

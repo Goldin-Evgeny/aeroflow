@@ -1,6 +1,8 @@
 import {
   AIJ_CASE_A,
+  evaluateNumericalHealth,
   formatAijCitation,
+  numericalHealthPolicy,
   powerLawProfile,
   logLawProfile,
   type AblSpec,
@@ -356,6 +358,13 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
             )
             .join('\n');
         const pass = q >= CASE_A_GATES.q && rr >= CASE_A_GATES.r;
+        const health = evaluateNumericalHealth(numericalHealthPolicy('V13'), {
+          nonFiniteCells: r.health.nonFiniteCells,
+          densityMin: r.health.rhoMin,
+          densityMax: r.health.rhoMax,
+          relativeMassDrift: r.health.massDriftRel,
+          boundaryFluxClosure: r.health.boundaryFluxClosureRel,
+        });
         if (run.synthetic) {
           setVerdict(
             `SYNTHETIC pipeline check — q ${q.toFixed(3)}, r ${rr.toFixed(3)} (no verdict on fake data)`,
@@ -366,6 +375,11 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
           setVerdict(
             `UNDER-RESOLVED pipeline check (${MIN_CELLS_PER_B} cells/b required) — q ${q.toFixed(3)}, r ${rr.toFixed(3)} (no verdict)`,
             'warn',
+          );
+        } else if (health.state !== 'pass') {
+          setVerdict(
+            `NUMERICAL ${health.state.toUpperCase()} — measured ${pass ? 'in' : 'out of'} band: q ${q.toFixed(3)}, r ${rr.toFixed(3)} (no physics verdict)`,
+            health.state === 'fail' ? 'bad' : 'warn',
           );
         } else if (r.steady) {
           setVerdict(
@@ -387,7 +401,19 @@ export function mountAij(device: GPUDevice, caps: GpuCapabilities, root: HTMLEle
               return `${String(row.y).padEnd(8)} ${row.sim.toFixed(6)}   ${row.ref.toFixed(6)}   ${(rel * 100).toFixed(2)}%`;
             })
             .join('\n');
-        if (r.steady) {
+        const health = evaluateNumericalHealth(numericalHealthPolicy('V12'), {
+          nonFiniteCells: r.health.nonFiniteCells,
+          densityMin: r.health.rhoMin,
+          densityMax: r.health.rhoMax,
+          relativeMassDrift: r.health.massDriftRel,
+          boundaryFluxClosure: r.health.boundaryFluxClosureRel,
+        });
+        if (health.state !== 'pass') {
+          setVerdict(
+            `NUMERICAL ${health.state.toUpperCase()} — measured max deviation ${(r.fetch.maxRel * 100).toFixed(2)}% (no physics verdict)`,
+            health.state === 'fail' ? 'bad' : 'warn',
+          );
+        } else if (r.steady) {
           setVerdict(
             `${r.fetch.pass ? 'PASS' : 'FAIL'}  max deviation ${(r.fetch.maxRel * 100).toFixed(2)}% (gate ≤ 5%, node 2 → H)`,
             r.fetch.pass ? 'ok' : 'bad',

@@ -545,6 +545,18 @@ export function validateValidationRunArtifact(value: unknown): ValidationRunArti
     );
   }
   const physicsState = object(verdicts.physicsTarget, 'artifact.verdicts.physicsTarget').state;
+  const numericalState = object(
+    verdicts.numericalHealth,
+    'artifact.verdicts.numericalHealth',
+  ).state;
+  const acceptance = object(configuration.acceptance, 'artifact.configuration.acceptance');
+  if (
+    acceptance.numericalHealthPolicy !== undefined &&
+    (physicsState === 'pass' || physicsState === 'fail') &&
+    numericalState !== 'pass'
+  ) {
+    throw new Error('physics target verdict requires a passing declared numerical-health policy');
+  }
   if (
     (root.complete || physicsState === 'pass' || physicsState === 'fail') &&
     submittedStep !== completedStep

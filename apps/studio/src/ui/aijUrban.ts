@@ -1,6 +1,8 @@
 import {
   AIJ_DATA_PAPER,
   AIJ_DISCLAIMER,
+  evaluateNumericalHealth,
+  numericalHealthPolicy,
   type AijAttribution,
   type AijUrbanCaseId,
   type AijUrbanReport,
@@ -408,8 +410,27 @@ export function mountAijUrban(
     qMetric.textContent = formatMetric(report?.metrics.q);
     rMetric.textContent =
       current.data.caseId === 'C' ? 'not gated' : formatMetric(report?.metrics.r);
-    verdictMetric.textContent = report?.verdict.toUpperCase() ?? 'PENDING';
-    verdictMetric.className = report ? `urban-${report.verdict}` : '';
+    const terminalHealth = snapshot.health.at(-1);
+    const health = terminalHealth
+      ? evaluateNumericalHealth(
+          numericalHealthPolicy(current.data.caseId === 'C' ? 'V14' : 'V15'),
+          {
+            nonFiniteCells: terminalHealth.field.nonFiniteCells,
+            densityMin: terminalHealth.field.rhoMin,
+            densityMax: terminalHealth.field.rhoMax,
+            relativeMassDrift: terminalHealth.field.massDriftRel,
+            boundaryFluxClosure: terminalHealth.boundaryFluxClosureRel,
+          },
+        )
+      : undefined;
+    const publishableVerdict =
+      report && health?.state === 'pass' ? report.verdict : report ? 'suppressed' : undefined;
+    verdictMetric.textContent = report
+      ? publishableVerdict === 'suppressed' && report.verdict !== 'suppressed'
+        ? `MEASURED ${report.verdict.toUpperCase()} — NUM ${health?.state.toUpperCase() ?? 'UNEVALUATED'}`
+        : report.verdict.toUpperCase()
+      : 'PENDING';
+    verdictMetric.className = report ? `urban-${publishableVerdict}` : '';
     resolution.hidden = plan.acceptanceReady;
     resolutionTitle.textContent = plan.acceptanceReady
       ? 'Acceptance grid ready'
@@ -455,7 +476,7 @@ export function mountAijUrban(
       averagingFlowThroughs: snapshot.averagingFlowThroughs,
       q: report?.metrics.q,
       r: report?.metrics.r,
-      verdict: report?.verdict,
+      verdict: publishableVerdict,
       reportRows: report?.rows.length ?? 0,
       report,
       materialConfiguration: current.materialConfiguration(),

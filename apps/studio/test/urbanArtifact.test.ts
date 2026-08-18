@@ -174,7 +174,13 @@ describe('urban durable artifact', () => {
         { id: 'p2', measured: 1, simulated: 1, hit: true },
       ],
     });
+    expect(saved.verdicts.numericalHealth.state).toBe('pass');
     expect(saved.verdicts.physicsTarget.state).toBe('fail');
+    expect(saved.health[0].boundaryFluxClosure).toMatchObject({
+      state: 'evaluated',
+      limit: 0.001,
+      pass: true,
+    });
   });
 
   it('keeps an interrupted result classifiable without a page snapshot', async () => {

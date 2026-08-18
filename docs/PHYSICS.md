@@ -189,11 +189,14 @@ against 1.527). Its CPU authority and its GPU transliteration agree to 3.8×10�
 populations, but its periodic momentum gate fails at λ = 16: 7.678×10⁻⁵ against 5×10⁻⁵,
 concentrated in P_z. Streaming contributes exactly zero (it is a permutation) and collision
 contributes all of it. That gate is **unnormalized** on a 64-cell 1-D harness with |p| = 3.2,
-so it is a 1.6×10⁻⁵ relative bar for an f32 kernel over 120 steps, and P_z is identically
-zero by symmetry there — f32 reconstruction summing mirror directions in different orders is
-the natural explanation. **Q27 PRODUCTION MIGRATION: DEFERRED**, recorded as not yet
-demonstrated correct rather than demonstrated broken; before it is reopened the gate should
-be normalized and the drift tested for linear-in-steps growth against superlinear.
+so it is a 1.6×10⁻⁵ relative bar for an f32 kernel over 120 steps. The subsequent scaling
+artifact measured 60→120-step growth of **4.453×** at λ = 16 (fitted exponent ≈1.25), still
+carried entirely by collision with zero streaming contribution. That superlinear result
+supersedes the earlier mirror-direction summation-order explanation: defect
+`q27-mirror-rounding-explanation` is **SUPERSEDED**. It does not identify a replacement root
+cause, so `q27-periodic-momentum-drift` remains **OPEN**. **Q27 PRODUCTION MIGRATION:
+DEFERRED** until a normalized, precision-appropriate momentum gate passes step/wavelength
+scaling with CPU/GPU parity evidence. The operator itself is unchanged.
 
 ---
 

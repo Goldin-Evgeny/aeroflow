@@ -65,6 +65,8 @@ describe('near-floor factorial harness', () => {
     const sample = cell.lastSample;
     if (sample === null) throw new Error('unreachable');
     expect(sample.freestream.survivingCells).toBeGreaterThan(200);
+    expect(sample.boundaryInfluence.step).toBe(60);
+    expect(sample.analyticZero.largestSupportedDistance).toBeGreaterThanOrEqual(1);
     expect(Number.isFinite(sample.medianRatioSlope)).toBe(true);
     // The near-floor signature this whole change is about: ω⁺ ≈ 2 against a collapsed ω⁻.
     expect(sample.omegaPlus.max).toBeGreaterThan(1.5);
@@ -170,6 +172,8 @@ function summarize(result: Awaited<ReturnType<typeof runFactorial>>): string {
         c.label.padEnd(34),
         (c.finite ? 'FINITE' : `DIVERGED@${c.divergenceStep}`).padEnd(14),
         `steps=${String(c.stepsCompleted).padStart(6)}`,
+        `analyticZero=${c.lastSample?.analyticZero.state ?? 'unsampled'}`,
+        `boundaryDistance=${c.lastSample?.analyticZero.largestSupportedDistance ?? 0}`,
         `nu_t/nu_mol p50=${(c.lastSample?.freestream.ratio.p50 ?? Number.NaN).toPrecision(6)}`,
         `p99=${(c.lastSample?.freestream.ratio.p99 ?? Number.NaN).toPrecision(6)}`,
         `cells=${c.lastSample?.freestream.survivingCells ?? 0}`,
@@ -185,73 +189,77 @@ function summarize(result: Awaited<ReturnType<typeof runFactorial>>): string {
 describe.runIf(process.env.AEROFLOW_FACTORIAL === '1')('near-floor factorial run', () => {
   // Timeout convention: abl-fetch.test.ts. Worst 1,560.206 s (20-worker load, 2026-08-17 UTC);
   // ceil5(max(3*1,560.206, 1,560.206+30)) = 4,685 s.
-  it('runs the factorial on both scenes and persists the record', { timeout: 4_685_000 }, async () => {
-    const runId = process.env.AEROFLOW_RUN_ID ?? 'near-floor-factorial';
-    const outDir = resolve(REPO_ROOT, 'docs/validation/runs/artifacts', runId);
-    mkdirSync(outDir, { recursive: true });
+  it(
+    'runs the factorial on both scenes and persists the record',
+    { timeout: 4_685_000 },
+    async () => {
+      const runId = process.env.AEROFLOW_RUN_ID ?? 'near-floor-factorial';
+      const outDir = resolve(REPO_ROOT, 'docs/validation/runs/artifacts', runId);
+      mkdirSync(outDir, { recursive: true });
 
-    // Task 4.4: predictions on disk BEFORE the first arm executes, so what follows is
-    // prediction-vs-result and cannot be reshaped around whatever comes out.
-    writeFileSync(
-      resolve(outDir, 'predictions.json'),
-      JSON.stringify(
-        { writtenAtUtc: new Date().toISOString(), predictions: FACTORIAL_PREDICTIONS },
-        null,
-        2,
-      ),
-      'utf8',
-    );
+      // Task 4.4: predictions on disk BEFORE the first arm executes, so what follows is
+      // prediction-vs-result and cannot be reshaped around whatever comes out.
+      writeFileSync(
+        resolve(outDir, 'predictions.json'),
+        JSON.stringify(
+          { writtenAtUtc: new Date().toISOString(), predictions: FACTORIAL_PREDICTIONS },
+          null,
+          2,
+        ),
+        'utf8',
+      );
 
-    /**
-     * The ledger scene FIRST, and at the 6,000-step budget the original observation used. A
-     * factorial that cannot reproduce the motivating destabilization on the grid it was
-     * recorded on is measuring something else, and the probe-scene numbers would be
-     * uninterpretable without knowing that.
-     */
-    const ledger = await runFactorial({
-      scene: LEDGER_SCENE,
-      stepBudget: 6000,
-      sampleInterval: 250,
-    });
-    const probe = await runFactorial({ scene: PROBE_SCENE, stepBudget: STEP_BUDGET });
+      /**
+       * The ledger scene FIRST, and at the 6,000-step budget the original observation used. A
+       * factorial that cannot reproduce the motivating destabilization on the grid it was
+       * recorded on is measuring something else, and the probe-scene numbers would be
+       * uninterpretable without knowing that.
+       */
+      const ledger = await runFactorial({
+        scene: LEDGER_SCENE,
+        stepBudget: 6000,
+        sampleInterval: 250,
+      });
+      const probe = await runFactorial({ scene: PROBE_SCENE, stepBudget: STEP_BUDGET });
 
-    /**
-     * The probe scene is 2.4× longer streamwise, so 4,000 steps there is ~8 flow-throughs
-     * against the ledger scene's ~17 at 3,500. This arm re-runs the configuration whose
-     * stability is the whole question at a budget matched in flow-throughs, so "stable" is not
-     * confused with "not yet developed".
-     */
-    const probeLong = await runFactorial({
-      scene: PROBE_SCENE,
-      stepBudget: 20000,
-      sampleInterval: 1000,
-    });
+      /**
+       * The probe scene is 2.4× longer streamwise, so 4,000 steps there is ~8 flow-throughs
+       * against the ledger scene's ~17 at 3,500. This arm re-runs the configuration whose
+       * stability is the whole question at a budget matched in flow-throughs, so "stable" is not
+       * confused with "not yet developed".
+       */
+      const probeLong = await runFactorial({
+        scene: PROBE_SCENE,
+        stepBudget: 20000,
+        sampleInterval: 1000,
+      });
 
-    const record = {
-      completedAtUtc: new Date().toISOString(),
-      ledgerScene: ledger,
-      probeScene: probe,
-      probeSceneLongBudget: probeLong,
-    };
-    writeFileSync(resolve(outDir, 'factorial.json'), JSON.stringify(record, null, 2), 'utf8');
+      const record = {
+        completedAtUtc: new Date().toISOString(),
+        ledgerScene: ledger,
+        probeScene: probe,
+        probeSceneLongBudget: probeLong,
+      };
+      writeFileSync(resolve(outDir, 'factorial.json'), JSON.stringify(record, null, 2), 'utf8');
 
-    const summary = [
-      `# LEDGER SCENE (reproduction control) ${LEDGER_SCENE.nx}x${LEDGER_SCENE.ny}x${LEDGER_SCENE.nz}, budget 6000`,
-      summarize(ledger),
-      '',
-      `# PROBE SCENE ${PROBE_SCENE.nx}x${PROBE_SCENE.ny}x${PROBE_SCENE.nz}, budget ${STEP_BUDGET}`,
-      summarize(probe),
-      '',
-      `# PROBE SCENE, budget 20000 (flow-through matched)`,
-      summarize(probeLong),
-    ].join('\n');
-    writeFileSync(resolve(outDir, 'summary.txt'), `${summary}\n`, 'utf8');
-    console.log(`\n${summary}\n`);
-    console.log(`artifacts written to ${outDir}`);
+      const summary = [
+        `# LEDGER SCENE (reproduction control) ${LEDGER_SCENE.nx}x${LEDGER_SCENE.ny}x${LEDGER_SCENE.nz}, budget 6000`,
+        summarize(ledger),
+        '',
+        `# PROBE SCENE ${PROBE_SCENE.nx}x${PROBE_SCENE.ny}x${PROBE_SCENE.nz}, budget ${STEP_BUDGET}`,
+        summarize(probe),
+        '',
+        `# PROBE SCENE, budget 20000 (flow-through matched)`,
+        summarize(probeLong),
+      ].join('\n');
+      writeFileSync(resolve(outDir, 'summary.txt'), `${summary}\n`, 'utf8');
+      console.log(`\n${summary}\n`);
+      console.log(`artifacts written to ${outDir}`);
 
-    for (const r of [ledger, probe, probeLong]) {
-      expect(r.cells).toHaveLength(16);
-      for (const c of r.cells) expect(c.error).toBeNull();
-    }
-  });
+      for (const r of [ledger, probe, probeLong]) {
+        expect(r.cells).toHaveLength(16);
+        for (const c of r.cells) expect(c.error).toBeNull();
+      }
+    },
+  );
 });

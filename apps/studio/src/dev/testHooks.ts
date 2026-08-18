@@ -133,6 +133,9 @@ export interface AeroflowHooks {
       uMax: number;
       machMax: number;
       nonFiniteCells: number;
+      boundaryMassNet: number;
+      boundaryMassCumulative: number;
+      boundaryFluxClosureRel: number;
     };
     windows?: number;
     drift?: number;

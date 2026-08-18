@@ -92,7 +92,16 @@ export interface CaseASampleResult {
   /** Convergence trace so far (one entry per completed window). */
   trace?: ConvergenceSample[];
   macro: { rho: Float32Array; ux: Float32Array; uy: Float32Array; uz: Float32Array };
-  health: FieldStats;
+  health: CaseANumericalHealth;
+}
+
+export interface CaseANumericalHealth extends FieldStats {
+  /** Exact complete-shell mass input since the previous snapshot. */
+  boundaryMassNet: number;
+  /** Exact complete-shell mass input accumulated since reset. */
+  boundaryMassCumulative: number;
+  /** (fluid mass change - accumulated boundary input) / initial fluid mass. */
+  boundaryFluxClosureRel: number;
 }
 
 /**
@@ -145,6 +154,7 @@ export class CaseARun {
   private readonly velocityAverager: ConvergingVelocityAverager | null;
   private readonly points: { x: number; y: number; z: number }[];
   private totalSteps = 0;
+  private cumulativeBoundaryMass = 0;
   private readonly trace: ConvergenceSample[] = [];
   private lastTracedWindow = 0;
 
@@ -178,6 +188,7 @@ export class CaseARun {
       les: { cs: 0.1 },
       inletProfile: { axis: 'y', ux: Float32Array.from(s.profile) },
       velocityInlet: true,
+      boundaryMassLedger: true,
       freeSlip: { yMax: true, zMin: true, zMax: true },
       precision: this.precision,
       hasF16: o.hasF16,
@@ -234,6 +245,8 @@ export class CaseARun {
   async advance(steps: number): Promise<CaseASampleResult> {
     this.gpu.submitSteps(steps);
     this.totalSteps += steps;
+    const boundary = await this.gpu.drainBoundaryMassLedger();
+    this.cumulativeBoundaryMass += boundary.net;
     const raw = await this.gpu.readMacro();
     const s = this.scene;
     const n = s.nx * s.ny * s.nz;
@@ -270,13 +283,22 @@ export class CaseARun {
       this.velocityAverager!.add(sampleUx, sampleUy, sampleUz, this.totalSteps);
       stats = this.velocityAverager!.stats();
     }
+    const field = fieldStats(raw, s.flags, s.nx, s.ny, s.nz);
+    const health: CaseANumericalHealth = {
+      ...field,
+      boundaryMassNet: boundary.net,
+      boundaryMassCumulative: this.cumulativeBoundaryMass,
+      boundaryFluxClosureRel:
+        (field.totalMass - field.fluidCells - this.cumulativeBoundaryMass) /
+        Math.max(field.fluidCells, 1),
+    };
     const result: CaseASampleResult = {
       totalSteps: this.totalSteps,
       windows: stats?.windows ?? 0,
       drift: stats?.drift ?? Infinity,
       steady: stats !== null && stats.driftScaled < STEADY_DRIFT,
       macro: { rho, ux, uy, uz },
-      health: fieldStats(raw, s.flags, s.nx, s.ny, s.nz),
+      health,
     };
     if (stats) {
       if (this.mode === 'fetch') {
@@ -359,6 +381,7 @@ export class CaseARun {
       regularize: true,
       les: { cs: 0.1 },
       velocityInlet: true,
+      boundaryMassLedger: true,
       outlet: 'zero-gradient',
       freeSlip: { yMax: true, zMin: true, zMax: true },
       flowThroughSteps: this.flowThroughSteps,

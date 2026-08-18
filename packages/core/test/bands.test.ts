@@ -1,11 +1,34 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ACCEPTANCE_BANDS, acceptanceBand } from '../src/validation/bands.js';
+import {
+  ACCEPTANCE_BANDS,
+  NUMERICAL_HEALTH_POLICIES,
+  VALIDATION_DEFECTS,
+  VALIDATION_OUTCOMES,
+  acceptanceBand,
+  isDefectStatusTransitionAllowed,
+  numericalHealthPolicy,
+  renderValidationDefectTable,
+  renderValidationOutcomeTable,
+  validateValidationLedger,
+  validationDefect,
+  validationOutcome,
+} from '../src/validation/bands.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(HERE, '../../..');
+
+function generatedSection(doc: string, name: string): string {
+  const startMarker = `<!-- ${name}:START -->`;
+  const endMarker = `<!-- ${name}:END -->`;
+  const start = doc.indexOf(startMarker);
+  const end = doc.indexOf(endMarker);
+  expect(start, `${startMarker} is missing`).toBeGreaterThan(-1);
+  expect(end, `${endMarker} is missing`).toBeGreaterThan(start);
+  return doc.slice(start + startMarker.length, end).trim();
+}
 
 /**
  * Which test file asserts (not merely records) each `status: 'gated'` case's band, as a
@@ -62,6 +85,100 @@ describe('acceptance band ledger', () => {
 
   it('acceptanceBand resolves a known id', () => {
     expect(acceptanceBand('V11').milestone).toBe('M9');
+  });
+
+  it('the authoritative outcomes, health policies, and defect inventory are internally valid', () => {
+    expect(validateValidationLedger()).toEqual([]);
+    expect(VALIDATION_OUTCOMES).toHaveLength(ACCEPTANCE_BANDS.length);
+    expect(NUMERICAL_HEALTH_POLICIES.map((policy) => policy.caseId)).toEqual([
+      'V12',
+      'V13',
+      'V14',
+      'V15',
+    ]);
+  });
+
+  it('resolves outcome, health-policy, and defect records by stable id', () => {
+    expect(validationOutcome('V13').bandComparison).toBe('fail');
+    expect(numericalHealthPolicy('V14').metrics.map((metric) => metric.id)).toContain(
+      'boundaryFluxClosure',
+    );
+    expect(validationDefect('gpu-operation-stall-survivability').status).toBe('mitigated');
+    expect(() => validationOutcome('V999')).toThrow(/unknown case id/);
+    expect(() => numericalHealthPolicy('V1')).toThrow(/unknown case id/);
+    expect(() => validationDefect('missing')).toThrow(/unknown defect id/);
+  });
+
+  it('rejects duplicate stable ids', () => {
+    expect(
+      validateValidationLedger({ outcomes: [VALIDATION_OUTCOMES[0], VALIDATION_OUTCOMES[0]] }),
+    ).toContain('duplicate outcome id: V1');
+    expect(
+      validateValidationLedger({ defects: [VALIDATION_DEFECTS[0], VALIDATION_DEFECTS[0]] }),
+    ).toContain(`duplicate defect id: ${VALIDATION_DEFECTS[0].id}`);
+  });
+
+  it('rejects missing outcome provenance and inconsistent band comparisons', () => {
+    const base = VALIDATION_OUTCOMES[0];
+    expect(
+      validateValidationLedger({ outcomes: [{ ...base, sourceRevision: '', artifact: '' }] }),
+    ).toEqual(
+      expect.arrayContaining(['V1: missing source revision', 'V1: missing evidence artifact']),
+    );
+    expect(validateValidationLedger({ outcomes: [{ ...base, bandComparison: 'fail' }] })).toContain(
+      'V1: band comparison fail contradicts metric comparison pass',
+    );
+  });
+
+  it('rejects status closure without evidence and disallows terminal claim reversal', () => {
+    const open = VALIDATION_DEFECTS[0];
+    expect(
+      validateValidationLedger({
+        defects: [{ ...open, status: 'closed', statusEvidence: undefined }],
+      }),
+    ).toContain(`${open.id}: closed status requires status evidence`);
+    expect(isDefectStatusTransitionAllowed('open', 'mitigated')).toBe(true);
+    expect(isDefectStatusTransitionAllowed('closed', 'open')).toBe(true);
+    expect(isDefectStatusTransitionAllowed('superseded', 'open')).toBe(false);
+  });
+
+  it('keeps generated current-outcome and defect tables identical to the typed ledger', () => {
+    const doc = readFileSync(resolve(REPO_ROOT, 'docs/VALIDATION.md'), 'utf8');
+    expect(generatedSection(doc, 'VALIDATION_OUTCOMES')).toBe(renderValidationOutcomeTable());
+    expect(generatedSection(doc, 'VALIDATION_DEFECTS')).toBe(renderValidationDefectTable());
+  });
+
+  it('keeps every current outcome and defect evidence reference resolvable', () => {
+    const references = [
+      ...VALIDATION_OUTCOMES.map((outcome) => outcome.artifact),
+      ...VALIDATION_DEFECTS.flatMap((defect) => [
+        ...defect.evidence,
+        ...(defect.statusEvidence ?? []),
+      ]),
+    ];
+    for (const reference of references) {
+      expect(
+        existsSync(resolve(REPO_ROOT, reference)),
+        `missing ledger evidence: ${reference}`,
+      ).toBe(true);
+    }
+  });
+
+  it('records the Q27 supersession and preserves the historical near-floor measurement', () => {
+    const physics = readFileSync(resolve(REPO_ROOT, 'docs/PHYSICS.md'), 'utf8');
+    expect(physics).toContain('q27-mirror-rounding-explanation');
+    expect(physics).toContain('SUPERSEDED');
+    expect(physics).toContain('q27-periodic-momentum-drift');
+    expect(physics).toContain('OPEN');
+
+    const historical = readFileSync(
+      resolve(REPO_ROOT, 'docs/validation/runs/2026-08-17-1832-near-floor-factorial.md'),
+      'utf8',
+    );
+    expect(historical).toContain('20,000');
+    expect(historical).toContain('5 441.2');
+    expect(historical).toContain('ADDENDUM 2026-08-18 — analytic-zero qualification');
+    expect(historical).toContain('boundary-contaminated');
   });
 
   it("docs/VALIDATION.md's summary table matches the ledger band-for-band", () => {

@@ -45,6 +45,70 @@ outstanding (the M6 benchmark page targets ≥3 GPUs).
 | V14 | AIJ Case C (9-building block + 2H tower)                           | published point data at 1.5 m full scale                                                  | q≥0.66                                                                                                  | M11       |
 | V15 | AIJ Case E (Niigata, 80 points at 2 m, power-law α=0.25)           | wind-tunnel data; published "good" RANS: r=0.71–0.84, bias to −35%                        | q≥0.66 and r≥0.70 at ≥2 wind directions                                                                 | M11       |
 
+### V12–V15 numerical-health policy
+
+The machine-readable policy is `NUMERICAL_HEALTH_POLICIES` in
+`packages/core/src/validation/bands.ts`. It is fixed before any new scored evidence in this
+change and is a validity guard, not a physics acceptance band. V12–V15 all require the same
+complete snapshot:
+
+| Metric | Direction and limit | Unit | Pre-run provenance |
+| --- | --- | --- | --- |
+| non-finite cells | maximum 0 | cells | mathematical validity invariant |
+| minimum density | minimum 0.5 | ρ/ρ₀ | weak-compressibility/positive-density guard |
+| maximum density | maximum 1.5 | ρ/ρ₀ | paired weak-compressibility guard |
+| relative mass drift | absolute maximum 1×10⁻³ | fraction | 0.1% numerical-drift guard |
+| complete-shell boundary closure | absolute maximum 1×10⁻³ | initial-mass fraction | 0.1% conservation residual guard |
+
+Every artifact carries the concrete limits, directions, units, provenance, values, and
+per-metric result used for that run. All required metrics inside their limits yields health
+`pass`; any failed metric yields `fail`; a missing metric or limit yields `unevaluated` with
+a machine-readable reason. A failed or unevaluated health axis keeps q, r, row, and point
+measurements but suppresses their promotion to a trustworthy physics verdict. Historical
+schema-2 artifacts written before this policy remain readable under their original limits
+and are not silently rescored.
+
+### Current outcome ledger
+
+This compact view is generated from `VALIDATION_OUTCOMES`; the typed records, metric-level
+comparisons, conventions, and artifact references remain authoritative.
+
+<!-- VALIDATION_OUTCOMES:START -->
+| Case | Current comparison | Evidence | Observed at / revision | Current interpretation |
+| --- | --- | --- | --- | --- |
+| V1 | pass | `packages/core/test/solver2d.test.ts` | 2026-08-18T09:10:20Z / `3b38a08` | The deterministic Poiseuille convergence and TRT tau-independence gates pass. |
+| V2 | fail | `docs/VALIDATION.md` | 2026-08-18T09:10:20Z / `3b38a08` | v_min misses the +/-1.5% extrema band at 2.31%. |
+| V3 | unevaluated | `apps/studio/e2e/cavity.gpu.spec.ts` | 2026-08-18T09:10:20Z / `3b38a08` | The harness records the profile, but no durable current band verdict is asserted. |
+| V4 | unevaluated | `docs/VALIDATION.md` | 2026-08-14T00:00:00Z / `227afc0` | No durable full-resolution V4 harness currently asserts the documented bands. |
+| V5 | pass | `docs/VALIDATION.md` | 2026-08-14T00:00:00Z / `227afc0` | The recorded spec-closure cylinder result is inside both Cd and St bands. |
+| V6 | pass | `docs/VALIDATION.md` | 2026-08-14T00:00:00Z / `227afc0` | The recorded spec-closure non-interference shift is 0.20%, below 3%. |
+| V7 | pass | `docs/VALIDATION.md` | 2026-08-14T00:00:00Z / `227afc0` | The corrected-outlet pair-averaged Cd remains in band. |
+| V8 | fail | `docs/VALIDATION.md` | 2026-08-14T00:00:00Z / `227afc0` | The converged corrected-outlet Cd remains above the literature band. |
+| V9 | fail | `docs/VALIDATION.md` | 2026-08-14T00:00:00Z / `227afc0` | The freestream Cd remains above the Newton-regime envelope. |
+| V10 | fail | `docs/VALIDATION.md` | 2026-08-14T00:00:00Z / `227afc0` | The A/B passes for V7 and V9 but fails for V8, so the aggregate V10 gate fails. |
+| V11 | fail | `docs/validation/runs/2026-08-14-1121-m9-closure-target.md` | 2026-08-11T04:21:25Z / `a033193` | The converged Cd is about 3.2 times the upper acceptance limit. |
+| V12 | fail | `docs/validation/runs/2026-08-15-1620-v12-fetch-rows-control.md` | 2026-08-15T18:30:00Z / `9591433` | The near-wall rows set a 66.19% profile deviation against the 5% band. |
+| V13 | fail | `docs/validation/runs/2026-08-15-2130-v13-caseA-b24-verdict.md` | 2026-08-15T21:30:00Z / `9dc2ea9+dirty` | Correlation passes; hit rate is one point short at 83/126. |
+| V14 | fail | `docs/validation/runs/2026-08-16-0116-v14-caseC-strict-grid.md` | 2026-08-15T22:16:00Z / `2c31f81` | The completed strict-grid run records 55/120 hits. |
+| V15 | deferred | `docs/decisions/D1-resolution-wall.md` | 2026-08-18T09:10:20Z / `3b38a08` | No benchmark-faithful uniform-grid measurement exists; a domain crop is required. |
+<!-- VALIDATION_OUTCOMES:END -->
+
+### Current defect ledger
+
+The title is the current causal claim, not an implied root cause. Closure evidence is distinct
+from evidence that merely demonstrates the defect.
+
+<!-- VALIDATION_DEFECTS:START -->
+| Stable ID | Priority / status | Current causal claim | Closure criterion | Evidence | Status evidence |
+| --- | --- | --- | --- | --- | --- |
+| `gpu-operation-natural-stall-cause` | P1 / open | Natural long-running GPU operation stalls have no isolated initiating cause | A bounded reproducer isolates the initiating browser, driver, kernel, or application cause and a targeted repair prevents it. | `docs/validation/runs/2026-08-15-2100-v14-caseC-stall-reproduced.md` | — |
+| `gpu-operation-stall-survivability` | P1 / mitigated | Long-running GPU operations must preserve evidence and recover from a detected stall | Bounded recovery proves exact restore, forward progress, torn-checkpoint fallback, and durable artifact preservation. | `docs/validation/runs/2026-08-15-2100-v14-caseC-stall-reproduced.md` | `docs/validation/runs/2026-08-18-0553-gpu-recovery-final.md` |
+| `near-floor-zero-gradient-outlet-cause` | P1 / open | Outlet-dependent feedback is observed from the first sampled boundary interval, but its internal cause remains unknown | A controlled outlet pair localizes the first repeatable separation and a separate repair proposal names the measured mechanism. | `docs/validation/runs/2026-08-17-1832-near-floor-factorial.md`<br>`docs/validation/runs/2026-08-18-outlet-feedback-discriminator.md`<br>`docs/validation/runs/artifacts/2026-08-18-outlet-feedback-discriminator/outlet-feedback.json` | — |
+| `analytic-zero-wall-contamination` | P1 / open | Fixed-distance wall-bounded sampling cannot support the long-run analytic-zero LES claim | A periodic uniform-flow oracle and time-valid wall selector replace the fixed three-cell interpretation without rewriting the raw sample. | `docs/validation/runs/2026-08-17-1832-near-floor-factorial.md` | — |
+| `q27-periodic-momentum-drift` | P2 / open | D3Q27 periodic momentum drift exceeds its predeclared gate and grows superlinearly | A normalized, precision-appropriate momentum gate passes across step and wavelength scaling with durable CPU/GPU parity evidence. | `docs/validation/runs/artifacts/2026-08-16-q27-drift-scaling-analysis/drift-scaling.json` | — |
+| `q27-mirror-rounding-explanation` | P2 / superseded | Mirror-direction f32 summation order explains the D3Q27 periodic momentum drift | Step-scaling evidence distinguishes roundoff-like linear accumulation from a superlinear collision-carried defect. | `docs/PHYSICS.md` | `docs/validation/runs/artifacts/2026-08-16-q27-drift-scaling-analysis/drift-scaling.json` |
+<!-- VALIDATION_DEFECTS:END -->
+
 ## Protocols
 
 **V1 Poiseuille (M2).** Periodic-x channel, solid walls top/bottom, body force g≈1e-6.
@@ -178,18 +242,26 @@ The 3000–3500 divergence reproduces exactly (step **3346**), as does `'legacy'
 - **(A) is real, but only without regularization.** All eight `regularize: off` derived-`ω⁻`
   arms diverged (steps 351–806); raising `ω⁻` to 1.0 rescued all eight and lowered freestream
   eddy viscosity in every case.
-- **The outlet is a controlling variable, which was not previously known.** With the pressure
-  outlet, no regularized arm destabilizes under `'spec'` at all, on either grid, out to 20,000
-  steps; only the zero-gradient outlet reproduces. The original observation came from the third
-  of `pressureOutlet3d.test.ts`'s three `it.each` cases. **Why** a copy-upstream outlet
-  destabilizes where a pressure reconstruction does not is unexamined and is the obvious next
-  experiment.
-- **A zero-strain oracle now exists and reads high.** In an empty domain, away from every
-  boundary, the analytic `ν_t` is exactly 0; the closure reports `ν_t/ν_mol` p50 ≈ 5.2×10³
-  (τ_eff ≈ 0.5027 against τ₀ = 0.5000005 — the ratio is large chiefly because ν_mol is 1.67e-7,
-  and the honest statement is that the subgrid model supplies ~99.98% of the viscosity where
-  the resolved strain is zero). Independently reproduces 6.7b's direction: the √2-smaller
-  `'spec'` coefficient did **not** yield less eddy viscosity.
+- **Outlet-dependent feedback is observed; its internal cause remains open.** The bounded
+  [outlet discriminator](validation/runs/2026-08-18-outlet-feedback-discriminator.md) forked
+  zero-gradient, pressure, and pressure/pressure controls from matching material and initial
+  state fingerprints at `τ₀=0.5000005`. The same-outlet controls were identical, so 36
+  repeatability thresholds were frozen from roundoff floors before the A/B was inspected. The
+  first sampled separation was boundary-inlet exchange at step 25; the zero-gradient arm then
+  became non-finite at step 3346 while pressure remained finite through step 3600. This supports
+  the branch `outlet-feedback-observed`. It does **not** identify an unmeasured outlet
+  implementation, collision, browser, driver, or hardware root cause, and no repair is made in
+  this change.
+- **The historical fixed-three-cell reading is boundary-contaminated, not an analytic-zero
+  oracle.** Its raw `ν_t/ν_mol` p50 ≈ 5.2×10³ and τ_eff ≈ 0.5027 at 20,000 steps remain
+  unchanged in the append-only artifact, but the no-slip ground's measured influence reaches
+  the selected region during that exposure. It therefore remains useful only as a
+  wall-bounded diagnostic and cannot support the sentence "where the resolved strain is
+  zero." Current analysis records influence distance over time, selects each window from its
+  largest observed distance, and returns `unavailable` when no cells survive. The dynamic
+  analytic-zero authority is now the bounded fully periodic `Solver3D` uniform-flow oracle,
+  which selects every cell under both closure conventions and includes a seeded control that
+  proves the instrument responds.
 
 Task 6.9 stays **deferred** — this run supplies evidence, not a verdict, and takes no position
 on the flip. Tasks 8.1/8.3's stated precondition ("`ω⁻` a controlled variable rather than one

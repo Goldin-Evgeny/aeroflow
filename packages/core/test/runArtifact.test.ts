@@ -144,6 +144,31 @@ describe('validation run artifact', () => {
     expect(() => validateValidationRunArtifact(malformed)).toThrow(/state is unsupported/);
   });
 
+  it('blocks a physics verdict when a declared numerical-health policy is not passing', () => {
+    const malformed = fixture(true);
+    malformed.configuration.acceptance.numericalHealthPolicy = [
+      { id: 'nonFiniteCells', direction: 'max', limit: 0, unit: 'cells' },
+    ];
+    malformed.verdicts.numericalHealth = {
+      state: 'unevaluated',
+      reason: 'missing-metric',
+      metrics: {},
+    };
+    expect(() => validateValidationRunArtifact(malformed)).toThrow(
+      /physics target verdict requires a passing declared numerical-health policy/,
+    );
+  });
+
+  it('keeps pre-policy schema-2 artifacts readable without silently rescoring them', () => {
+    const historical = fixture(true);
+    historical.verdicts.numericalHealth = {
+      state: 'unevaluated',
+      reason: 'limits were not declared at run time',
+      metrics: {},
+    };
+    expect(validateValidationRunArtifact(historical).verdicts.physicsTarget.state).toBe('fail');
+  });
+
   it('preserves incomplete operations and submitted-but-uncommitted work in partial artifacts', () => {
     const partial = fixture(false);
     partial.lifecycle.progress.submittedStep = 128;

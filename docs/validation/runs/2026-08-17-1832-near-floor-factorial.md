@@ -369,3 +369,18 @@ rewriting the original record:
 - **Canonical input:** compact UTF-8 JSON with the ordered keys `ledgerScene`, `probeScene`, and
   `probeSceneLongBudget`, whose values are the corresponding `configuration` objects preserved
   verbatim in `artifacts/2026-08-17-1832-near-floor-factorial/factorial.json`.
+
+## ADDENDUM 2026-08-18 — analytic-zero qualification
+
+The raw fixed-distance measurements, including the 20,000-step values in §3.3 and §5.3, are
+unchanged. Their interpretation is narrowed: a fixed three-cell exclusion does not prove that
+the selected region remains outside the no-slip ground's influence for the full exposure.
+The 20,000-step rows are therefore **boundary-contaminated diagnostics**, not analytic-zero
+evidence; they must not be quoted as closure activity at zero resolved strain.
+
+The replacement analysis records resolved boundary-influence distance at each sample, uses
+the largest supported distance in the selected window, and returns `unavailable` when no cell
+survives. The dynamic analytic-zero authority is a fully periodic uniform-flow `Solver3D`
+oracle with every cell selected, both closure conventions recorded, and a seeded response
+control. This addendum relabels interpretation only; no historical number, artifact, or
+verdict axis was deleted or silently rescored.

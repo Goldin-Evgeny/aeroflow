@@ -3,7 +3,15 @@ import { execFileSync } from 'node:child_process';
 import {
   ACCEPTANCE_BANDS,
   VALIDATION_ARTIFACT_SCHEMA_VERSION,
+  evaluateNumericalHealth,
+  gatePhysicsVerdict,
+  numericalHealthPolicy,
+  numericalHealthVerdict,
+  type HealthMetric,
   type JsonValue,
+  type NumericalHealthEvaluation,
+  type NumericalHealthMetricPolicy,
+  type NumericalHealthPolicy,
   type NumericalHealthRecord,
   type ValidationRunArtifact,
 } from '@aeroflow/core';
@@ -43,6 +51,7 @@ export function initialUrbanArtifact(input: {
   const material = (json(hook.materialConfiguration ?? {}) ?? {}) as Record<string, JsonValue>;
   const ledgerId = hook.caseId === 'C' ? 'V14' : 'V15';
   const ledger = ACCEPTANCE_BANDS.find((entry) => entry.id === ledgerId)!;
+  const healthPolicy = numericalHealthPolicy(ledgerId);
   const logicalRunId = hook.logicalRunId ?? input.runId;
   const attemptId = hook.attemptId ?? `${input.runId}-attempt-1`;
   return {
@@ -73,6 +82,7 @@ export function initialUrbanArtifact(input: {
         ledgerId,
         status: ledger.status,
         gateDescription: ledger.gateDescription,
+        numericalHealthPolicy: json(healthPolicy.metrics),
         qMin: 0.66,
         ...(hook.caseId === 'E' ? { rMin: 0.7 } : {}),
       },
@@ -138,24 +148,50 @@ export function initialUrbanArtifact(input: {
   };
 }
 
-function healthRecords(hook: UrbanHook): NumericalHealthRecord[] {
-  return (hook.health ?? []).map((sample) => ({
-    sampledAt: sample.sampledAt,
-    step: sample.step,
-    phase: sample.phase,
-    readbackMs: sample.readbackMs,
-    nonFiniteCells: {
-      state: 'evaluated',
-      value: sample.field.nonFiniteCells,
-      limit: 0,
-      pass: sample.field.nonFiniteCells === 0,
-      unit: 'cells',
-    },
-    densityMin: { state: 'evaluated', value: sample.field.rhoMin },
-    densityMax: { state: 'evaluated', value: sample.field.rhoMax },
-    relativeMassDrift: { state: 'evaluated', value: sample.field.massDriftRel },
-    boundaryFluxClosure: { state: 'evaluated', value: sample.boundaryFluxClosureRel },
-  }));
+function evaluateUrbanHealth(
+  policy: NumericalHealthPolicy,
+  sample: NonNullable<UrbanHook['health']>[number],
+): NumericalHealthEvaluation {
+  return evaluateNumericalHealth(policy, {
+    nonFiniteCells: sample.field.nonFiniteCells,
+    densityMin: sample.field.rhoMin,
+    densityMax: sample.field.rhoMax,
+    relativeMassDrift: sample.field.massDriftRel,
+    boundaryFluxClosure: sample.boundaryFluxClosureRel,
+  });
+}
+
+function artifactMetric(
+  evaluation: NumericalHealthEvaluation,
+  id: NumericalHealthMetricPolicy['id'],
+): HealthMetric {
+  const metric = evaluation.metrics[id];
+  return metric.state === 'unevaluated'
+    ? { state: 'unevaluated', reason: `${metric.reason!.code}:${metric.reason!.detail}` }
+    : {
+        state: 'evaluated',
+        value: metric.value!,
+        limit: metric.limit,
+        pass: metric.state === 'pass',
+        unit: metric.unit,
+      };
+}
+
+function healthRecords(hook: UrbanHook, policy: NumericalHealthPolicy): NumericalHealthRecord[] {
+  return (hook.health ?? []).map((sample) => {
+    const evaluation = evaluateUrbanHealth(policy, sample);
+    return {
+      sampledAt: sample.sampledAt,
+      step: sample.step,
+      phase: sample.phase,
+      readbackMs: sample.readbackMs,
+      nonFiniteCells: artifactMetric(evaluation, 'nonFiniteCells'),
+      densityMin: artifactMetric(evaluation, 'densityMin'),
+      densityMax: artifactMetric(evaluation, 'densityMax'),
+      relativeMassDrift: artifactMetric(evaluation, 'relativeMassDrift'),
+      boundaryFluxClosure: artifactMetric(evaluation, 'boundaryFluxClosure'),
+    };
+  });
 }
 
 export async function syncUrbanArtifact(
@@ -164,6 +200,7 @@ export async function syncUrbanArtifact(
   event: string,
 ): Promise<void> {
   await coordinator.update(event, (draft) => {
+    const policy = numericalHealthPolicy(hook.caseId === 'C' ? 'V14' : 'V15');
     const observedAt = hook.progress?.observedAt ?? new Date().toISOString();
     draft.lifecycle.phase = hook.phase ?? draft.lifecycle.phase;
     draft.lifecycle.progress = {
@@ -280,7 +317,7 @@ export async function syncUrbanArtifact(
       }
     }
     if (hook.lastCheckpointAt) draft.lifecycle.checkpointActivityAt = hook.lastCheckpointAt;
-    for (const sample of healthRecords(hook)) {
+    for (const sample of healthRecords(hook, policy)) {
       if (
         !draft.health.some(
           (known) => known.step === sample.step && known.sampledAt === sample.sampledAt,
@@ -289,40 +326,12 @@ export async function syncUrbanArtifact(
         draft.health.push(sample);
       }
     }
-    const latestHealth = draft.health.at(-1);
-    if (latestHealth) {
-      const nonFinite = latestHealth.nonFiniteCells;
-      draft.verdicts.numericalHealth =
-        nonFinite.state === 'evaluated' && nonFinite.value > 0
-          ? {
-              state: 'fail',
-              reason: 'whole-field readback contains non-finite cells',
-              metrics: { nonFiniteCells: nonFinite.value },
-            }
-          : {
-              state: 'unevaluated',
-              reason:
-                'diagnostics were sampled, but V14/V15 declare no density, mass-drift, or closure pass limits',
-              metrics: {
-                nonFiniteCells: nonFinite.state === 'evaluated' ? nonFinite.value : null,
-                densityMin:
-                  latestHealth.densityMin.state === 'evaluated'
-                    ? latestHealth.densityMin.value
-                    : null,
-                densityMax:
-                  latestHealth.densityMax.state === 'evaluated'
-                    ? latestHealth.densityMax.value
-                    : null,
-                relativeMassDrift:
-                  latestHealth.relativeMassDrift.state === 'evaluated'
-                    ? latestHealth.relativeMassDrift.value
-                    : null,
-                boundaryFluxClosure:
-                  latestHealth.boundaryFluxClosure.state === 'evaluated'
-                    ? latestHealth.boundaryFluxClosure.value
-                    : null,
-              },
-            };
+    const rawLatestHealth = hook.health?.at(-1);
+    const healthEvaluation = rawLatestHealth
+      ? evaluateUrbanHealth(policy, rawLatestHealth)
+      : undefined;
+    if (healthEvaluation) {
+      draft.verdicts.numericalHealth = numericalHealthVerdict(healthEvaluation);
     }
     const report = hook.report;
     draft.evidence.aggregate = {
@@ -337,15 +346,26 @@ export async function syncUrbanArtifact(
       voxelizationMs: hook.voxelizationMs ?? null,
     };
     draft.evidence.detailed = json({ report, rows: report?.rows ?? [] });
-    if (hook.verdict) {
-      draft.verdicts.physicsTarget = {
-        state: hook.verdict === 'pass' ? 'pass' : hook.verdict === 'fail' ? 'fail' : 'unevaluated',
+    const measuredVerdict = report?.verdict ?? hook.verdict;
+    if (measuredVerdict) {
+      const measured = {
+        state:
+          measuredVerdict === 'pass' ? 'pass' : measuredVerdict === 'fail' ? 'fail' : 'unevaluated',
         reason:
-          hook.verdict === 'suppressed'
+          measuredVerdict === 'suppressed'
             ? 'under-resolved configuration suppressed scoring'
             : undefined,
         metrics: { q: hook.q ?? null, r: hook.r ?? null, rows: hook.reportRows ?? 0 },
-      };
+      } as const;
+      draft.verdicts.physicsTarget = healthEvaluation
+        ? gatePhysicsVerdict(measured, healthEvaluation)
+        : measured.state === 'unevaluated'
+          ? measured
+          : {
+              state: 'unevaluated',
+              reason: 'numerical-health-unevaluated',
+              metrics: { ...measured.metrics, measuredState: measured.state },
+            };
     }
   });
 }

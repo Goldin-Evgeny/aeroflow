@@ -103,3 +103,14 @@ LES code, so this is the directly applicable guideline, not background reading.
 - The honest-claims rule (CLAUDE.md rule 5) now has a second edge here: AIJ explicitly does
   not warrant these derived files and has not reviewed AeroFlow, so no AeroFlow material may
   imply AIJ endorsement, review or validation of AeroFlow's results.
+
+## Implementation note 2026-08-18 — numerical health precedes physics promotion
+
+The provenance and score-display obligations above now include the concrete numerical-health
+policy used for V12–V15. Each new Case A/fetch or urban artifact records limits, directions,
+units, provenance, values, and per-metric results for finite cells, density bounds, relative
+mass drift, and complete-shell boundary-flux closure. A failed or unevaluated health axis
+retains q, r, row, and point measurements but prevents the UI or artifact from promoting them
+as a trustworthy physics verdict. Pre-policy schema-2 artifacts remain readable under their
+original representation and are not silently rescored. This is an implementation of the
+record's honest-claims duty; it does not alter AIJ attribution or any physics acceptance band.

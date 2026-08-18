@@ -5,8 +5,11 @@ import { lesKFromCs, type LesNorm } from '../../src/cpu/collide.js';
 import { type Outlet3D } from '../../src/cpu/outlet3d.js';
 import { compareStrain } from '../../src/analysis/strainComparison.js';
 import {
-  freestreamEddyViscosity,
+  boundaryInfluenceDistance,
+  wallBoundedAnalyticZero,
+  type BoundaryInfluenceObservation,
   type FreestreamEddyViscosity,
+  type WallBoundedAnalyticZeroResult,
 } from '../../src/analysis/freestreamEddyViscosity.js';
 
 /**
@@ -27,6 +30,8 @@ import {
 export const TAU0 = 0.5000005;
 export const CS = 0.1;
 export const INLET_VELOCITY = 0.05;
+/** Predeclared Float64 resolved-gradient floor used to identify boundary influence. */
+export const BOUNDARY_STRAIN_TOLERANCE = 1e-12;
 
 export interface SceneSpec {
   label: string;
@@ -125,6 +130,9 @@ export interface FactorialSample {
   rhoMin: number;
   rhoMax: number;
   maxSpeed: number;
+  boundaryInfluence: BoundaryInfluenceObservation;
+  analyticZero: WallBoundedAnalyticZeroResult;
+  /** Same raw sample retained for diagnostics; not necessarily a valid analytic-zero result. */
   freestream: FreestreamEddyViscosity;
   /** `compareStrain`'s closure-implied over finite-difference strain ratio. */
   medianRatioSlope: number;
@@ -147,7 +155,14 @@ export interface FactorialCell {
   stepsCompleted: number;
   /** Diagnostics from the last clean sample — preserved even when the arm diverged. */
   lastSample: FactorialSample | null;
-  samples: Array<{ step: number; rhoMean: number; maxSpeed: number; freestreamP50: number }>;
+  samples: Array<{
+    step: number;
+    rhoMean: number;
+    maxSpeed: number;
+    freestreamP50: number;
+    analyticZeroState: WallBoundedAnalyticZeroResult['state'];
+    largestBoundaryDistance: number;
+  }>;
   wallClockMs: number;
   error: string | null;
 }
@@ -303,7 +318,7 @@ export async function runArm(
   const stepBudget = options.stepBudget ?? STEP_BUDGET;
   const sampleInterval = options.sampleInterval ?? SAMPLE_INTERVAL;
   const scene = options.scene ?? SCENE;
-  const { nx, ny, nz, exclusionDistance } = scene;
+  const { nx, ny, nz } = scene;
   const n = nx * ny * nz;
   const flags = factorialFlags(scene);
   const started = Date.now();
@@ -356,6 +371,7 @@ export async function runArm(
     }
     const isFluid = (idx: number): boolean => evaluated[idx] === 1;
     const lesK = lesKFromCs(CS);
+    const boundaryInfluence: BoundaryInfluenceObservation[] = [];
 
     const takeSample = (step: number): void => {
       const m = solver.macroscopics();
@@ -371,15 +387,32 @@ export async function runArm(
         const speed = Math.hypot(m.ux[idx], m.uy[idx], m.uz[idx]);
         if (speed > maxSpeed) maxSpeed = speed;
       }
-      const freestream = freestreamEddyViscosity({
+      const influence = boundaryInfluenceDistance({
+        nx,
+        ny,
+        nz,
+        evaluated,
+        ux: m.ux,
+        uy: m.uy,
+        uz: m.uz,
+        step,
+        strainTolerance: BOUNDARY_STRAIN_TOLERANCE,
+      });
+      boundaryInfluence.push(influence);
+      const analyticZero = wallBoundedAnalyticZero({
         nx,
         ny,
         nz,
         tauEff,
         evaluated,
         tau0: TAU0,
-        exclusionDistance,
+        window: { startStep: 1, endStep: step },
+        boundaryInfluence,
       });
+      const freestream =
+        analyticZero.state === 'available'
+          ? analyticZero.measurement
+          : analyticZero.boundaryContaminated;
       const strain = compareStrain({
         nx,
         ny,
@@ -400,6 +433,8 @@ export async function runArm(
         rhoMin,
         rhoMax,
         maxSpeed,
+        boundaryInfluence: influence,
+        analyticZero,
         freestream,
         medianRatioSlope: strain.medianRatioSlope,
         omegaPlus: statsOf(omegaPlus, isFluid),
@@ -410,6 +445,8 @@ export async function runArm(
         rhoMean: rhoSum / fluidIndices.length,
         maxSpeed,
         freestreamP50: freestream.ratio.p50,
+        analyticZeroState: analyticZero.state,
+        largestBoundaryDistance: analyticZero.largestSupportedDistance,
       });
     };
 

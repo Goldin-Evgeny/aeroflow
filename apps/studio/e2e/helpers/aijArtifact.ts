@@ -1,7 +1,14 @@
 import {
   ACCEPTANCE_BANDS,
   VALIDATION_ARTIFACT_SCHEMA_VERSION,
+  evaluateNumericalHealth,
+  gatePhysicsVerdict,
+  numericalHealthPolicy,
+  numericalHealthVerdict,
+  type HealthMetric,
   type JsonValue,
+  type NumericalHealthEvaluation,
+  type NumericalHealthMetricPolicy,
   type ValidationRunArtifact,
 } from '@aeroflow/core';
 import type { AeroflowHooks } from '../../src/dev/testHooks';
@@ -26,6 +33,7 @@ export function initialAijArtifact(input: {
   const material = json(input.hook.materialConfiguration ?? {}) as Record<string, JsonValue>;
   const ledgerId = input.mode === 'fetch' ? 'V12' : 'V13';
   const ledger = ACCEPTANCE_BANDS.find((entry) => entry.id === ledgerId)!;
+  const healthPolicy = numericalHealthPolicy(ledgerId);
   return {
     schemaVersion: VALIDATION_ARTIFACT_SCHEMA_VERSION,
     complete: false,
@@ -54,6 +62,7 @@ export function initialAijArtifact(input: {
         ledgerId,
         status: ledger.status,
         gateDescription: ledger.gateDescription,
+        numericalHealthPolicy: json(healthPolicy.metrics),
       },
     },
     lifecycle: {
@@ -125,45 +134,50 @@ export async function syncAijArtifact(
     };
     draft.lifecycle.heartbeatAt = at;
     draft.lifecycle.windows = hook.phaseWindows ?? draft.lifecycle.windows;
-    if (hook.health && !draft.health.some((sample) => sample.step === (hook.totalSteps ?? 0))) {
+    const ledgerId = hook.mode === 'fetch' ? 'V12' : 'V13';
+    const policy = numericalHealthPolicy(ledgerId);
+    let healthEvaluation: NumericalHealthEvaluation | undefined;
+    if (hook.health) {
+      healthEvaluation = evaluateNumericalHealth(policy, {
+        nonFiniteCells: hook.health.nonFiniteCells,
+        densityMin: hook.health.rhoMin,
+        densityMax: hook.health.rhoMax,
+        relativeMassDrift: hook.health.massDriftRel,
+        boundaryFluxClosure: hook.health.boundaryFluxClosureRel,
+      });
+    }
+    const artifactMetric = (id: NumericalHealthMetricPolicy['id']): HealthMetric => {
+      const metric = healthEvaluation!.metrics[id];
+      return metric.state === 'unevaluated'
+        ? {
+            state: 'unevaluated',
+            reason: `${metric.reason!.code}:${metric.reason!.detail}`,
+          }
+        : {
+            state: 'evaluated',
+            value: metric.value!,
+            limit: metric.limit,
+            pass: metric.state === 'pass',
+            unit: metric.unit,
+          };
+    };
+    if (
+      hook.health &&
+      healthEvaluation &&
+      !draft.health.some((sample) => sample.step === (hook.totalSteps ?? 0))
+    ) {
       draft.health.push({
         sampledAt: at,
         step: hook.totalSteps ?? 0,
         phase: hook.phase ?? 'averaging',
         readbackMs: 0,
-        nonFiniteCells: {
-          state: 'evaluated',
-          value: hook.health.nonFiniteCells,
-          limit: 0,
-          pass: hook.health.nonFiniteCells === 0,
-          unit: 'cells',
-        },
-        densityMin: { state: 'evaluated', value: hook.health.rhoMin },
-        densityMax: { state: 'evaluated', value: hook.health.rhoMax },
-        relativeMassDrift: { state: 'evaluated', value: hook.health.massDriftRel },
-        boundaryFluxClosure: {
-          state: 'unevaluated',
-          reason: 'the Case A/fetch runner does not enable the open-boundary mass ledger',
-        },
+        nonFiniteCells: artifactMetric('nonFiniteCells'),
+        densityMin: artifactMetric('densityMin'),
+        densityMax: artifactMetric('densityMax'),
+        relativeMassDrift: artifactMetric('relativeMassDrift'),
+        boundaryFluxClosure: artifactMetric('boundaryFluxClosure'),
       });
-      draft.verdicts.numericalHealth =
-        hook.health.nonFiniteCells > 0
-          ? {
-              state: 'fail',
-              reason: 'whole-field readback contains non-finite cells',
-              metrics: { nonFiniteCells: hook.health.nonFiniteCells },
-            }
-          : {
-              state: 'unevaluated',
-              reason:
-                'boundary conservation closure and case-specific health limits are not declared',
-              metrics: {
-                nonFiniteCells: hook.health.nonFiniteCells,
-                densityMin: hook.health.rhoMin,
-                densityMax: hook.health.rhoMax,
-                relativeMassDrift: hook.health.massDriftRel,
-              },
-            };
+      draft.verdicts.numericalHealth = numericalHealthVerdict(healthEvaluation);
     }
     draft.evidence.aggregate = {
       totalSteps: hook.totalSteps ?? 0,
@@ -185,10 +199,17 @@ export async function syncAijArtifact(
       });
       draft.evidence.detailed = json({ rows });
       if (hook.steady && hook.fetchPass !== undefined) {
-        draft.verdicts.physicsTarget = {
+        const measured = {
           state: hook.fetchPass ? 'pass' : 'fail',
           metrics: { maximumRelativeError: hook.fetchMaxRel ?? null, rows: rows.length },
-        };
+        } as const;
+        draft.verdicts.physicsTarget = healthEvaluation
+          ? gatePhysicsVerdict(measured, healthEvaluation)
+          : {
+              state: 'unevaluated',
+              reason: 'numerical-health-unevaluated',
+              metrics: { ...measured.metrics, measuredState: measured.state },
+            };
       }
     } else {
       const points = (hook.scoreRows ?? []).map((row) => ({
@@ -197,10 +218,17 @@ export async function syncAijArtifact(
       }));
       draft.evidence.detailed = json({ points });
       if (hook.steady && hook.q !== undefined && hook.r !== undefined) {
-        draft.verdicts.physicsTarget = {
+        const measured = {
           state: hook.q >= 0.66 && hook.r >= 0.7 ? 'pass' : 'fail',
           metrics: { q: hook.q, r: hook.r, points: points.length },
-        };
+        } as const;
+        draft.verdicts.physicsTarget = healthEvaluation
+          ? gatePhysicsVerdict(measured, healthEvaluation)
+          : {
+              state: 'unevaluated',
+              reason: 'numerical-health-unevaluated',
+              metrics: { ...measured.metrics, measuredState: measured.state },
+            };
       }
     }
   });

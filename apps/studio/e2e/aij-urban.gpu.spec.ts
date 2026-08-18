@@ -241,9 +241,20 @@ async function runAcceptance(
   expect(result.underResolved).toBe(false);
   expect(result.averagingFlowThroughs).toBeGreaterThanOrEqual(10);
   expect(result.reportRows).toBe(points);
+  const terminalHealth = [...(result.health ?? [])]
+    .reverse()
+    .find((sample) => sample.boundary === 'terminal');
+  expect(terminalHealth, 'urban run must retain terminal whole-field health').toBeDefined();
+  expect(terminalHealth!.field.nonFiniteCells).toBe(0);
+  expect(terminalHealth!.field.rhoMin).toBeGreaterThanOrEqual(0.5);
+  expect(terminalHealth!.field.rhoMax).toBeLessThanOrEqual(1.5);
+  expect(Math.abs(terminalHealth!.field.massDriftRel)).toBeLessThanOrEqual(1e-3);
+  expect(Math.abs(terminalHealth!.boundaryFluxClosureRel)).toBeLessThanOrEqual(1e-3);
   expect(result.q).toBeGreaterThanOrEqual(0.66);
   if (caseId === 'E') expect(result.r).toBeGreaterThanOrEqual(0.7);
   expect(result.verdict).toBe('pass');
+  expect(coordinator.current().verdicts.numericalHealth.state).toBe('pass');
+  expect(coordinator.current().verdicts.physicsTarget.state).toBe('pass');
 
   // Wall time is always recorded. The M11.md ≤30-min/direction target is defined at the
   // nominal ~18.9M-cell grid; the strict third-node rule forces far larger acceptance grids

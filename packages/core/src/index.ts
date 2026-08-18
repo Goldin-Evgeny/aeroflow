@@ -214,6 +214,27 @@ export { sectionStats, upstreamStations } from './analysis/sectionProfile.js';
 export type { SectionStats } from './analysis/sectionProfile.js';
 export { fieldStats } from './analysis/fieldStats.js';
 export type { FieldStats } from './analysis/fieldStats.js';
+export {
+  freestreamEddyViscosity,
+  boundaryInfluenceDistance,
+  wallBoundedAnalyticZero,
+} from './analysis/freestreamEddyViscosity.js';
+export type {
+  FreestreamEddyViscosityInput,
+  FreestreamEddyViscosity,
+  BoundaryInfluenceObservation,
+  BoundaryInfluenceInput,
+  WallBoundedAnalyticZeroInput,
+  WallBoundedAnalyticZeroResult,
+} from './analysis/freestreamEddyViscosity.js';
+export {
+  periodicUniformFlowOracle,
+  periodicOraclePerturbedControl,
+} from './analysis/periodicFreestreamOracle.js';
+export type {
+  PeriodicUniformFlowOracleOptions,
+  PeriodicUniformFlowOracleResult,
+} from './analysis/periodicFreestreamOracle.js';
 export { lateralFlux } from './analysis/lateralFlux.js';
 export type { LateralFlux } from './analysis/lateralFlux.js';
 export { boundaryMassByClass3D } from './analysis/boundaryMassBudget.js';
@@ -226,8 +247,48 @@ export { wakeProbe } from './analysis/wakeProbe.js';
 export type { WakeProbe, AhmedWakeGeometry } from './analysis/wakeProbe.js';
 export { lesKFromCs, csFromLesK } from './cpu/collide.js';
 export type { LesNorm } from './cpu/collide.js';
-export { ACCEPTANCE_BANDS, acceptanceBand, AHMED_CD_BAND } from './validation/bands.js';
-export type { AcceptanceBand, BandGateKind, BandStatus } from './validation/bands.js';
+export {
+  ACCEPTANCE_BANDS,
+  VALIDATION_OUTCOMES,
+  NUMERICAL_HEALTH_POLICIES,
+  VALIDATION_DEFECTS,
+  acceptanceBand,
+  validationOutcome,
+  numericalHealthPolicy,
+  validationDefect,
+  expectedOutcomeComparison,
+  isDefectStatusTransitionAllowed,
+  validateValidationLedger,
+  assertValidValidationLedger,
+  AHMED_CD_BAND,
+} from './validation/bands.js';
+export type {
+  AcceptanceBand,
+  BandGateKind,
+  BandStatus,
+  BandComparison,
+  OutcomeMetric,
+  ValidationOutcome,
+  HealthMetricDirection,
+  NumericalHealthMetricPolicy,
+  NumericalHealthPolicy,
+  DefectPriority,
+  DefectStatus,
+  ValidationDefect,
+  ValidationLedgerInput,
+} from './validation/bands.js';
+export {
+  evaluateNumericalHealth,
+  numericalHealthVerdict,
+  gatePhysicsVerdict,
+} from './validation/numericalHealth.js';
+export type {
+  HealthEvaluationReasonCode,
+  HealthEvaluationReason,
+  HealthMetricEvaluation,
+  NumericalHealthEvaluation,
+  NumericalHealthMeasurements,
+} from './validation/numericalHealth.js';
 export {
   VALIDATION_ARTIFACT_SCHEMA_VERSION,
   validateValidationRunArtifact,
@@ -292,11 +353,6 @@ export type {
   StrainResidualBin,
   StrainSummary,
 } from './analysis/strainComparison.js';
-export { freestreamEddyViscosity } from './analysis/freestreamEddyViscosity.js';
-export type {
-  FreestreamEddyViscosity,
-  FreestreamEddyViscosityInput,
-} from './analysis/freestreamEddyViscosity.js';
 export { compareStressTensors, STRESS_COMPONENTS } from './analysis/stressComparison.js';
 export type {
   StressComponent,

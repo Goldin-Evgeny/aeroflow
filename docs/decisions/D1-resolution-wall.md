@@ -434,3 +434,20 @@ about the cell-count ceiling this ADR actually decides. It also leaves the near-
 for regularized configurations **unidentified** — a newly-found outlet dependence (the failure
 reproduces only with the zero-gradient outlet, never with the pressure outlet) is the leading
 open thread and is not explained.
+
+### Evidence qualification, 2026-08-18
+
+This qualification narrows the proposed amendment's evidence without changing this ADR's
+accepted resolution-wall decision. The fixed three-cell wall-bounded sample cited above is
+now classified as a **boundary-contaminated diagnostic** at long exposure: its raw 20,000-step
+values are preserved in the run record, but the measured ground influence reaches the selected
+region. The analytic-zero authority is instead the bounded fully periodic uniform-flow oracle,
+which selects every cell under both LES conventions and includes a seeded response control.
+
+The bounded outlet discriminator then compared zero-gradient, pressure, and same-outlet
+controls from matching material and initialized-state fingerprints. All 36 control-derived
+repeatability differences were zero. Boundary-inlet exchange first separated at sample 25;
+the zero-gradient arm became non-finite at step 3346 while the pressure arm remained finite
+through step 3600. This establishes **outlet-dependent feedback**, not an internal outlet root
+cause. The repair remains outside this evidence-only change and requires a separate proposal.
+See [the discriminator record](../validation/runs/2026-08-18-outlet-feedback-discriminator.md).

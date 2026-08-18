@@ -2,7 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { CellType } from '../src/lattice.js';
 import { Solver3D } from '../src/cpu/solver3d.js';
 import { type FreeSlipFaces } from '../src/cpu/freeslip.js';
-import { freestreamEddyViscosity } from '../src/analysis/freestreamEddyViscosity.js';
+import {
+  boundaryInfluenceDistance,
+  freestreamEddyViscosity,
+  wallBoundedAnalyticZero,
+} from '../src/analysis/freestreamEddyViscosity.js';
+import {
+  periodicOraclePerturbedControl,
+  periodicUniformFlowOracle,
+} from '../src/analysis/periodicFreestreamOracle.js';
 
 /**
  * near-floor-collision-diagnostics: subgrid activity is measurable against an analytic zero.
@@ -149,6 +157,110 @@ describe('freestream eddy-viscosity probe — instrument validation (task 3.4)',
         exclusionDistance: 3,
       }),
     ).toThrow(/no cells survived selection/);
+  });
+});
+
+describe('fully periodic dynamic analytic-zero oracle', () => {
+  for (const lesNorm of ['legacy', 'spec'] as const) {
+    it(`selects every cell and preserves uniform flow under the ${lesNorm} convention`, () => {
+      const oracle = periodicUniformFlowOracle({ lesNorm, size: 6, steps: 64 });
+      expect(oracle.precision).toBe('float64-cpu');
+      expect(oracle.analyticStrain).toBe(0);
+      expect(oracle.selectedCells).toBe(6 ** 3);
+      expect(oracle.subgridActivity.selection).toBe('fully-periodic');
+      expect(oracle.subgridActivity.excludedByBoundaryDistance).toBe(0);
+      expect(oracle.subgridActivity.invalidCells).toBe(0);
+      expect(oracle.maximumVelocityDeviation).toBeLessThan(1e-12);
+      expect(oracle.subgridActivity.ratio.max).toBeLessThan(1e-8);
+    });
+  }
+
+  it('responds to a seeded periodic-field perturbation through the identical selector', () => {
+    const control = periodicOraclePerturbedControl({ size: 6, targetRatio: 42 });
+    expect(control.selection).toBe('fully-periodic');
+    expect(control.survivingCells).toBe(6 ** 3);
+    expect(control.ratio.max).toBeCloseTo(42, 6);
+    expect(control.fractionAboveMolecular).toBeCloseTo(1 / 6 ** 3, 12);
+  });
+});
+
+describe('time-valid wall-bounded analytic-zero selection', () => {
+  it('measures boundary influence from resolved strain and records it over time', () => {
+    const nx = 9;
+    const ny = 9;
+    const nz = 9;
+    const n = nx * ny * nz;
+    const evaluated = new Uint8Array(n).fill(1);
+    const ux = new Float64Array(n);
+    for (let z = 0; z < nz; z++) {
+      for (let y = 0; y < ny; y++) ux[1 + nx * (y + ny * z)] = 0.1;
+    }
+    const observation = boundaryInfluenceDistance({
+      nx,
+      ny,
+      nz,
+      evaluated,
+      ux,
+      uy: new Float64Array(n),
+      uz: new Float64Array(n),
+      step: 100,
+      strainTolerance: 1e-12,
+    });
+    expect(observation).toMatchObject({ step: 100, strainTolerance: 1e-12 });
+    expect(observation.influencedCells).toBeGreaterThan(0);
+    expect(observation.distance).toBeGreaterThanOrEqual(2);
+  });
+
+  it('uses the largest influence distance in the selected window', () => {
+    const size = 7;
+    const n = size ** 3;
+    const result = wallBoundedAnalyticZero({
+      nx: size,
+      ny: size,
+      nz: size,
+      tauEff: new Float64Array(n).fill(TAU0),
+      evaluated: new Uint8Array(n).fill(1),
+      tau0: TAU0,
+      window: { startStep: 100, endStep: 200 },
+      boundaryInfluence: [
+        { step: 50, distance: 5, influencedCells: 1, strainTolerance: 0 },
+        { step: 100, distance: 2, influencedCells: 10, strainTolerance: 0 },
+        { step: 150, distance: 3, influencedCells: 20, strainTolerance: 0 },
+      ],
+    });
+    expect(result.state).toBe('available');
+    expect(result.largestSupportedDistance).toBe(3);
+    if (result.state === 'available') {
+      expect(result.measurement.exclusionDistance).toBe(3);
+      expect(result.measurement.survivingCells).toBe(1);
+    }
+  });
+
+  it('returns unavailable and retains the raw sample as boundary-contaminated diagnostics', () => {
+    const size = 5;
+    const n = size ** 3;
+    const tauEff = new Float64Array(n).fill(TAU0);
+    const nuMol = (TAU0 - 0.5) / 3;
+    tauEff[2 + size * (2 + size * 2)] = TAU0 + 3 * 42 * nuMol;
+    const result = wallBoundedAnalyticZero({
+      nx: size,
+      ny: size,
+      nz: size,
+      tauEff,
+      evaluated: new Uint8Array(n).fill(1),
+      tau0: TAU0,
+      window: { startStep: 0, endStep: 20_000 },
+      boundaryInfluence: [
+        { step: 0, distance: 1, influencedCells: 0, strainTolerance: 0 },
+        { step: 20_000, distance: 3, influencedCells: 125, strainTolerance: 0 },
+      ],
+    });
+    expect(result.state).toBe('unavailable');
+    if (result.state === 'unavailable') {
+      expect(result.reason).toBe('no-cells-outside-boundary-influence');
+      expect(result.boundaryContaminated.ratio.max).toBeCloseTo(42, 6);
+      expect(result.boundaryContaminated.survivingCells).toBe(3 ** 3);
+    }
   });
 });
 

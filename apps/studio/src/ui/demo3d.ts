@@ -31,9 +31,10 @@ import {
   If,
 } from 'three/tsl';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CellType, latticeUnits } from '@aeroflow/core';
+import { latticeUnits } from '@aeroflow/core';
 import { Lbm3D } from '../sim/lbm3d';
 import { FieldTexture } from './render3d/fieldTexture';
+import { buildDemo3DFlags } from './demo3dFlags';
 import type { GpuCapabilities } from '../gpu/context';
 
 // TSL's node proxies are dynamically typed; @types/three models them with strict generics
@@ -73,34 +74,6 @@ function sliceGeometry(corners: [number, number, number][]): BufferGeometry {
   return geo;
 }
 
-function buildFlags(sim: Lbm3D): void {
-  const f = sim.flags;
-  const at = (x: number, y: number, z: number) => x + NX * (y + NY * z);
-  for (let z = 0; z < NZ; z++) {
-    for (let y = 0; y < NY; y++) {
-      for (let x = 0; x < NX; x++) {
-        let t = CellType.Fluid;
-        if (x === 0) t = CellType.Inlet;
-        else if (x === NX - 1) t = CellType.Outlet;
-        else if (y === 0 || y === NY - 1 || z === 0 || z === NZ - 1) t = CellType.Solid;
-        f[at(x, y, z)] = t;
-      }
-    }
-  }
-  // Solid cube centered a quarter-length downstream of the inlet.
-  const cx = Math.floor(NX / 4);
-  const half = CUBE / 2;
-  const lo = (c: number) => Math.floor(c - half);
-  const hi = (c: number) => Math.floor(c + half);
-  for (let z = lo(NZ / 2); z < hi(NZ / 2); z++) {
-    for (let y = lo(NY / 2); y < hi(NY / 2); y++) {
-      for (let x = lo(cx); x < hi(cx); x++) {
-        f[at(x, y, z)] = CellType.Solid;
-      }
-    }
-  }
-}
-
 /**
  * Mount the M6 Three.js wind-tunnel demo (step 9). Three's `WebGPURenderer` shares the
  * solver's `GPUDevice`, so the velocity field crosses into the render graph as a 3D texture
@@ -136,7 +109,7 @@ export async function mountDemo3D(
     regularize: true,
     hasTimestamp: caps.hasTimestamp,
   });
-  buildFlags(sim);
+  buildDemo3DFlags(sim.flags, NX, NY, NZ, CUBE);
   sim.uploadFlags();
   sim.reset(1, map.uLattice, 0, 0);
 

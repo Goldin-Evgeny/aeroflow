@@ -11,6 +11,11 @@ import {
 } from './collide.js';
 import { resolveFreeSlipPull, validateFreeSlip, type FreeSlipFaces } from './freeslip.js';
 import { reconstructPressureOutlet3D, type Outlet3D } from './outlet3d.js';
+import {
+  boundaryRuleForFlag,
+  makeBoundaryPopulationEvent,
+  type BoundaryEventSink,
+} from './boundaryDiagnostics.js';
 
 /**
  * Esoteric-Pull in-place streaming, D3Q19 — the CPU reference for the M6 GPU kernel.
@@ -145,6 +150,8 @@ export class EsotericPull3D {
   /** The same opt-in capture for the two relaxation rates actually applied (`ctx.macro[5..6]`). */
   omegaPlusRecord: Float64Array | undefined;
   omegaMinusRecord: Float64Array | undefined;
+  /** Opt-in, diagnostic-only boundary population trace. Undefined in production. */
+  boundaryEventSink: BoundaryEventSink | undefined;
   private readonly inletProfile: { axis: 'y' | 'z'; ux: Float64Array } | undefined;
   private readonly freeSlip: FreeSlipFaces;
   private readonly outlet: Outlet3D;
@@ -291,6 +298,24 @@ export class EsotericPull3D {
             const rho =
               flag === CellType.VelocityInlet ? this.velocityInletRho[velocityInletCursor++] : 1;
             for (let i = 0; i < q; i++) f[i] = equilibrium3(D3Q19_SPEC, i, rho, uIn, 0, 0);
+            if (this.boundaryEventSink) {
+              const sourceIdx = flag === CellType.VelocityInlet ? idx + 1 : idx;
+              for (let i = 0; i < q; i++) {
+                this.#recordBoundaryEvent({
+                  x,
+                  y,
+                  z,
+                  flag,
+                  sourceIdx,
+                  direction: i,
+                  inputPopulation: f[i],
+                  canonicalIncoming: f[i],
+                  replacementPopulation: f[i],
+                  even,
+                  ruleFlag: flag,
+                });
+              }
+            }
             this.scatter(idx, x, y, z, even, f);
             continue;
           }
@@ -299,7 +324,26 @@ export class EsotericPull3D {
             const snap = this.outletSnap;
             const base = q * outletCursor++;
             for (let i = 0; i < q; i++) f[i] = snap[base + i];
+            const input = this.boundaryEventSink ? Float64Array.from(f) : null;
             if (this.outlet === 'pressure') reconstructPressureOutlet3D(f, ctx);
+            if (this.boundaryEventSink) {
+              const sourceIdx = idx - 1;
+              for (let i = 0; i < q; i++) {
+                this.#recordBoundaryEvent({
+                  x,
+                  y,
+                  z,
+                  flag,
+                  sourceIdx,
+                  direction: i,
+                  inputPopulation: input![i],
+                  canonicalIncoming: input![opp[i]],
+                  replacementPopulation: f[i],
+                  even,
+                  ruleFlag: flag,
+                });
+              }
+            }
             this.scatter(idx, x, y, z, even, f);
             continue;
           }
@@ -339,6 +383,21 @@ export class EsotericPull3D {
               va = even ? A[a * n + nIdxA] : A[b * n + idx];
             }
             f[a] = va;
+            if (this.boundaryEventSink && flags[nIdxA] !== CellType.Fluid) {
+              const canonical = even ? A[b * n + idx] : A[a * n + nIdxA];
+              this.#recordBoundaryEvent({
+                x,
+                y,
+                z,
+                flag,
+                sourceIdx: nIdxA,
+                direction: a,
+                inputPopulation: va,
+                canonicalIncoming: canonical,
+                replacementPopulation: va,
+                even,
+              });
+            }
 
             let vb: number;
             if (isSolid(flags[nIdxB])) {
@@ -360,6 +419,21 @@ export class EsotericPull3D {
               vb = even ? A[b * n + nIdxB] : A[a * n + idx];
             }
             f[b] = vb;
+            if (this.boundaryEventSink && flags[nIdxB] !== CellType.Fluid) {
+              const canonical = even ? A[a * n + idx] : A[b * n + nIdxB];
+              this.#recordBoundaryEvent({
+                x,
+                y,
+                z,
+                flag,
+                sourceIdx: nIdxB,
+                direction: b,
+                inputPopulation: vb,
+                canonicalIncoming: canonical,
+                replacementPopulation: vb,
+                even,
+              });
+            }
           }
 
           collideCell(f, ctx);
@@ -378,6 +452,72 @@ export class EsotericPull3D {
     this._force = { x: fx, y: fy, z: fz };
     this._maskedForce = { x: mfx, y: mfy, z: mfz };
     this.stepCount++;
+  }
+
+  #recordBoundaryEvent(input: {
+    x: number;
+    y: number;
+    z: number;
+    flag: number;
+    sourceIdx: number;
+    direction: number;
+    inputPopulation: number;
+    canonicalIncoming: number;
+    replacementPopulation: number;
+    even: boolean;
+    ruleFlag?: number;
+  }): void {
+    if (!this.boundaryEventSink) return;
+    const { nx, ny, nz, flags } = this;
+    const source = {
+      x: input.sourceIdx % nx,
+      y: Math.floor(input.sourceIdx / nx) % ny,
+      z: Math.floor(input.sourceIdx / (nx * ny)),
+      flag: flags[input.sourceIdx],
+    };
+    const rule = boundaryRuleForFlag(input.ruleFlag ?? source.flag, this.outlet);
+    let owner = source;
+    if (rule === 'no-slip-bounce') {
+      owner = { x: input.x, y: input.y, z: input.z, flag: input.flag };
+    } else if (rule === 'free-slip-redirect') {
+      const resolved = resolveFreeSlipPull(
+        flags,
+        nx,
+        ny,
+        nz,
+        this.freeSlip,
+        source.x,
+        source.y,
+        source.z,
+        input.direction,
+      );
+      owner = resolved.fallback
+        ? { x: input.x, y: input.y, z: input.z, flag: input.flag }
+        : {
+            x: resolved.sx,
+            y: resolved.sy,
+            z: resolved.sz,
+            flag: flags[resolved.sx + nx * (resolved.sy + ny * resolved.sz)],
+          };
+    }
+    this.boundaryEventSink(
+      makeBoundaryPopulationEvent({
+        executor: 'esoteric',
+        step: this.stepCount + 1,
+        parity: input.even ? 0 : 1,
+        destination: { x: input.x, y: input.y, z: input.z, flag: input.flag },
+        source,
+        owner,
+        direction: input.direction,
+        rule,
+        inputPopulation: input.inputPopulation,
+        canonicalIncoming: input.canonicalIncoming,
+        replacementPopulation: input.replacementPopulation,
+        nx,
+        ny,
+        nz,
+      }),
+    );
   }
 
   /**

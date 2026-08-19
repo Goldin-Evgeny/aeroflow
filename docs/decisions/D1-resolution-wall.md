@@ -452,6 +452,24 @@ through step 3600. This establishes **outlet-dependent feedback**, not an intern
 cause. The repair remains outside this evidence-only change and requires a separate proposal.
 See [the discriminator record](../validation/runs/2026-08-18-outlet-feedback-discriminator.md).
 
+### Addendum: specified LES is the required bounded amplifier (2026-08-18)
+
+The follow-up staged localization froze an independent boundary oracle, exact event schema,
+same-outlet and naive/Esoteric controls, density perturbations, isolated topologies, collision
+stages, LES stages, and a conservative classifier before reading the result. Every upstream
+control remained interpretable. H4 matched the independent transform, flat and intersection
+controls stayed finite, plain and regularized TRT stayed finite without LES, and the legacy LES
+closure stayed finite through 3,600 steps. Enabling the specified LES closure reproduced the
+zero-gradient failure at exact step 3,346; the matched pressure arm remained finite.
+
+The durable branch is therefore **`les-amplified`**, not an H4 implementation discrepancy,
+intersection-only cause, formulation-only cause, or collision-only cause. This result narrows the
+open defect but does not close it: no production policy, handoff rule, validation health limit,
+acceptance band, or historical artifact changes, and V11-V15 are not rescored. The next change
+should be a narrow, published-source LES/outlet-coupling discriminator and repair contract; H4
+remains normative unless that independent work justifies a boundary replacement. See the
+[localization record](../validation/runs/2026-08-18-near-floor-outlet-localization-final.md).
+
 ### Addendum: pressure is not promoted by the bounded qualification (2026-08-18)
 
 The next frozen matrix tested pressure through 3,600-step repeat controls under both LES norm

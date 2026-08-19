@@ -512,16 +512,17 @@ export const VALIDATION_DEFECTS: readonly ValidationDefect[] = [
   },
   {
     id: 'near-floor-zero-gradient-outlet-cause',
-    title:
-      'Outlet-dependent feedback is observed from the first sampled boundary interval, but its internal cause remains unknown',
+    title: 'Specified LES is a required amplifier of the bounded zero-gradient near-floor failure',
     priority: 'P1',
     status: 'open',
     closureCriterion:
-      'A controlled outlet pair localizes the first repeatable separation and a separate repair proposal names the measured mechanism.',
+      'A separate sourced repair proposal isolates the LES/outlet coupling, preserves H4 or replaces it normatively, and passes bounded health, conservation, parity, and existing acceptance gates.',
     evidence: [
       'docs/validation/runs/2026-08-17-1832-near-floor-factorial.md',
       'docs/validation/runs/2026-08-18-outlet-feedback-discriminator.md',
       'docs/validation/runs/artifacts/2026-08-18-outlet-feedback-discriminator/outlet-feedback.json',
+      'docs/validation/runs/2026-08-18-near-floor-outlet-localization-final.md',
+      'docs/validation/runs/artifacts/2026-08-18-near-floor-outlet-localization-final/localization.json',
     ],
     relatedCaseIds: ['V11', 'V12', 'V13', 'V14'],
   },

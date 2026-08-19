@@ -187,6 +187,20 @@ export type {
 } from './scenes/urbanScene.js';
 export { resolveFreeSlipPull, validateFreeSlip } from './cpu/freeslip.js';
 export type { FreeSlipFaces, ResolvedPull } from './cpu/freeslip.js';
+export {
+  boundaryIntersectionLabel,
+  boundaryRuleForFlag,
+  makeBoundaryPopulationEvent,
+  validateBoundaryPopulationEvent,
+  validateBoundaryPopulationEvents,
+} from './cpu/boundaryDiagnostics.js';
+export type {
+  BoundaryExecutor,
+  BoundaryRule,
+  BoundaryPoint,
+  BoundaryPopulationEvent,
+  BoundaryEventSink,
+} from './cpu/boundaryDiagnostics.js';
 export { ForceHistory } from './stats/forceHistory.js';
 export type { ForceHistoryOptions, ForceHistoryState, WindowStats } from './stats/forceHistory.js';
 export { ConvergingVelocityAverager } from './stats/velocityTimeAverage.js';
@@ -310,6 +324,26 @@ export {
   PRESSURE_QUALIFICATION_MANIFEST,
   classifyPressureQualification,
 } from './validation/outletQualification.js';
+export {
+  OUTLET_LOCALIZATION_MANIFEST,
+  outletLocalizationManifestFingerprint,
+  validateOutletLocalizationManifest,
+  independentBoundaryPopulation,
+  independentFreeSlipOwnership,
+  classifyOutletLocalization,
+  validateOutletLocalizationArtifact,
+} from './validation/outletFeedbackLocalization.js';
+export type {
+  OutletLocalizationHypothesisId,
+  OutletLocalizationBranch,
+  OutletLocalizationManifest,
+  IndependentBoundaryOracleInput,
+  IndependentOwnershipResult,
+  OutletLocalizationEvidence,
+  OutletLocalizationResult,
+  OutletLocalizationArmRecord,
+  OutletLocalizationArtifact,
+} from './validation/outletFeedbackLocalization.js';
 export type {
   QualificationBackend,
   QualificationClosure,

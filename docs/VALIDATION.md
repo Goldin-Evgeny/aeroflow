@@ -103,7 +103,7 @@ from evidence that merely demonstrates the defect.
 | --- | --- | --- | --- | --- | --- |
 | `gpu-operation-natural-stall-cause` | P1 / open | Natural long-running GPU operation stalls have no isolated initiating cause | A bounded reproducer isolates the initiating browser, driver, kernel, or application cause and a targeted repair prevents it. | `docs/validation/runs/2026-08-15-2100-v14-caseC-stall-reproduced.md` | — |
 | `gpu-operation-stall-survivability` | P1 / mitigated | Long-running GPU operations must preserve evidence and recover from a detected stall | Bounded recovery proves exact restore, forward progress, torn-checkpoint fallback, and durable artifact preservation. | `docs/validation/runs/2026-08-15-2100-v14-caseC-stall-reproduced.md` | `docs/validation/runs/2026-08-18-0553-gpu-recovery-final.md` |
-| `near-floor-zero-gradient-outlet-cause` | P1 / open | Outlet-dependent feedback is observed from the first sampled boundary interval, but its internal cause remains unknown | A controlled outlet pair localizes the first repeatable separation and a separate repair proposal names the measured mechanism. | `docs/validation/runs/2026-08-17-1832-near-floor-factorial.md`<br>`docs/validation/runs/2026-08-18-outlet-feedback-discriminator.md`<br>`docs/validation/runs/artifacts/2026-08-18-outlet-feedback-discriminator/outlet-feedback.json` | — |
+| `near-floor-zero-gradient-outlet-cause` | P1 / open | Specified LES is a required amplifier of the bounded zero-gradient near-floor failure | A separate sourced repair proposal isolates the LES/outlet coupling, preserves H4 or replaces it normatively, and passes bounded health, conservation, parity, and existing acceptance gates. | `docs/validation/runs/2026-08-17-1832-near-floor-factorial.md`<br>`docs/validation/runs/2026-08-18-outlet-feedback-discriminator.md`<br>`docs/validation/runs/artifacts/2026-08-18-outlet-feedback-discriminator/outlet-feedback.json`<br>`docs/validation/runs/2026-08-18-near-floor-outlet-localization-final.md`<br>`docs/validation/runs/artifacts/2026-08-18-near-floor-outlet-localization-final/localization.json` | — |
 | `near-floor-pressure-outlet-qualification` | P1 / open | Bounded pressure-outlet qualification exceeds the predeclared mass-drift gate | A new frozen matrix passes the 0.1% mass-drift guard, every bounded browser/GPU scene and parity arm, and checkpoint/resume before any V12-V15 policy promotion. | `docs/validation/runs/2026-08-18-pressure-outlet-qualification.md`<br>`docs/validation/runs/artifacts/2026-08-18-pressure-outlet-qualification/pressure-qualification.json` | — |
 | `analytic-zero-wall-contamination` | P1 / open | Fixed-distance wall-bounded sampling cannot support the long-run analytic-zero LES claim | A periodic uniform-flow oracle and time-valid wall selector replace the fixed three-cell interpretation without rewriting the raw sample. | `docs/validation/runs/2026-08-17-1832-near-floor-factorial.md` | — |
 | `q27-periodic-momentum-drift` | P2 / open | D3Q27 periodic momentum drift exceeds its predeclared gate and grows superlinearly | A normalized, precision-appropriate momentum gate passes across step and wavelength scaling with durable CPU/GPU parity evidence. | `docs/validation/runs/artifacts/2026-08-16-q27-drift-scaling-analysis/drift-scaling.json` | — |
@@ -244,16 +244,21 @@ The 3000–3500 divergence reproduces exactly (step **3346**), as does `'legacy'
 - **(A) is real, but only without regularization.** All eight `regularize: off` derived-`ω⁻`
   arms diverged (steps 351–806); raising `ω⁻` to 1.0 rescued all eight and lowered freestream
   eddy viscosity in every case.
-- **Outlet-dependent feedback is observed; its internal cause remains open.** The bounded
-  [outlet discriminator](validation/runs/2026-08-18-outlet-feedback-discriminator.md) forked
-  zero-gradient, pressure, and pressure/pressure controls from matching material and initial
-  state fingerprints at `τ₀=0.5000005`. The same-outlet controls were identical, so 36
-  repeatability thresholds were frozen from roundoff floors before the A/B was inspected. The
-  first sampled separation was boundary-inlet exchange at step 25; the zero-gradient arm then
-  became non-finite at step 3346 while pressure remained finite through step 3600. This supports
-  the branch `outlet-feedback-observed`. It does **not** identify an unmeasured outlet
-  implementation, collision, browser, driver, or hardware root cause, and no repair is made in
-  this change.
+- **Specified LES is a required amplifier of the bounded zero-gradient failure.** The staged
+  [localization matrix](validation/runs/2026-08-18-near-floor-outlet-localization-final.md)
+  froze its oracle, tolerances, arms, stops, and classifier before execution. H4/H11/H12/H14
+  manufactured checks passed; same-outlet repeats were exact; naive and Esoteric fluid states
+  were Float64-exact; and the flat, density-perturbation, one-topology-at-a-time,
+  collision-neutral, plain-TRT, regularized-TRT, LES-off, and legacy-LES controls remained
+  finite. Specified LES reproduced the zero-gradient non-finite event at exact step **3346**,
+  while pressure remained finite through step 3600. The bounded replay retained all 5,210
+  boundary events from the abnormal step and matched the independent boundary oracle, so the
+  unique classifier result is `les-amplified`; implementation discrepancy, intersection-only,
+  formulation-only, and collision-only branches are rejected for this topology and exposure.
+  The defect stays open: this does not identify a sourced repair, qualify GPU behavior, rescore
+  V11-V15, or authorize an outlet/collision/LES/default/band change. The cheapest next proposal is
+  a narrow, published-source LES/outlet-coupling discriminator and repair contract, with H4
+  retained unless independent evidence justifies a normative boundary replacement.
 - **Pressure-outlet qualification failed its frozen numerical-health gate — 2026-08-18.** The
   [bounded qualification matrix](validation/runs/2026-08-18-pressure-outlet-qualification.md)
   ran pressure/pressure repeat controls through 3,600 steps under both closure conventions.

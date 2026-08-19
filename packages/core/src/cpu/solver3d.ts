@@ -12,6 +12,11 @@ import {
 } from './collide.js';
 import { resolveFreeSlipPull, validateFreeSlip, type FreeSlipFaces } from './freeslip.js';
 import { reconstructPressureOutlet3D, type Outlet3D } from './outlet3d.js';
+import {
+  boundaryRuleForFlag,
+  makeBoundaryPopulationEvent,
+  type BoundaryEventSink,
+} from './boundaryDiagnostics.js';
 
 /**
  * CPU reference D3Q19 solver — naive two-array pull streaming, deliberately readable
@@ -144,6 +149,8 @@ export class Solver3D {
   tauEffRecord: Float64Array | undefined;
   omegaPlusRecord: Float64Array | undefined;
   omegaMinusRecord: Float64Array | undefined;
+  /** Opt-in, diagnostic-only boundary population trace. Undefined in every production path. */
+  boundaryEventSink: BoundaryEventSink | undefined;
   private readonly inletProfile: { axis: 'y' | 'z'; ux: Float64Array } | undefined;
   private readonly freeSlip: FreeSlipFaces;
   private readonly outlet: Outlet3D;
@@ -276,7 +283,33 @@ export class Solver3D {
               for (let i = 0; i < q; i++) rho += fSrc[i * n + idx + 1];
             }
             for (let i = 0; i < q; i++) {
-              fDst[i * n + idx] = equilibrium3(D3Q19_SPEC, i, rho, uIn, 0, 0);
+              const replacement = equilibrium3(D3Q19_SPEC, i, rho, uIn, 0, 0);
+              fDst[i * n + idx] = replacement;
+              if (this.boundaryEventSink) {
+                const sourceIdx = flag === CellType.VelocityInlet ? idx + 1 : idx;
+                this.boundaryEventSink(
+                  makeBoundaryPopulationEvent({
+                    executor: 'naive',
+                    step: this.stepCount + 1,
+                    parity: 0,
+                    destination: { x, y, z, flag },
+                    source: {
+                      x: sourceIdx % nx,
+                      y: Math.floor(sourceIdx / nx) % ny,
+                      z: Math.floor(sourceIdx / (nx * ny)),
+                      flag: flags[sourceIdx],
+                    },
+                    direction: i,
+                    rule: boundaryRuleForFlag(flag, this.outlet),
+                    inputPopulation: fSrc[i * n + sourceIdx],
+                    canonicalIncoming: fSrc[opp[i] * n + sourceIdx],
+                    replacementPopulation: replacement,
+                    nx,
+                    ny,
+                    nz,
+                  }),
+                );
+              }
             }
             continue;
           }
@@ -284,12 +317,19 @@ export class Solver3D {
           if (flag === CellType.Outlet) {
             const src = idx - 1; // upstream in x (outlets live on the +x face)
             if (this.outlet === 'zero-gradient') {
-              for (let i = 0; i < q; i++) fDst[i * n + idx] = fSrc[i * n + src];
+              for (let i = 0; i < q; i++) {
+                const replacement = fSrc[i * n + src];
+                fDst[i * n + idx] = replacement;
+                this.#recordShellBoundaryEvent(x, y, z, flag, src, i, replacement, replacement);
+              }
               continue;
             }
             for (let i = 0; i < q; i++) f[i] = fSrc[i * n + src];
             reconstructPressureOutlet3D(f, ctx);
-            for (let i = 0; i < q; i++) fDst[i * n + idx] = f[i];
+            for (let i = 0; i < q; i++) {
+              fDst[i * n + idx] = f[i];
+              this.#recordShellBoundaryEvent(x, y, z, flag, src, i, fSrc[i * n + src], f[i]);
+            }
             continue;
           }
 
@@ -299,6 +339,10 @@ export class Solver3D {
             let sz = z - ez[i];
             let bounce = false;
             let solidIdx = -1;
+            let sourceIdx = -1;
+            let sourceFlag = CellType.Fluid;
+            let owner = { x, y, z, flag };
+            let inputPopulation = 0;
             if (sx < 0 || sx >= nx) {
               if (this.periodicX) sx = (sx + nx) % nx;
               else bounce = true;
@@ -313,17 +357,29 @@ export class Solver3D {
             }
             if (!bounce) {
               const s = sx + nx * (sy + ny * sz);
-              if (isSolid(flags[s])) {
+              sourceIdx = s;
+              sourceFlag = flags[s];
+              owner = { x: sx, y: sy, z: sz, flag: sourceFlag };
+              inputPopulation = fSrc[i * n + s];
+              if (isSolid(sourceFlag)) {
                 bounce = true;
                 solidIdx = s;
-              } else if (flags[s] === CellType.FreeSlip) {
+                owner = { x, y, z, flag };
+              } else if (sourceFlag === CellType.FreeSlip) {
                 // Specular redirection (H11 §3–4): read f_J^out(S, t) — exact timing,
                 // no force contribution (slip walls exchange no tangential momentum).
                 const r = resolveFreeSlipPull(flags, nx, ny, nz, this.freeSlip, sx, sy, sz, i);
                 if (r.fallback) {
                   bounce = true; // slip∩solid edge: plain local bounce, forceless
+                  owner = { x, y, z, flag };
                 } else {
                   f[i] = fSrc[r.dir * n + (r.sx + nx * (r.sy + ny * r.sz))];
+                  owner = {
+                    x: r.sx,
+                    y: r.sy,
+                    z: r.sz,
+                    flag: flags[r.sx + nx * (r.sy + ny * r.sz)],
+                  };
                 }
               } else {
                 f[i] = fSrc[i * n + s];
@@ -347,6 +403,26 @@ export class Solver3D {
                 }
               }
             }
+            if (this.boundaryEventSink && sourceIdx >= 0 && sourceFlag !== CellType.Fluid) {
+              this.boundaryEventSink(
+                makeBoundaryPopulationEvent({
+                  executor: 'naive',
+                  step: this.stepCount + 1,
+                  parity: 0,
+                  destination: { x, y, z, flag },
+                  source: { x: sx, y: sy, z: sz, flag: sourceFlag },
+                  owner,
+                  direction: i,
+                  rule: boundaryRuleForFlag(sourceFlag, this.outlet),
+                  inputPopulation,
+                  canonicalIncoming: fSrc[opp[i] * n + idx],
+                  replacementPopulation: f[i],
+                  nx,
+                  ny,
+                  nz,
+                }),
+              );
+            }
           }
 
           collideCell(f, ctx);
@@ -366,9 +442,91 @@ export class Solver3D {
     this.stepCount++;
   }
 
+  #recordShellBoundaryEvent(
+    x: number,
+    y: number,
+    z: number,
+    flag: number,
+    sourceIdx: number,
+    direction: number,
+    inputPopulation: number,
+    replacementPopulation: number,
+  ): void {
+    if (!this.boundaryEventSink) return;
+    const { nx, ny, nz, n, flags, fSrc } = this;
+    this.boundaryEventSink(
+      makeBoundaryPopulationEvent({
+        executor: 'naive',
+        step: this.stepCount + 1,
+        parity: 0,
+        destination: { x, y, z, flag },
+        source: {
+          x: sourceIdx % nx,
+          y: Math.floor(sourceIdx / nx) % ny,
+          z: Math.floor(sourceIdx / (nx * ny)),
+          flag: flags[sourceIdx],
+        },
+        direction,
+        rule: boundaryRuleForFlag(flag, this.outlet),
+        inputPopulation,
+        canonicalIncoming: fSrc[opp[direction] * n + sourceIdx],
+        replacementPopulation,
+        nx,
+        ny,
+        nz,
+      }),
+    );
+  }
+
   /** Post-collision state copy — the naive side of the H4 §8 bit-identity comparison. */
   snapshotPostCollision(): Float64Array {
     return Float64Array.from(this.fSrc);
+  }
+
+  /** Diagnostic/checkpoint replay of an immutable post-collision state. */
+  saveState(): {
+    nx: number;
+    ny: number;
+    nz: number;
+    steps: number;
+    ddf: Float64Array;
+    ddfNext?: Float64Array;
+  } {
+    return {
+      nx: this.nx,
+      ny: this.ny,
+      nz: this.nz,
+      steps: this.stepCount,
+      ddf: this.fSrc.slice(),
+      ddfNext: this.fDst.slice(),
+    };
+  }
+
+  loadState(state: {
+    nx: number;
+    ny: number;
+    nz: number;
+    steps: number;
+    ddf: Float64Array;
+    ddfNext?: Float64Array;
+  }): void {
+    if (state.nx !== this.nx || state.ny !== this.ny || state.nz !== this.nz) {
+      throw new Error('Solver3D.loadState: grid mismatch');
+    }
+    if (state.ddf.length !== this.fSrc.length) throw new Error('Solver3D.loadState: ddf mismatch');
+    if (!Number.isInteger(state.steps) || state.steps < 0) {
+      throw new Error('Solver3D.loadState: steps must be a non-negative integer');
+    }
+    this.fSrc.set(state.ddf);
+    if (state.ddfNext !== undefined) {
+      if (state.ddfNext.length !== this.fDst.length) {
+        throw new Error('Solver3D.loadState: ddfNext mismatch');
+      }
+      this.fDst.set(state.ddfNext);
+    } else {
+      this.fDst.fill(0);
+    }
+    this.stepCount = state.steps;
   }
 
   /** Physical macroscopics (Guo: moment/ρ − g/2; see solver2d for the derivation). */
